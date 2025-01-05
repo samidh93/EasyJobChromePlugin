@@ -4,10 +4,10 @@ EasyJob is a solution for people looking for job.
 # For Developpers+
 
 ## Node modules
-npm install webpack webpack-cli
+npm install esbuild --save-dev
 
 ## generate Bundle
-./webpack.sh
+npm run build
 
 ## How to test
 go to chrome extensions chrome://extensions/ and load unpacked.
