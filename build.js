@@ -1,16 +1,23 @@
 const esbuild = require('esbuild');
 
-esbuild.build({
-    entryPoints: ['./src/content.js'], // Your main entry file
-    outfile: './dist/content.bundle.js', // Bundled output file
-    bundle: true, // Enable bundling
-    minify: true, // Minify the output (optional)
-    sourcemap: false, // Generate a source map (optional)
-    target: ['es2017'], // Target JavaScript version
-    platform: 'browser', // Specify the platform (browser environment)
-}).then(() => {
-    console.log('Build succeeded.');
-}).catch(() => {
-    console.error('Build failed.');
+async function build() {
+    const ctx = await esbuild.context({
+        entryPoints: ['./src/content.js'], // Updated entry point
+        outfile: './dist/content.bundle.js', // Bundled output
+        bundle: true,
+        minify: true,
+        sourcemap: false,
+        target: ['es2017'], // Target JS version
+        platform: 'browser', // Browser platform
+    });
+
+    // Start watching for changes
+    await ctx.watch();
+
+    console.log('Watching for changes...');
+}
+
+build().catch((err) => {
+    console.error('Build failed:', err);
     process.exit(1);
 });
