@@ -1,31 +1,26 @@
-// content.js
-if (window.location.href.includes('linkedin.com/jobs')) {
-    const applyButton = document.querySelector('.jobs-s-apply button');
-    
-    if (applyButton) {
-      // Detect if the "Easy Apply" button is available
-      applyButton.addEventListener('click', () => {
-        // Fill the application form
-        fillApplicationForm();
-      });
+import LinkedInJobHelper from './LinkedInJobHelper.js';
+
+window.onload = async () => {
+    const searchElement = document.querySelector(".scaffold-layout.jobs-search-two-pane__layout");
+    if (searchElement) {
+        const totalJobs = LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
+        console.log(`Found ${totalJobs} jobs.`);
+
+        const pagesAvailable = LinkedInJobHelper.getAvailablePages(searchElement);
+        console.log(`Available pages: ${pagesAvailable}`);
+
+        const jobs = await LinkedInJobHelper.getListOfJobsOnPage(searchElement);
+        console.log("Jobs on page:", jobs);
+
+        for (const job of jobs) {
+            if (LinkedInJobHelper.isJobApplied(job)) {
+                continue;
+            }
+            // Extract job details
+        }
+
+        window.scrollBy(0, 500); // Scrolls down by 500 pixels
+    } else {
+        console.log("Search element not found.");
     }
-  }
-  
-  function fillApplicationForm() {
-    const nameField = document.querySelector('input[name="firstName"]');
-    const emailField = document.querySelector('input[name="email"]');
-    const resumeField = document.querySelector('input[type="file"]');
-    
-    if (nameField && emailField) {
-      // You should replace these with actual data (from user profile or local storage)
-      nameField.value = 'Your First Name';
-      emailField.value = 'your-email@example.com';
-  
-      // You could also auto-upload a resume if it's a file input
-      if (resumeField) {
-        const resumePath = 'path/to/your/resume.pdf'; // Local file or URL
-        resumeField.value = resumePath;
-      }
-    }
-  }
-  
+};
