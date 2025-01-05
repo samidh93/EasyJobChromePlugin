@@ -1,10 +1,11 @@
 import LinkedInJobHelper from './LinkedInJobHelper.js';
 
+// This script will run on the LinkedIn job search page
 window.onload = async () => {
     const searchElement = document.querySelector(".scaffold-layout.jobs-search-two-pane__layout");
     if (searchElement) {
         const totalJobs = LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
-        console.log(`Found ${totalJobs} jobs.`);
+        console.log(`${totalJobs} jobs founds.`);
 
         const pagesAvailable = LinkedInJobHelper.getAvailablePages(searchElement);
         console.log(`Available pages: ${pagesAvailable}`);
