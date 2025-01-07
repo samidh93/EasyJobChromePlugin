@@ -1,27 +1,46 @@
 import LinkedInJobHelper from './LinkedInJobHelper.js';
 
-// This script will run on the LinkedIn job search page
-window.onload = async () => {
+// This script monitors changes on the LinkedIn job search page
+const observer = new MutationObserver(async (mutationsList, observer) => {
     const searchElement = document.querySelector(".scaffold-layout.jobs-search-two-pane__layout");
+
     if (searchElement) {
-        const totalJobs = LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
-        console.log(`${totalJobs} jobs founds.`);
+        // Once the target element is found, further observation can be paused
+        // observer.disconnect(); // Uncomment this line if needed
 
-        const pagesAvailable = LinkedInJobHelper.getAvailablePages(searchElement);
-        console.log(`Available pages: ${pagesAvailable}`);
+        try {
+            // Get total job count
+            const totalJobs = LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
+            console.log(`${totalJobs} jobs found.`);
 
-        const jobs = await LinkedInJobHelper.getListOfJobsOnPage(searchElement);
-        console.log("Jobs on page:", jobs);
+            // Get the number of available pages
+            const pagesAvailable = LinkedInJobHelper.getAvailablePages(searchElement);
+            console.log(`Available pages: ${pagesAvailable}`);
 
-        for (const job of jobs) {
-            if (LinkedInJobHelper.isJobApplied(job)) {
-                continue;
+            // Get the list of jobs on the current page
+            const jobs = await LinkedInJobHelper.getListOfJobsOnPage(searchElement); // Ensure the function resolves a Promise
+            //console.log("Jobs on page:", jobs);
+
+            // Process jobs
+            for (const job of jobs) {
+                if (LinkedInJobHelper.isJobApplied(job)) {
+                    continue; // Skip already applied jobs
+                }
+
+                // Extract and process job details
+                const jobDetails = LinkedInJobHelper.extractJobDetails(job);
+                console.log("Job details:", jobDetails);
+
+                // Perform additional processing if needed
             }
-            // Extract job details
-        }
 
-        window.scrollBy(0, 500); // Scrolls down by 500 pixels
-    } else {
-        console.log("Search element not found.");
+            // Scroll down to load more jobs if applicable
+            window.scrollBy(0, 500); // Adjust the scroll value if necessary
+        } catch (error) {
+            console.error("An error occurred while processing jobs:", error);
+        }
     }
-};
+});
+
+// Start observing the DOM for child list or subtree changes
+observer.observe(document.body, { childList: true, subtree: true });
