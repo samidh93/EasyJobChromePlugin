@@ -1,0 +1,1 @@
+(()=>{chrome.runtime.onInstalled.addListener(()=>{console.log("Job Tracker Extension Installed")});function n(e){chrome.storage.local.get("jobs",function(t){let o=t.jobs||[];o.push(e),chrome.storage.local.set({jobs:o})})}n({title:"Software Engineer",company:"XYZ Corp",status:"Applied",date:new Date().toISOString()});})();
