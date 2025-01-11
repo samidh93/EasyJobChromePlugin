@@ -6,36 +6,25 @@ const observer = new MutationObserver(async (mutationsList, observer) => {
 
     if (searchElement) {
         // Once the target element is found, further observation can be paused
-        // observer.disconnect(); // Uncomment this line if needed
+         observer.disconnect(); // Uncomment this line if needed
 
         try {
             // Get total job count
-            const totalJobs = LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
-            console.log(`${totalJobs} jobs found.`);
+            const totalJobs = await LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
 
             // Get the number of available pages
-            const pagesAvailable = LinkedInJobHelper.getAvailablePages(searchElement);
-            console.log(`Available pages: ${pagesAvailable}`);
+            const pagesAvailable = await LinkedInJobHelper.getAvailablePages(searchElement);
 
             // Get the list of jobs on the current page
             const jobs = await LinkedInJobHelper.getListOfJobsOnPage(searchElement); // Ensure the function resolves a Promise
-            //console.log("Jobs on page:", jobs);
 
             // Process jobs
             for (const job of jobs) {
-                if (LinkedInJobHelper.isJobApplied(job)) {
-                    continue; // Skip already applied jobs
-                }
-
-                // Extract and process job details
-                const jobDetails = LinkedInJobHelper.extractJobDetails(job);
-                console.log("Job details:", jobDetails);
-
-                // Perform additional processing if needed
+                console.log(job);
+                await LinkedInJobHelper.clickOnJob(job);
+                await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
-            // Scroll down to load more jobs if applicable
-            window.scrollBy(0, 500); // Adjust the scroll value if necessary
         } catch (error) {
             console.error("An error occurred while processing jobs:", error);
         }

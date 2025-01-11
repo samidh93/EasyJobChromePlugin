@@ -1,6 +1,8 @@
 class LinkedInJobHelper {
-    static getTotalJobsSearchCount(element) {
+    static async getTotalJobsSearchCount(element) {
         try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
             const totalResultsElement = element.querySelector(".jobs-search-results-list__subtitle");
             if (totalResultsElement) {
                 const totalResultsText = totalResultsElement.textContent.trim();
@@ -23,8 +25,10 @@ class LinkedInJobHelper {
         }
     }
 
-    static getAvailablePages(element) {
+    static async getAvailablePages(element) {
         try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
             const listPages = element.querySelector('ul[class*="artdeco-pagination__pages--number"]');
             if (!listPages) {
                 console.log("Pagination list not found.");
@@ -65,7 +69,7 @@ class LinkedInJobHelper {
             }
             const jobElements = jobsContainer.querySelectorAll("li[class*='scaffold-layout__list-item']");
 
-            console.log(`Found ${jobElements.length} jobs on the page.`);
+            console.log(`Found ${jobElements.length} jobs on this page.`);
             return Array.from(jobElements);
         } catch (error) {
             console.error("Exception occurred while fetching the list of jobs:", error);
@@ -73,22 +77,34 @@ class LinkedInJobHelper {
         }
     }
 
-    static isJobApplied(job) {
+    static async isJobApplied(job) {
         try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
             const applied = job.querySelector(
                 "ul.job-card-list__footer-wrapper li.job-card-container__footer-item strong span.tvm__text--neutral"
             );
-            if (applied && applied.textContent.includes("Applied")) {
+            if (applied) {
                 console.info("Skipping already applied job");
-                return true;
+                if (applied.textContent.includes("Applied")) {
+                    return true;
+                }
             }
         } catch (error) {
-            console.info("Job not applied, extracting job data");
+            console.info("Job not applied, extracting job data, error: ", error);
         }
         return false;
     }
+    static async clickOnJob(jobElement) {
+        // click on the job element
+        try {
+            jobElement.click();
+        } catch (error) {
+            console.info("could not click on job element", error);
+        }
+    }
 
-    static clickJob(jobElement) {
+    static async clickApply(jobElement) {
         if (window.location.href.includes('linkedin.com/jobs')) {
             const applyButton = document.querySelector('.jobs-s-apply button');
             if (applyButton) {
@@ -100,7 +116,7 @@ class LinkedInJobHelper {
         }
     }
 
-    static fillApplicationForm() {
+    static async fillApplicationForm() {
         const nameField = document.querySelector('input[name="firstName"]');
         const emailField = document.querySelector('input[name="email"]');
         const resumeField = document.querySelector('input[type="file"]');
