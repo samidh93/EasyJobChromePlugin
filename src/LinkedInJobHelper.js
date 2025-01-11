@@ -103,23 +103,24 @@ class LinkedInJobHelper {
             console.error("Error while scrolling down to load next job", error);
         }
     }
-    static async isJobApplied(job) {
+
+    static async getJobElements(job) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
-
-            const applied = job.querySelector(
-                "ul.job-card-list__footer-wrapper li.job-card-container__footer-item strong span.tvm__text--neutral"
-            );
-            if (applied) {
-                console.info("Skipping already applied job");
-                if (applied.textContent.includes("Applied")) {
-                    return true;
-                }
+            const jobElements = job.querySelector(".jobs-search__job-details")
+            if (jobElements) {
+                console.log("Found job elements");
+                return jobElements;
             }
-        } catch (error) {
-            console.info("Job not applied, extracting job data, error: ", error);
+            else {
+                console.log("Could not find job elements");
+                return null;
+            }
         }
-        return false;
+        catch (error) {
+            console.error("Error while fetching job elements", error);
+            return null;
+        }
     }
     static async clickOnJob(jobElement) {
         // click on the job element
@@ -131,30 +132,68 @@ class LinkedInJobHelper {
     }
 
     static async clickApply(jobElement) {
-        if (window.location.href.includes('linkedin.com/jobs')) {
+        try {
             const applyButton = document.querySelector('.jobs-s-apply button');
             if (applyButton) {
-                console.log(applyButton);
-                applyButton.addEventListener('click', () => {
-                    this.fillApplicationForm();
-                });
-            }
+                applyButton.click();
+            };
+        }
+        catch (error) {
+            console.error("Error while clicking on apply button", error);
         }
     }
-
-    static async fillApplicationForm() {
-        const nameField = document.querySelector('input[name="firstName"]');
-        const emailField = document.querySelector('input[name="email"]');
-        const resumeField = document.querySelector('input[type="file"]');
-
-        if (nameField && emailField) {
-            nameField.value = 'Your First Name';
-            emailField.value = 'your-email@example.com';
-
-            if (resumeField) {
-                const resumePath = 'path/to/your/resume.pdf';
-                resumeField.value = resumePath;
+    
+    static async getFormElements() {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const formElements = document.querySelector('.jobs-easy-apply-modal');
+            if (formElements) {
+                console.log("Found form elements");
+                return formElements;
             }
+            else {
+                console.log("Could not find form elements");
+                return null;
+            }
+        }
+        catch (error) {
+            console.error("Error while fetching form elements", error);
+            return null;
+        }
+    }
+    // close form
+    static async closeForm(Form, save=false) {
+        try {
+            const closeButton = Form.querySelector('button[aria-label="Dismiss"]');
+            if (closeButton) {
+                closeButton.click();
+                await new Promise((resolve) => setTimeout(resolve, 500));
+                if (save) {
+                    const saveButton = Form.querySelector('button[data-control-name="save_application_btn"]'); 
+                    if (saveButton) {
+                        saveButton.click();
+                    }
+                } else {
+                    const discardButton = Form.querySelector('button[data-control-name="discard_application_confirm_btn"]');
+                    if (discardButton) {
+                        discardButton.click();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Error while closing form", error);
+        }
+    }
+    static async clickNextPage(Form) {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const nextPageButton = Form.querySelector('button[aria-label="Continue to next step"]');
+            if (nextPageButton) {
+                nextPageButton.click();
+            }
+        }
+        catch (error) {
+            console.error("Error while clicking on next page button", error);
         }
     }
 }
