@@ -77,6 +77,23 @@ class LinkedInJobHelper {
         }
     }
 
+    static async getJobClickableElement(job) {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
+            const clickableElement = job.querySelector("a");
+            if (clickableElement) {
+                return clickableElement;
+            } else {
+                console.log("Could not find clickable element for job");
+                return null;
+            }
+        } catch (error) {
+            console.error("Exception occurred while fetching clickable element:", error);
+            return null;
+        }
+    }
+
     static async isJobApplied(job) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));

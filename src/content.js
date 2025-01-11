@@ -20,8 +20,8 @@ const observer = new MutationObserver(async (mutationsList, observer) => {
 
             // Process jobs
             for (const job of jobs) {
-                console.log(job);
-                await LinkedInJobHelper.clickOnJob(job);
+                const jobClickable = await LinkedInJobHelper.getJobClickableElement(job);
+                await LinkedInJobHelper.clickOnJob(jobClickable);
                 await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
