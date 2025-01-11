@@ -24,7 +24,9 @@ class LinkedInJobHelper {
             return 0;
         }
     }
-
+    /////////////////////////////////////////////////
+    ////////////////////// PAGINATION ////////////////
+    /////////////////////////////////////////////////
     static async getAvailablePages(element) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -57,7 +59,9 @@ class LinkedInJobHelper {
             return 0;
         }
     }
-
+    /////////////////////////////////////////////////
+    ////////////////////// JOBS //////////////////////
+    /////////////////////////////////////////////////
     static async getListOfJobsOnPage(element) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -77,6 +81,9 @@ class LinkedInJobHelper {
         }
     }
 
+    /////////////////////////////////////////////////
+    ////////////////////// JOB //////////////////////
+    /////////////////////////////////////////////////
     static async getJobClickableElement(job) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -98,6 +105,7 @@ class LinkedInJobHelper {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
             job.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            console.log("Scrolled down to load next job");
         }
         catch (error) {
             console.error("Error while scrolling down to load next job", error);
@@ -126,57 +134,46 @@ class LinkedInJobHelper {
         // click on the job element
         try {
             jobElement.click();
+            console.log("Clicked on job element");
         } catch (error) {
             console.info("could not click on job element", error);
         }
     }
 
-    static async clickApply(jobElement) {
+    static async clickEasyApply() {
         try {
             const applyButton = document.querySelector('.jobs-s-apply button');
             if (applyButton) {
                 applyButton.click();
+                console.log("Clicked on easy apply button");
             };
         }
         catch (error) {
             console.error("Error while clicking on apply button", error);
         }
     }
-    
-    static async getFormElements() {
-        try {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            const formElements = document.querySelector('.jobs-easy-apply-modal');
-            if (formElements) {
-                console.log("Found form elements");
-                return formElements;
-            }
-            else {
-                console.log("Could not find form elements");
-                return null;
-            }
-        }
-        catch (error) {
-            console.error("Error while fetching form elements", error);
-            return null;
-        }
-    }
+
+/////////////////////////////////////////////////////////
+////////////////////////// FORM //////////////////////////
+/////////////////////////////////////////////////////////
     // close form
-    static async closeForm(Form, save=false) {
+    static async closeForm(save = false) {
         try {
-            const closeButton = Form.querySelector('button[aria-label="Dismiss"]');
+            const closeButton = document.querySelector('button[aria-label="Dismiss"]');
             if (closeButton) {
                 closeButton.click();
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
                 if (save) {
-                    const saveButton = Form.querySelector('button[data-control-name="save_application_btn"]'); 
+                    const saveButton = document.querySelector('button[data-control-name="save_application_btn"]');
                     if (saveButton) {
                         saveButton.click();
+                        console.log("closed form and saved application");
                     }
                 } else {
-                    const discardButton = Form.querySelector('button[data-control-name="discard_application_confirm_btn"]');
+                    const discardButton = document.querySelector('button[data-control-name="discard_application_confirm_btn"]');
                     if (discardButton) {
                         discardButton.click();
+                        console.log("closed form and discarded application");
                     }
                 }
             }
@@ -184,18 +181,113 @@ class LinkedInJobHelper {
             console.error("Error while closing form", error);
         }
     }
-    static async clickNextPage(Form) {
+    static async clickNextPage() {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
-            const nextPageButton = Form.querySelector('button[aria-label="Continue to next step"]');
+            const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
             if (nextPageButton) {
                 nextPageButton.click();
+                console.log("Clicked on next page button");
             }
         }
         catch (error) {
             console.error("Error while clicking on next page button", error);
         }
     }
+    static async clickPreviousPage() {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const previousPageButton = document.querySelector('button[aria-label="Back to previous step"]');
+            if (previousPageButton) {
+                previousPageButton.click();
+                console.log("Clicked on previous page button");
+            }
+        }
+        catch (error) {
+            console.error("Error while clicking on previous page button", error);
+        }
+    }
+    static async clickReviewApplication() {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const reviewButton = document.querySelector('button[aria-label="Review your application"]');
+            if (reviewButton) {
+                reviewButton.click();
+                console.log("Clicked on review button");
+            }
+        }
+        catch (error) {
+            console.error("Error while clicking on review button", error);
+        }
+    }
+    static async clickSubmitApplication() {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const submitButton = document.querySelector('button[aria-label="Submit application"]');
+            if (submitButton) {
+                submitButton.click();
+                console.log("Clicked on submit button");
+            }
+        }
+        catch (error) {
+            console.error("Error while clicking on submit button", error);
+        }
+    }
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /////////////////////////////////////////////////
+    ////////////////////// END //////////////////////   
+    /////////////////////////////////////////////////
 }
 
 export default LinkedInJobHelper;

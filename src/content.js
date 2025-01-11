@@ -20,16 +20,18 @@ const observer = new MutationObserver(async (mutationsList, observer) => {
 
             // Process jobs
             for (const job of jobs) {
+                // Get the clickable element of the job
                 const jobClickable = await LinkedInJobHelper.getJobClickableElement(job);
+                // Click on the job
                 await LinkedInJobHelper.clickOnJob(jobClickable);
+                // Scroll down to load the next job
                 await LinkedInJobHelper.scrollDownToLoadNextJob(jobClickable);
-                const jobElems = await LinkedInJobHelper.getJobElements(searchElement);
-                await LinkedInJobHelper.clickApply(jobElems);
-                const Form = await LinkedInJobHelper.getFormElements();
+                // click easy apply
+                await LinkedInJobHelper.clickEasyApply();
                 // click next page on form
-               // await LinkedInJobHelper.clickNext(Form);
+                await LinkedInJobHelper.clickNextPage();
                 // close form
-                await LinkedInJobHelper.closeForm(Form, false);
+                await LinkedInJobHelper.closeForm(false);
 
                 break; // Remove this line to process all jobs
             }
