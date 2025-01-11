@@ -94,6 +94,15 @@ class LinkedInJobHelper {
         }
     }
 
+    static async scrollDownToLoadNextJob(job) {
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            job.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        catch (error) {
+            console.error("Error while scrolling down to load next job", error);
+        }
+    }
     static async isJobApplied(job) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));

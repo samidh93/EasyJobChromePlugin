@@ -22,7 +22,8 @@ const observer = new MutationObserver(async (mutationsList, observer) => {
             for (const job of jobs) {
                 const jobClickable = await LinkedInJobHelper.getJobClickableElement(job);
                 await LinkedInJobHelper.clickOnJob(jobClickable);
-                await new Promise((resolve) => setTimeout(resolve, 1000));
+                await LinkedInJobHelper.scrollDownToLoadNextJob(jobClickable);
+               // await LinkedInJobHelper.isJobApplied(job);
             }
 
         } catch (error) {
