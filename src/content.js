@@ -23,7 +23,15 @@ const observer = new MutationObserver(async (mutationsList, observer) => {
                 const jobClickable = await LinkedInJobHelper.getJobClickableElement(job);
                 await LinkedInJobHelper.clickOnJob(jobClickable);
                 await LinkedInJobHelper.scrollDownToLoadNextJob(jobClickable);
-               // await LinkedInJobHelper.isJobApplied(job);
+                const jobElems = await LinkedInJobHelper.getJobElements(searchElement);
+                await LinkedInJobHelper.clickApply(jobElems);
+                const Form = await LinkedInJobHelper.getFormElements();
+                // click next page on form
+               // await LinkedInJobHelper.clickNext(Form);
+                // close form
+                await LinkedInJobHelper.closeForm(Form, false);
+
+                break; // Remove this line to process all jobs
             }
 
         } catch (error) {
