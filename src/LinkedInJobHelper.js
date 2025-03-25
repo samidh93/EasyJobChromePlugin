@@ -27,33 +27,27 @@ class LinkedInJobHelper {
     /////////////////////////////////////////////////
     ////////////////////// PAGINATION ////////////////
     /////////////////////////////////////////////////
-    static async getAvailablePages(element) {
+    static async getAvailablePages(element, totalJobs) {
         try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
-
-            const listPages = element.querySelector('ul[class*="artdeco-pagination__pages--number"]');
+            // Query pagination element using class name pattern
+            const listPages = element.querySelector('ul[class*="jobs-search-pagination__pages"]');
             if (!listPages) {
                 console.log("Pagination list not found.");
                 return 0;
             }
-
             const listPagesAvailable = listPages.querySelectorAll("li");
             if (listPagesAvailable.length === 0) {
                 console.log("No pagination items found.");
                 return 0;
             }
-
-            const lastLi = listPagesAvailable[listPagesAvailable.length - 1];
-            const lastPage = lastLi.getAttribute("data-test-pagination-page-btn");
-
-            if (lastPage) {
-                const pagesAvailable = parseInt(lastPage, 10);
-                console.log(`Total pages available: ${pagesAvailable}`);
-                return pagesAvailable;
-            } else {
-                console.log("Could not find 'data-test-pagination-page-btn' attribute.");
-                return 0;
-            }
+            // Get the last pagination item
+            const lastPage = listPagesAvailable[listPagesAvailable.length - 1];
+            console.log(`Last page: ${lastPage}`);
+            // Calculate total pages based on total jobs (25 jobs per page)
+            const totalPages = Math.ceil(totalJobs / 25);
+            console.log(`Total pages available: ${totalPages}`);
+            return totalPages;
         } catch (error) {
             console.error("Exception occurred while fetching available pages:", error);
             return 0;
