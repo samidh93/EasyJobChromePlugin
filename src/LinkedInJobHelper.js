@@ -153,10 +153,21 @@ class LinkedInJobHelper {
     // close form
     static async closeForm(save = false) {
         try {
-            const closeButton = document.querySelector('button[aria-label="Dismiss"]');
+            // First try to find the close button
+            let closeButton = document.querySelector('button[aria-label="Dismiss"]');
+            
+            // If not found, try alternative selectors that might be present during different stages
+            if (!closeButton) {
+                closeButton = document.querySelector('button[aria-label="Close"]') ||
+                            document.querySelector('button[aria-label="Cancel"]') ||
+                            document.querySelector('button[data-test-modal-close-btn]');
+            }
+            
             if (closeButton) {
                 closeButton.click();
                 await new Promise((resolve) => setTimeout(resolve, 1000));
+                
+                // Handle save/discard dialog if it appears
                 if (save) {
                     const saveButton = document.querySelector('button[data-control-name="save_application_btn"]');
                     if (saveButton) {
@@ -164,15 +175,34 @@ class LinkedInJobHelper {
                         console.log("closed form and saved application");
                     }
                 } else {
-                    const discardButton = document.querySelector('button[data-control-name="discard_application_confirm_btn"]');
+                    const discardButton = document.querySelector('button[data-control-name="discard_application_confirm_btn"]') ||
+                                       document.querySelector('button[data-test-dialog-secondary-btn]');
                     if (discardButton) {
                         discardButton.click();
                         console.log("closed form and discarded application");
                     }
                 }
+                
+                // Wait a bit to ensure the form is fully closed
+                await new Promise((resolve) => setTimeout(resolve, 1000));
             }
         } catch (error) {
             console.error("Error while closing form", error);
+            // Try one last time with a more aggressive approach
+            try {
+                const allCloseButtons = document.querySelectorAll('button');
+                for (const button of allCloseButtons) {
+                    if (button.textContent.toLowerCase().includes('close') ||
+                        button.textContent.toLowerCase().includes('cancel') ||
+                        button.getAttribute('aria-label')?.toLowerCase().includes('close') ||
+                        button.getAttribute('aria-label')?.toLowerCase().includes('dismiss')) {
+                        button.click();
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                    }
+                }
+            } catch (finalError) {
+                console.error("Failed final attempt to close form", finalError);
+            }
         }
     }
     static async clickNextPage() {
