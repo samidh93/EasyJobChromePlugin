@@ -8,11 +8,11 @@
 </head>
 <body>
   <div class="popup-container">
-    <h1>Job Applications</h1>
-    <div id="job-list" class="job-list">
-      <!-- Job applications will be dynamically added here -->
+    <div class="action-buttons">
+      <button id="start-apply" class="primary-button">Start Auto Apply</button>
+      <button id="stop-apply" class="secondary-button" disabled>Stop</button>
     </div>
-    <button id="clear-all">Clear All</button>
+    <div id="status-message" class="status-message"></div>
   </div>
   <script src="popup.js"></script>
 </body>
