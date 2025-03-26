@@ -384,6 +384,9 @@ class LinkedInJobHelper {
                     return false;
                 }
                 
+                // Process any form questions on the current page
+                await this.processFormQuestions();
+                
                 // Inner loop - looks for review button for up to 1 minute
                 const reviewStartTime = Date.now();
                 const reviewTimeout = 60 * 1000; // 1 minute
@@ -399,6 +402,8 @@ class LinkedInJobHelper {
                     // Look for review button
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
+                        // Process any questions before clicking review
+                        await this.processFormQuestions();
                         reviewButton.click();
                         console.log("Found and clicked review button");
                         reviewFound = true;
@@ -416,6 +421,8 @@ class LinkedInJobHelper {
                         // If no review button, try next page
                         const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
                         if (nextPageButton) {
+                            // Process any questions before clicking next
+                            await this.processFormQuestions();
                             nextPageButton.click();
                             console.log("Clicked next page button");
                             await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait for next page
@@ -456,9 +463,109 @@ class LinkedInJobHelper {
         }
     }
 
-    /////////////////////////////////////////////////
-    ////////////////////// END //////////////////////   
-    /////////////////////////////////////////////////
+    static async processFormQuestions() {
+        try {
+            console.log("Processing form questions");
+            const formElements = document.querySelectorAll("div.fb-dash-form-element");
+            console.log(`Found ${formElements.length} form elements`);
+
+            for (const element of formElements) {
+                try {
+                    // Get the question label
+                    const labelElement = element.querySelector("label");
+                    if (!labelElement) {
+                        console.log("No label found for form element");
+                        continue;
+                    }
+                    const question = labelElement.textContent.trim();
+                    console.log(`Processing question: ${question}`);
+
+                    // Find the input field
+                    const inputField = element.querySelector("input, textarea, select");
+                    if (!inputField) {
+                        console.log("No input field found for question");
+                        continue;
+                    }
+
+                    // Handle different input types
+                    switch (inputField.tagName.toLowerCase()) {
+                        case 'input':
+                            switch (inputField.type) {
+                                case 'text':
+                                case 'tel':
+                                case 'email':
+                                    // Fill text input with appropriate data based on question
+                                    if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('mobile')) {
+                                        inputField.value = '1234567890';
+                                    } else if (question.toLowerCase().includes('email')) {
+                                        inputField.value = 'example@email.com';
+                                    } else if (question.toLowerCase().includes('name')) {
+                                        inputField.value = 'John Doe';
+                                    } else {
+                                        inputField.value = 'Yes';
+                                    }
+                                    // Trigger input event to ensure LinkedIn registers the change
+                                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                    break;
+
+                                case 'radio':
+                                    // Log all radio options
+                                    const radioOptions = element.querySelectorAll('input[type="radio"]');
+                                    console.log(`Radio options for "${question}":`);
+                                    radioOptions.forEach((radio, index) => {
+                                        const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                        console.log(`  ${index + 1}. ${radioLabel ? radioLabel.textContent.trim() : 'No label'}`);
+                                    });
+                                    // Select the first radio option
+                                    if (radioOptions.length > 0) {
+                                        radioOptions[0].click();
+                                        console.log(`Selected first radio option for "${question}"`);
+                                    }
+                                    break;
+
+                                case 'checkbox':
+                                    // Check the checkbox
+                                    inputField.checked = true;
+                                    inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                    break;
+                            }
+                            break;
+
+                        case 'textarea':
+                            // Fill textarea with a generic response
+                            inputField.value = 'I am interested in this position and believe my skills align well with the requirements.';
+                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                            break;
+
+                        case 'select':
+                            // Log all select options
+                            console.log(`Select options for "${question}":`);
+                            Array.from(inputField.options).forEach((option, index) => {
+                                console.log(`  ${index + 1}. ${option.text.trim()}`);
+                            });
+                            // Select the first option in dropdown
+                            if (inputField.options.length > 0) {
+                                inputField.selectedIndex = 0;
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`Selected first option "${inputField.options[0].text.trim()}" for "${question}"`);
+                            }
+                            break;
+                    }
+
+                    // Wait a bit between filling each field
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    console.error(`Error processing form element: ${error.message}`);
+                }
+            }
+
+            console.log("Completed processing form questions");
+            return true;
+        } catch (error) {
+            console.error("Error in processFormQuestions:", error);
+            return false;
+        }
+    }
 }
 
 export default LinkedInJobHelper;
