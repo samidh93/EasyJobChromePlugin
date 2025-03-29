@@ -1,40 +1,7 @@
-import LinkedInJobHelper from './LinkedInJobHelper.js';
+import { LinkedInJobSearch, LinkedInJobInteraction, LinkedInJobInfo, LinkedInForm } from './linkedin/index.js';
+import { debugLog, sendStatusUpdate, shouldStop, DEBUG } from './utils.js';
 
 let isAutoApplyRunning = false;
-const DEBUG = true;  // Toggle debugging
-
-// Function to check if the process should stop
-async function shouldStop() {
-    if (!isAutoApplyRunning) {
-        debugLog('Auto-apply process stopped by user');
-        sendStatusUpdate('Auto-apply process stopped', 'info');
-        chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
-        return true;
-    }
-    return false;
-}
-
-// Debug logger
-function debugLog(message, data = null) {
-    if (!DEBUG) return;
-    const timestamp = new Date().toISOString().split('T')[1];
-    const logMessage = `[EasyJob Debug ${timestamp}] ${message}`;
-    if (data) {
-        console.log(logMessage, data);
-    } else {
-        console.log(logMessage);
-    }
-}
-
-// Function to send status updates to popup
-function sendStatusUpdate(text, status = 'info') {
-    debugLog(`Status Update: ${status} - ${text}`);
-    chrome.runtime.sendMessage({
-        type: 'STATUS_UPDATE',
-        text,
-        status
-    });
-}
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -42,7 +9,7 @@ async function startAutoApply() {
         debugLog('Starting auto-apply process');
         debugLog('Current URL:', window.location.href);
 
-        if (await shouldStop()) return;
+        if (await shouldStop(isAutoApplyRunning)) return;
 
         const searchElement = document.querySelector(".scaffold-layout.jobs-search-two-pane__layout");
         debugLog('Search element found:', !!searchElement);
@@ -62,76 +29,76 @@ async function startAutoApply() {
 
         // Get total jobs count
         debugLog('Getting total jobs count');
-        const totalJobs = await LinkedInJobHelper.getTotalJobsSearchCount(searchElement);
+        const totalJobs = await LinkedInJobSearch.getTotalJobsSearchCount(searchElement);
         debugLog('Total jobs found:', totalJobs);
         sendStatusUpdate(`Found ${totalJobs} jobs to process`, 'info');
 
         // Get available pages
         debugLog('Getting available pages');
-        const totalPages = await LinkedInJobHelper.getAvailablePages(searchElement, totalJobs);
+        const totalPages = await LinkedInJobSearch.getAvailablePages(searchElement, totalJobs);
         debugLog('Total pages found:', totalPages);
 
         // Process each page
         for (let page = 1; page <= totalPages; page++) {
-            if (await shouldStop()) return;
+            if (await shouldStop(isAutoApplyRunning)) return;
 
             debugLog(`Processing page ${page}/${totalPages}`);
             sendStatusUpdate(`Processing page ${page} of ${totalPages}`, 'info');
 
             // Get all jobs on current page
-            const jobs = await LinkedInJobHelper.getListOfJobsOnPage(searchElement);
+            const jobs = await LinkedInJobSearch.getListOfJobsOnPage(searchElement);
             debugLog(`Found ${jobs.length} jobs on page ${page}`);
 
             // Process each job
             for (const job of jobs) {
-                if (await shouldStop()) return;
+                if (await shouldStop(isAutoApplyRunning)) return;
 
                 try {
                     // Click on the job to view details
-                    const clickableElement = await LinkedInJobHelper.getJobClickableElement(job);
-                    await LinkedInJobHelper.clickOnJob(clickableElement);
+                    const clickableElement = await LinkedInJobInteraction.getJobClickableElement(job);
+                    await LinkedInJobInteraction.clickOnJob(clickableElement);
                     debugLog('Clicked on job');
-                    await LinkedInJobHelper.scrollDownToLoadNextJob(job);
+                    await LinkedInJobInteraction.scrollDownToLoadNextJob(job);
                     debugLog('Scrolled to job');
-                    if (await shouldStop()) return;
+                    if (await shouldStop(isAutoApplyRunning)) return;
                     
                     // Get job info
-                    const jobInfo = await LinkedInJobHelper.getAllJobInfo();
+                    const jobInfo = await LinkedInJobInfo.getAllJobInfo();
                     debugLog('Job info:', jobInfo);
 
                     // Try to click Easy Apply button
-                    await LinkedInJobHelper.clickEasyApply();
+                    await LinkedInJobInteraction.clickEasyApply();
                     debugLog('Attempted to click Easy Apply');
                     // Wait for the form to load
                     await new Promise(resolve => setTimeout(resolve, 2000));
 
-                    if (await shouldStop()) {
-                        await LinkedInJobHelper.closeForm(false);
+                    if (await shouldStop(isAutoApplyRunning)) {
+                        await LinkedInForm.closeForm(false);
                         return;
                     }
                     // process form
-                    await LinkedInJobHelper.processForm(shouldStop);
+                    await LinkedInForm.processForm(() => shouldStop(isAutoApplyRunning));
                     debugLog('Processed application form');
                     // Close the form
-                    await LinkedInJobHelper.closeForm(false);
+                    await LinkedInForm.closeForm(false);
                     debugLog('Closed application form');
                 } catch (error) {
                     console.error('Error processing job:', error);
                     debugLog('Error processing job:', { error: error.message, stack: error.stack });
                     sendStatusUpdate('Error processing job. Continuing to next one...', 'error');
                     // Try to close any open forms when there's an error
-                    await LinkedInJobHelper.closeForm(false);
+                    await LinkedInForm.closeForm(false);
                 }
 
                 // Wait between applications to avoid rate limiting
-                if (!await shouldStop()) {
+                if (!await shouldStop(isAutoApplyRunning)) {
                     await new Promise(resolve => setTimeout(resolve, 3000));
                     debugLog('Waited cooldown period');
                 }
             }
         }
         
-        if (!await shouldStop()) {
+        if (!await shouldStop(isAutoApplyRunning)) {
             debugLog('Auto-apply process completed');
             sendStatusUpdate('Auto-apply process completed!', 'success');
             chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
@@ -140,7 +107,7 @@ async function startAutoApply() {
         console.error('Error in auto-apply process:', error);
         debugLog('Fatal error in auto-apply process:', { error: error.message, stack: error.stack });
         sendStatusUpdate('Error in auto-apply process', 'error');
-        await LinkedInJobHelper.closeForm(false);
+        await LinkedInForm.closeForm(false);
     }
 }
 
@@ -162,4 +129,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     // Return true to indicate we will send a response asynchronously
     return true;
-});
+}); 

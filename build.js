@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import path from 'path';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,11 +15,7 @@ const commonOptions = {
     format: 'esm',
     minify: isProduction,
     sourcemap: !isProduction,
-    define: {
-        'process.env.NODE_ENV': `"${process.env.NODE_ENV || 'development'}"`,
-        'global': 'window'
-    },
-    inject: ['./src/shims/process-shim.js'],
+
     loader: {
         '.yaml': 'text',
         '.yml': 'text'
@@ -27,20 +23,43 @@ const commonOptions = {
 };
 
 try {
-    // Build content script
+    // ✅ Copy popup.html to dist/
+    if (!fs.existsSync('dist')) {
+        fs.mkdirSync('dist');
+    }
+    // ✅ Build Content Script
     await esbuild.build({
         ...commonOptions,
         entryPoints: ['src/content.js'],
-        outfile: 'dist/content.js',
+        outfile: 'dist/content.bundle.js',
     });
 
-    // Build AIQuestionAnswerer
+    // ✅ Build Background Script (Service Worker Safe)
     await esbuild.build({
         ...commonOptions,
-        entryPoints: ['src/AIQuestionAnswerer.js'],
-        outfile: 'dist/AIQuestionAnswerer.js',
-        external: ['js-yaml'], // Exclude js-yaml from the bundle as it's a runtime dependency
+        entryPoints: ['src/background.js'],
+        outfile: 'dist/background.bundle.js',
+
     });
+
+    // ✅ Build AIQuestionAnswerer
+    await esbuild.build({
+        ...commonOptions,
+        entryPoints: ['src/ai/AIQuestionAnswerer.js'],
+        outfile: 'dist/ai/AIQuestionAnswerer.js',
+        external: ['js-yaml'], // Exclude js-yaml from the bundle
+    });
+    // Copy static files
+    await esbuild.build({
+        entryPoints: ['./src/popup.html', './src/popup.js', './src/styles.css'],
+        loader: {
+            '.html': 'copy',
+            '.js': 'copy',
+            '.css': 'copy',
+        },
+        outdir: './dist',
+    });
+
 
     console.log('Build completed successfully');
 } catch (error) {
