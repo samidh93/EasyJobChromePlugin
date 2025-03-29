@@ -1,13 +1,19 @@
 {
-  "devDependencies": {
-    "esbuild": "^0.24.2"
-  },
+  "name": "easyjob",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "LinkedIn job application automation tool",
+  "main": "src/index.js",
   "scripts": {
     "dev": "NODE_ENV=development node build.js",
     "build": "NODE_ENV=production node build.js",
-    "test": "jest"
+    "test": "node test/AIQuestionAnswerer.test.js"
   },
   "dependencies": {
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.1"
   }
 }

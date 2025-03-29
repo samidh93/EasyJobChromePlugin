@@ -463,6 +463,118 @@ class LinkedInJobHelper {
         }
     }
 
+    static async answerQuestion(question, options = []) {
+        try {
+            console.log(`Answering question: ${question}`);
+            console.log(`Available options:`, options);
+
+            // Find the form element containing this question
+            const formElements = document.querySelectorAll("div.fb-dash-form-element");
+            for (const element of formElements) {
+                const labelElement = element.querySelector("label");
+                if (!labelElement) continue;
+
+                // Clean up the question text by removing duplicate parts
+                let questionText = labelElement.textContent.trim();
+                // Remove duplicate text (e.g., "Email addressEmail address" -> "Email address")
+                questionText = questionText.replace(/(.+?)\1/, '$1');
+                if (questionText !== question) continue;
+
+                // Find the input field
+                const inputField = element.querySelector("input, textarea, select");
+                if (!inputField) {
+                    console.log("No input field found for question");
+                    continue;
+                }
+
+                // Handle different input types
+                switch (inputField.tagName.toLowerCase()) {
+                    case 'input':
+                        switch (inputField.type) {
+                            case 'text':
+                            case 'tel':
+                            case 'email':
+                                // Fill text input with appropriate data based on question
+                                if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('mobile')) {
+                                    inputField.value = '1234567890';
+                                } else if (question.toLowerCase().includes('email')) {
+                                    inputField.value = 'example@email.com';
+                                } else if (question.toLowerCase().includes('name')) {
+                                    inputField.value = 'John Doe';
+                                } else if (options.length > 0) {
+                                    inputField.value = options[0];
+                                } else {
+                                    inputField.value = 'Yes';
+                                }
+                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                break;
+
+                            case 'radio':
+                                // Find and click the radio option that matches the first option
+                                const radioOptions = element.querySelectorAll('input[type="radio"]');
+                                if (options.length > 0) {
+                                    for (const radio of radioOptions) {
+                                        const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                        if (radioLabel && radioLabel.textContent.trim() === options[0]) {
+                                            radio.click();
+                                            console.log(`Selected radio option: ${options[0]}`);
+                                            break;
+                                        }
+                                    }
+                                } else if (radioOptions.length > 0) {
+                                    radioOptions[0].click();
+                                    console.log(`Selected first radio option`);
+                                }
+                                break;
+
+                            case 'checkbox':
+                                inputField.checked = true;
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                break;
+                        }
+                        break;
+
+                    case 'textarea':
+                        if (options.length > 0) {
+                            inputField.value = options[0];
+                        } else {
+                            inputField.value = 'I am interested in this position and believe my skills align well with the requirements.';
+                        }
+                        inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                        break;
+
+                    case 'select':
+                        if (options.length > 0) {
+                            // Try to find the option that matches the first option in the list
+                            for (let i = 0; i < inputField.options.length; i++) {
+                                if (inputField.options[i].text.trim() === options[0]) {
+                                    inputField.selectedIndex = i;
+                                    inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                    console.log(`Selected option: ${options[0]}`);
+                                    break;
+                                }
+                            }
+                        } else if (inputField.options.length > 0) {
+                            inputField.selectedIndex = 0;
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log(`Selected first option: ${inputField.options[0].text.trim()}`);
+                        }
+                        break;
+                }
+
+                // Wait a bit after filling the field
+                await new Promise(resolve => setTimeout(resolve, 500));
+                return true;
+            }
+
+            console.log(`Question not found: ${question}`);
+            return false;
+        } catch (error) {
+            console.error(`Error answering question "${question}":`, error);
+            return false;
+        }
+    }
+
     static async processFormQuestions() {
         try {
             console.log("Processing form questions");
@@ -477,8 +589,12 @@ class LinkedInJobHelper {
                         console.log("No label found for form element");
                         continue;
                     }
-                    const question = labelElement.textContent.trim();
-                    console.log(`Processing question: ${question}`);
+
+                    // Clean up the question text by removing duplicate parts
+                    let questionText = labelElement.textContent.trim();
+                    // Remove duplicate text (e.g., "Email addressEmail address" -> "Email address")
+                    questionText = questionText.replace(/(.+?)\1/, '$1');
+                    console.log(`Processing question: ${questionText}`);
 
                     // Find the input field
                     const inputField = element.querySelector("input, textarea, select");
@@ -487,73 +603,35 @@ class LinkedInJobHelper {
                         continue;
                     }
 
-                    // Handle different input types
+                    // Get options based on input type
+                    let options = [];
                     switch (inputField.tagName.toLowerCase()) {
                         case 'input':
-                            switch (inputField.type) {
-                                case 'text':
-                                case 'tel':
-                                case 'email':
-                                    // Fill text input with appropriate data based on question
-                                    if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('mobile')) {
-                                        inputField.value = '1234567890';
-                                    } else if (question.toLowerCase().includes('email')) {
-                                        inputField.value = 'example@email.com';
-                                    } else if (question.toLowerCase().includes('name')) {
-                                        inputField.value = 'John Doe';
-                                    } else {
-                                        inputField.value = 'Yes';
+                            if (inputField.type === 'radio') {
+                                const radioOptions = element.querySelectorAll('input[type="radio"]');
+                                radioOptions.forEach(radio => {
+                                    const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                    if (radioLabel) {
+                                        options.push(radioLabel.textContent.trim());
                                     }
-                                    // Trigger input event to ensure LinkedIn registers the change
-                                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                                    break;
-
-                                case 'radio':
-                                    // Log all radio options
-                                    const radioOptions = element.querySelectorAll('input[type="radio"]');
-                                    console.log(`Radio options for "${question}":`);
-                                    radioOptions.forEach((radio, index) => {
-                                        const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
-                                        console.log(`  ${index + 1}. ${radioLabel ? radioLabel.textContent.trim() : 'No label'}`);
-                                    });
-                                    // Select the first radio option
-                                    if (radioOptions.length > 0) {
-                                        radioOptions[0].click();
-                                        console.log(`Selected first radio option for "${question}"`);
-                                    }
-                                    break;
-
-                                case 'checkbox':
-                                    // Check the checkbox
-                                    inputField.checked = true;
-                                    inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                                    break;
+                                });
                             }
                             break;
-
-                        case 'textarea':
-                            // Fill textarea with a generic response
-                            inputField.value = 'I am interested in this position and believe my skills align well with the requirements.';
-                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                            break;
-
                         case 'select':
-                            // Log all select options
-                            console.log(`Select options for "${question}":`);
-                            Array.from(inputField.options).forEach((option, index) => {
-                                console.log(`  ${index + 1}. ${option.text.trim()}`);
-                            });
-                            // Select the first option in dropdown
-                            if (inputField.options.length > 0) {
-                                inputField.selectedIndex = 0;
-                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                                console.log(`Selected first option "${inputField.options[0].text.trim()}" for "${question}"`);
-                            }
+                            options = Array.from(inputField.options).map(option => option.text.trim());
                             break;
                     }
 
-                    // Wait a bit between filling each field
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Log available options
+                    if (options.length > 0) {
+                        console.log(`Available options for "${questionText}":`);
+                        options.forEach((option, index) => {
+                            //console.log(`  ${index + 1}. ${option}`);
+                        });
+                    }
+
+                    // Answer the question
+                    await this.answerQuestion(questionText, options);
                 } catch (error) {
                     console.error(`Error processing form element: ${error.message}`);
                 }
