@@ -1,7 +1,7 @@
 # EasyJob
 EasyJob is a solution for people looking for job.
 
-# For Developpers+
+# For Developers
 
 ## Node modules
 npm install esbuild --save-dev

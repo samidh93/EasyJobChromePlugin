@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Job Tracker",
+    "name": "EasyApply",
     "version": "1.0",
-    "description": "Track and auto-apply to jobs on LinkedIn.",
+    "description": "Use AI to Apply for jobs on LinkedIn.",
     "icons": {
       "16": "assets/icon.png",
       "48": "assets/icon.png",
@@ -17,7 +17,7 @@
       "service_worker": "dist/background.bundle.js"
     },
     "action": {
-      "default_popup": "src/popup.html",
+      "default_popup": "dist/popup.html",
       "default_icon": "assets/icon.png"
     },
     "content_scripts": [
