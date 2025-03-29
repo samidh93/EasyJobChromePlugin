@@ -1,68 +1,49 @@
-const esbuild = require('esbuild');
+import * as esbuild from 'esbuild';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
 
-// Development configuration
-const isDev = process.env.NODE_ENV !== 'production';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-async function build() {
-    try {
-        // Common build options
-        const commonOptions = {
-            bundle: true,
-            minify: !isDev,
-            sourcemap: isDev ? 'inline' : false,
-            target: ['es2017'],
-            platform: 'browser',
-            define: {
-                'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production')
-            }
-        };
+const isProduction = process.env.NODE_ENV === 'production';
 
-        // Build content script
-        await esbuild.build({
-            ...commonOptions,
-            entryPoints: ['./src/content.js'],
-            outfile: './dist/content.bundle.js',
-            ...(isDev && {
-                watch: {
-                    onRebuild(error, result) {
-                        if (error) console.error('Build failed:', error);
-                        else console.log('Build succeeded - ready for testing');
-                    },
-                }
-            })
-        });
-
-        // Build background script
-        await esbuild.build({
-            ...commonOptions,
-            entryPoints: ['./src/background.js'],
-            outfile: './dist/background.bundle.js',
-            ...(isDev && {
-                watch: {
-                    onRebuild(error, result) {
-                        if (error) console.error('Build failed:', error);
-                        else console.log('Build succeeded - ready for testing');
-                    },
-                }
-            })
-        });
-
-        // Copy static files
-        await esbuild.build({
-            entryPoints: ['./src/popup.html', './src/popup.js', './src/styles.css'],
-            loader: {
-                '.html': 'copy',
-                '.js': 'copy',
-                '.css': 'copy',
-            },
-            outdir: './dist',
-        });
-
-        console.log(isDev ? 'Development build ready - watching for changes...' : 'Production build completed!');
-    } catch (error) {
-        console.error('Build failed:', error);
-        process.exit(1);
+const commonOptions = {
+    bundle: true,
+    platform: 'browser',
+    target: ['chrome58', 'firefox57', 'safari11', 'edge18'],
+    format: 'esm',
+    minify: isProduction,
+    sourcemap: !isProduction,
+    define: {
+        'process.env.NODE_ENV': `"${process.env.NODE_ENV || 'development'}"`,
+        'global': 'window'
+    },
+    inject: ['./src/shims/process-shim.js'],
+    loader: {
+        '.yaml': 'text',
+        '.yml': 'text'
     }
-}
+};
 
-build();
+try {
+    // Build content script
+    await esbuild.build({
+        ...commonOptions,
+        entryPoints: ['src/content.js'],
+        outfile: 'dist/content.js',
+    });
+
+    // Build AIQuestionAnswerer
+    await esbuild.build({
+        ...commonOptions,
+        entryPoints: ['src/AIQuestionAnswerer.js'],
+        outfile: 'dist/AIQuestionAnswerer.js',
+        external: ['js-yaml'], // Exclude js-yaml from the bundle as it's a runtime dependency
+    });
+
+    console.log('Build completed successfully');
+} catch (error) {
+    console.error('Build failed:', error);
+    process.exit(1);
+}
