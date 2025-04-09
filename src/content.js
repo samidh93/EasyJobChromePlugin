@@ -80,8 +80,8 @@ async function startAutoApply() {
                     await LinkedInForm.processForm(() => shouldStop(isAutoApplyRunning));
                     debugLog('Processed application form');
                     // Close the form
-                    await LinkedInForm.closeForm(false);
-                    debugLog('Closed application form');
+                    //await LinkedInForm.closeForm(false);
+                    //debugLog('Closed application form');
                 } catch (error) {
                     console.error('Error processing job:', error);
                     debugLog('Error processing job:', { error: error.message, stack: error.stack });
@@ -126,6 +126,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'GET_STATE') {
         debugLog('Getting current state');
         sendResponse({ isRunning: isAutoApplyRunning });
+    } else if (message.action === 'TEST_OLLAMA') {
+        debugLog('Testing Ollama connection');
+        chrome.runtime.sendMessage({ action: 'testOllama' }, response => {
+            debugLog('Ollama test response:', response);
+            sendResponse(response);
+        });
     }
     // Return true to indicate we will send a response asynchronously
     return true;

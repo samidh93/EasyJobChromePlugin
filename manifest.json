@@ -1,31 +1,46 @@
 {
-    "manifest_version": 3,
-    "name": "EasyApply",
-    "version": "1.0",
-    "description": "Use AI to Apply for jobs on LinkedIn.",
-    "icons": {
-      "16": "assets/icon.png",
-      "48": "assets/icon.png",
-      "128": "assets/icon.png"
-    },
-    "permissions": [
-      "activeTab",
-      "storage",
-      "notifications"
-    ],
-    "background": {
-      "service_worker": "dist/background.bundle.js"
-    },
-    "action": {
-      "default_popup": "dist/popup.html",
-      "default_icon": "assets/icon.png"
-    },
-    "content_scripts": [
-      {
-        "matches": ["https://www.linkedin.com/jobs/*"],
-        "js": ["dist/content.bundle.js"],
-        "run_at": "document_idle" 
-      }
-    ]
+  "manifest_version": 3,
+  "name": "EasyApply",
+  "version": "1.0",
+  "description": "Use AI to Apply for jobs on LinkedIn.",
+  "icons": {
+    "16": "assets/icon.png",
+    "48": "assets/icon.png",
+    "128": "assets/icon.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "notifications",
+    "scripting",
+    "webRequest",
+    "storage",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "http://localhost:11434/"
+  ],
+  "background": {
+    "service_worker": "dist/background.bundle.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "dist/popup.html",
+    "default_icon": "assets/icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*"
+      ],
+      "js": [
+        "dist/content.bundle.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://localhost:11434"
   }
-  
+}

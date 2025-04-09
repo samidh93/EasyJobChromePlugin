@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const startApplyButton = document.getElementById('start-apply');
     const stopApplyButton = document.getElementById('stop-apply');
+    const testOllamaButton = document.getElementById('test-ollama');
     const statusMessage = document.getElementById('status-message');
 
     function showStatus(message, type = 'info') {
@@ -98,6 +99,25 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
         console.error('Error stopping auto-apply:', error);
         showStatus('Error stopping auto-apply process', 'error');
+      }
+    });
+
+    // Test Ollama connection
+    testOllamaButton.addEventListener('click', async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        showStatus('Testing Ollama connection...', 'info');
+        
+        chrome.tabs.sendMessage(tab.id, { action: 'TEST_OLLAMA' }, (response) => {
+          if (response && response.success) {
+            showStatus('Ollama connection successful!', 'success');
+          } else {
+            showStatus(`Ollama connection failed: ${response?.error || 'Unknown error'}`, 'error');
+          }
+        });
+      } catch (error) {
+        console.error('Error testing Ollama:', error);
+        showStatus('Error testing Ollama connection', 'error');
       }
     });
   
