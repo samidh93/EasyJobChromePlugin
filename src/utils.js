@@ -32,4 +32,21 @@ export async function shouldStop(isAutoApplyRunning) {
         return true;
     }
     return false;
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'START_AUTO_APPLY') {
+        // Start the auto-apply process
+        startAutoApplyProcess().then(() => {
+            sendResponse({ success: true });
+        }).catch((error) => {
+            console.error('Error in auto-apply process:', error);
+            sendResponse({ success: false, error: error.message });
+        });
+        return true; // Indicate that you will send a response asynchronously
+    }
+});
+
+async function startAutoApplyProcess() {
+    // Your async logic here
 } 

@@ -1,4 +1,5 @@
 import LinkedInBase from './LinkedInBase.js';
+import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
 
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
@@ -111,14 +112,14 @@ class LinkedInForm extends LinkedInBase {
 
             while (!isSubmitted && (Date.now() - startTime) < timeout) {
                 this.debugLog("Starting form processing iteration");
-                
+
                 if (await shouldStop()) {
                     this.debugLog("Stop requested during form processing");
                     return false;
                 }
-                
+
                 await this.processFormQuestions();
-                
+
                 const reviewStartTime = Date.now();
                 const reviewTimeout = 60 * 1000; // 1 minute
                 let reviewFound = false;
@@ -136,7 +137,7 @@ class LinkedInForm extends LinkedInBase {
                         this.debugLog("Found and clicked review button");
                         reviewFound = true;
                         await this.wait(2000);
-                        
+
                         const submitButton = document.querySelector('button[aria-label="Submit application"]');
                         if (submitButton) {
                             submitButton.click();
@@ -161,7 +162,7 @@ class LinkedInForm extends LinkedInBase {
                             }
                         }
                     }
-                    
+
                     await this.wait(2000);
                 }
 
@@ -229,9 +230,6 @@ class LinkedInForm extends LinkedInBase {
 
                     if (options.length > 0) {
                         this.debugLog(`Available options for "${questionText}":`);
-                        options.forEach((option, index) => {
-                            this.debugLog(`  ${index + 1}. ${option}`);
-                        });
                     }
 
                     await this.answerQuestion(questionText, options);
@@ -250,6 +248,7 @@ class LinkedInForm extends LinkedInBase {
 
     static async answerQuestion(question, options = []) {
         try {
+            const ai = new AIQuestionAnswerer();
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
 
@@ -268,40 +267,34 @@ class LinkedInForm extends LinkedInBase {
                     continue;
                 }
 
+                let answer;
+                answer = await ai.answerQuestion(question, options);
+
+                if (!answer) {
+                    this.debugLog("No answer generated for question");
+                    continue;
+                }
+                this.debugLog(`AI Answer: ${answer}`);
+
                 switch (inputField.tagName.toLowerCase()) {
                     case 'input':
                         switch (inputField.type) {
                             case 'text':
                             case 'tel':
                             case 'email':
-                                if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('mobile')) {
-                                    inputField.value = '1234567890';
-                                } else if (question.toLowerCase().includes('email')) {
-                                    inputField.value = 'example@email.com';
-                                } else if (question.toLowerCase().includes('name')) {
-                                    inputField.value = 'John Doe';
-                                } else if (options.length > 0) {
-                                    inputField.value = options[0];
-                                } else {
-                                    inputField.value = 'Yes';
-                                }
+                                inputField.value = answer;
                                 inputField.dispatchEvent(new Event('input', { bubbles: true }));
                                 break;
 
                             case 'radio':
                                 const radioOptions = element.querySelectorAll('input[type="radio"]');
-                                if (options.length > 0) {
-                                    for (const radio of radioOptions) {
-                                        const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
-                                        if (radioLabel && radioLabel.textContent.trim() === options[0]) {
-                                            radio.click();
-                                            this.debugLog(`Selected radio option: ${options[0]}`);
-                                            break;
-                                        }
+                                for (const radio of radioOptions) {
+                                    const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                    if (radioLabel && radioLabel.textContent.trim() === answer) {
+                                        radio.click();
+                                        this.debugLog(`Selected radio option: ${answer}`);
+                                        break;
                                     }
-                                } else if (radioOptions.length > 0) {
-                                    radioOptions[0].click();
-                                    this.debugLog(`Selected first radio option`);
                                 }
                                 break;
 
@@ -313,28 +306,18 @@ class LinkedInForm extends LinkedInBase {
                         break;
 
                     case 'textarea':
-                        if (options.length > 0) {
-                            inputField.value = options[0];
-                        } else {
-                            inputField.value = 'I am interested in this position and believe my skills align well with the requirements.';
-                        }
+                        inputField.value = answer;
                         inputField.dispatchEvent(new Event('input', { bubbles: true }));
                         break;
 
                     case 'select':
-                        if (options.length > 0) {
-                            for (let i = 0; i < inputField.options.length; i++) {
-                                if (inputField.options[i].text.trim() === options[0]) {
-                                    inputField.selectedIndex = i;
-                                    inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                                    this.debugLog(`Selected option: ${options[0]}`);
-                                    break;
-                                }
+                        for (let i = 0; i < inputField.options.length; i++) {
+                            if (inputField.options[i].text.trim() === answer) {
+                                inputField.selectedIndex = i;
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                this.debugLog(`Selected option: ${answer}`);
+                                break;
                             }
-                        } else if (inputField.options.length > 0) {
-                            inputField.selectedIndex = 0;
-                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                            this.debugLog(`Selected first option: ${inputField.options[0].text.trim()}`);
                         }
                         break;
                 }

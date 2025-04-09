@@ -9,7 +9,9 @@ class AIQuestionAnswerer {
         this.setSystemContext();
         this.job = null;
         this.userData = null;
+        this.ollamaUrl = 'http://localhost:11434';
     }
+
 
     async setJob(job) {
         this.job = job;
@@ -99,25 +101,28 @@ DO NOT add any explanation or additional text.`;
             this.conversationHistory.push({ role: "user", content: prompt });
             this.conversationHistoryCompany.push({ role: "user", content: prompt });
 
-            const response = await fetch('http://localhost:11434/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: this.model,
-                    messages: this.conversationHistory,
-                    stream: false,
-                    options: { temperature: 0.0 }
-                })
+            console.log('Attempting to connect to Ollama server...');
+            const response = await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage({
+                    action: 'callOllama',
+                    endpoint: 'chat',
+                    data: {
+                        model: this.model,
+                        messages: this.conversationHistory,
+                        stream: false,
+                        options: { temperature: 0.0 }
+                    }
+                }, response => {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.error));
+                    }
+                });
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            let rawAnswer = result.message.content.trim();
+            console.log('Response received successfully');
+            let rawAnswer = response.message.content.trim();
             let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
 
             let validAnswer;
@@ -146,8 +151,13 @@ DO NOT add any explanation or additional text.`;
             this.conversationHistoryCompany = [];
             return validAnswer;
         } catch (error) {
-            console.error('Unexpected error:', error);
-            return options[1];
+            console.error('Error details:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+                cause: error.cause
+            });
+            throw error;
         }
     }
 
@@ -173,25 +183,28 @@ IMPORTANT:
             this.conversationHistory.push({ role: "user", content: prompt });
             this.conversationHistoryCompany.push({ role: "user", content: prompt });
 
-            const response = await fetch('http://localhost:11434/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: this.model,
-                    messages: this.conversationHistory,
-                    stream: false,
-                    options: { temperature: 0.0 }
-                })
+            console.log('Attempting to connect to Ollama server...');
+            const response = await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage({
+                    action: 'callOllama',
+                    endpoint: 'chat',
+                    data: {
+                        model: this.model,
+                        messages: this.conversationHistory,
+                        stream: false,
+                        options: { temperature: 0.0 }
+                    }
+                }, response => {
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.error));
+                    }
+                });
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            let rawAnswer = result.message.content.trim();
+            console.log('Response received successfully');
+            let rawAnswer = response.message.content.trim();
             let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
 
             if (this.isNumberQuestion(question)) {
@@ -214,7 +227,13 @@ IMPORTANT:
                 return answerCandidate;
             }
         } catch (error) {
-            console.error('Unexpected error:', error);
+            console.error('Error details:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+                cause: error.cause
+            });
+            throw error;
         }
     }
 
