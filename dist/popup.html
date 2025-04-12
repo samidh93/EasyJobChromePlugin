@@ -8,6 +8,13 @@
 </head>
 <body>
   <div class="popup-container">
+    <div class="file-input-section">
+      <input type="file" id="yaml-file" accept=".yaml,.yml" />
+      <button id="load-yaml" class="secondary-button">Load Profile</button>
+    </div>
+    <div class="yaml-display" id="yaml-display">
+      <pre id="yaml-content"></pre>
+    </div>
     <div class="action-buttons">
       <button id="start-apply" class="primary-button">Start Auto Apply</button>
       <button id="stop-apply" class="secondary-button" disabled>Stop</button>
