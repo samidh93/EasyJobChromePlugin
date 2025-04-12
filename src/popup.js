@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const startApplyButton = document.getElementById('start-apply');
     const stopApplyButton = document.getElementById('stop-apply');
     const testOllamaButton = document.getElementById('test-ollama');
+    const yamlFileInput = document.getElementById('yaml-file');
+    const loadYamlButton = document.getElementById('load-yaml');
+    const yamlContent = document.getElementById('yaml-content');
     const statusMessage = document.getElementById('status-message');
 
     function showStatus(message, type = 'info') {
@@ -16,6 +19,37 @@ document.addEventListener('DOMContentLoaded', () => {
         startApplyButton.disabled = isRunning;
         stopApplyButton.disabled = !isRunning;
     }
+
+    // Load and display YAML file
+    loadYamlButton.addEventListener('click', async () => {
+        const file = yamlFileInput.files[0];
+        if (!file) {
+            showStatus('Please select a YAML file first', 'error');
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            yamlContent.textContent = text;
+            yamlContent.style.display = 'block';
+
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+            chrome.tabs.sendMessage(tab.id, { 
+                action: 'LOAD_YAML', 
+                content: text 
+            }, response => {
+                if (response && response.success) {
+                    showStatus('Profile loaded successfully', 'success');
+                } else {
+                    showStatus('Error loading profile: ' + (response?.error || 'Unknown error'), 'error');
+                }
+            });
+        } catch (error) {
+            console.error('Error reading YAML file:', error);
+            showStatus('Error reading YAML file', 'error');
+        }
+    });
 
     // Check current state when popup opens
     async function checkCurrentState() {

@@ -18,16 +18,6 @@ class AIQuestionAnswerer {
         this.conversationHistoryKey = `conversation_history_${this.job.companyName}_${this.job.jobId}`;
     }
 
-    async loadUserData(yamlContent) {
-        try {
-            const userData = yaml.load(yamlContent);
-            await this.setUserContext(yaml.dump(userData));
-            return userData;
-        } catch (error) {
-            console.error('Error loading YAML data:', error);
-            throw error;
-        }
-    }
 
     setSystemContext(systemContext = null) {
         const todayDate = new Date().toISOString().split('T')[0];

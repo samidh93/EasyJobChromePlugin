@@ -1,7 +1,9 @@
 import { LinkedInJobSearch, LinkedInJobInteraction, LinkedInJobInfo, LinkedInForm } from './linkedin/index.js';
 import { debugLog, sendStatusUpdate, shouldStop, DEBUG } from './utils.js';
+import UserProfile from './user/userProfile.js';
 
 let isAutoApplyRunning = false;
+let userProfile = null;
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -126,12 +128,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'GET_STATE') {
         debugLog('Getting current state');
         sendResponse({ isRunning: isAutoApplyRunning });
-    } else if (message.action === 'TEST_OLLAMA') {
-        debugLog('Testing Ollama connection');
-        chrome.runtime.sendMessage({ action: 'testOllama' }, response => {
-            debugLog('Ollama test response:', response);
-            sendResponse(response);
-        });
+    } else if (message.action === 'LOAD_YAML') {
+        try {
+            userProfile = new UserProfile();
+            userProfile.loadUserData(message.content)
+                .then(() => {
+                    debugLog('Successfully loaded user profile data');
+                    sendResponse({ success: true });
+                })
+                .catch(error => {
+                    console.error('Error loading YAML:', error);
+                    debugLog('Error loading YAML:', error);
+                    sendResponse({ success: false, error: error.message });
+                });
+            return true; // Will respond asynchronously
+        } catch (error) {
+            console.error('Error parsing YAML:', error);
+            debugLog('Error parsing YAML:', error);
+            sendResponse({ success: false, error: error.message });
+        }
     }
     // Return true to indicate we will send a response asynchronously
     return true;
