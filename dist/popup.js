@@ -20,36 +20,39 @@ document.addEventListener('DOMContentLoaded', () => {
         stopApplyButton.disabled = !isRunning;
     }
 
-    // Load and display YAML file
-    loadYamlButton.addEventListener('click', async () => {
-        const file = yamlFileInput.files[0];
-        if (!file) {
-            showStatus('Please select a YAML file first', 'error');
-            return;
+    // Function to send message to content script with retry
+    async function sendMessageToContentScript(message, maxRetries = 3) {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        if (!tab) {
+            console.error('No active tab found');
+            return null;
         }
 
-        try {
-            const text = await file.text();
-            yamlContent.textContent = text;
-            yamlContent.style.display = 'block';
-
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            
-            chrome.tabs.sendMessage(tab.id, { 
-                action: 'LOAD_YAML', 
-                content: text 
-            }, response => {
-                if (response && response.success) {
-                    showStatus('Profile loaded successfully', 'success');
-                } else {
-                    showStatus('Error loading profile: ' + (response?.error || 'Unknown error'), 'error');
+        let retries = 0;
+        while (retries < maxRetries) {
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.tabs.sendMessage(tab.id, message, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(chrome.runtime.lastError);
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+                return response;
+            } catch (error) {
+                console.log(`Attempt ${retries + 1} failed:`, error);
+                retries++;
+                if (retries < maxRetries) {
+                    // Wait before retrying
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-            });
-        } catch (error) {
-            console.error('Error reading YAML file:', error);
-            showStatus('Error reading YAML file', 'error');
+            }
         }
-    });
+        return null;
+    }
 
     // Check current state when popup opens
     async function checkCurrentState() {
@@ -62,14 +65,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Query the content script for current state
-            chrome.tabs.sendMessage(tab.id, { action: 'GET_STATE' }, (response) => {
-                if (response && response.isRunning) {
-                    updateButtonStates(true);
-                    showStatus('Auto-apply process is running...', 'info');
-                } else {
-                    updateButtonStates(false);
-                }
-            });
+            const response = await sendMessageToContentScript({ action: 'GET_STATE' });
+            if (response && response.isRunning) {
+                updateButtonStates(true);
+                showStatus('Auto-apply process is running...', 'info');
+            } else {
+                updateButtonStates(false);
+            }
         } catch (error) {
             console.error('Error checking current state:', error);
             showStatus('Error checking current state', 'error');
@@ -93,25 +95,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Message listener for status updates
     const messageListener = (message, sender, sendResponse) => {
+        // Only handle specific message types that the popup needs to process
+        let handled = false;
+        
         if (message.type === 'STATUS_UPDATE') {
             showStatus(message.text, message.status);
+            handled = true;
         }
         if (message.type === 'PROCESS_COMPLETE') {
             updateButtonStates(false);
             showStatus(message.text || 'Auto-apply process completed!', 'success');
+            handled = true;
         }
         if (message.action === 'CONVERSATION_UPDATED') {
             console.log('Conversation updated:', message.data);
             updateConversationDropdowns(message.data);
+            handled = true;
         }
         
-        // Always send a response to close the message channel properly
-        if (sendResponse) {
+        // Only send a response if we actually handled this message
+        if (handled && sendResponse) {
             sendResponse({ received: true });
+            return false; // Synchronous response
         }
         
-        // Return false to indicate synchronous handling
-        return false;
+        // Return undefined so other listeners can handle the message
+        return undefined;
     };
 
     // Add message listener
@@ -124,39 +133,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start auto-apply process
     startApplyButton.addEventListener('click', async () => {
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        
-        if (!tab.url.includes('linkedin.com/jobs')) {
-          showStatus('Please navigate to LinkedIn Jobs page first', 'error');
-          return;
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+            if (!tab.url.includes('linkedin.com/jobs')) {
+                showStatus('Please navigate to LinkedIn Jobs page first', 'error');
+                return;
+            }
+
+            updateButtonStates(true);
+            showStatus('Starting auto-apply process...', 'info');
+
+            // Send message to content script to start the process
+            await sendMessageToContentScript({ action: 'START_AUTO_APPLY' });
+
+        } catch (error) {
+            console.error('Error starting auto-apply:', error);
+            showStatus('Error starting auto-apply process', 'error');
+            updateButtonStates(false);
         }
-
-        updateButtonStates(true);
-        showStatus('Starting auto-apply process...', 'info');
-
-        // Send message to content script to start the process
-        chrome.tabs.sendMessage(tab.id, { action: 'START_AUTO_APPLY' });
-
-      } catch (error) {
-        console.error('Error starting auto-apply:', error);
-        showStatus('Error starting auto-apply process', 'error');
-        updateButtonStates(false);
-      }
     });
 
     // Stop auto-apply process
     stopApplyButton.addEventListener('click', async () => {
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        chrome.tabs.sendMessage(tab.id, { action: 'STOP_AUTO_APPLY' });
-        
-        updateButtonStates(false);
-        showStatus('Stopping auto-apply process...', 'info');
-      } catch (error) {
-        console.error('Error stopping auto-apply:', error);
-        showStatus('Error stopping auto-apply process', 'error');
-      }
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            await sendMessageToContentScript({ action: 'STOP_AUTO_APPLY' });
+            
+            updateButtonStates(false);
+            showStatus('Stopping auto-apply process...', 'info');
+        } catch (error) {
+            console.error('Error stopping auto-apply:', error);
+            showStatus('Error stopping auto-apply process', 'error');
+        }
     });
 
     // Test Ollama connection
@@ -165,11 +174,70 @@ document.addEventListener('DOMContentLoaded', () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         showStatus('Testing Ollama connection...', 'info');
         
+        // Try to remove any previous help sections
+        const oldHelpSection = document.querySelector('.help-section');
+        if (oldHelpSection) {
+          oldHelpSection.remove();
+        }
+        
         chrome.runtime.sendMessage({ action: 'testOllama' }, (response) => {
           if (response && response.success) {
-            showStatus('Ollama connection successful!', 'success');
+            showStatus(`Ollama connection successful! Using port ${response.data.port || 11434} and model "${response.data.version || 'unknown'}"`, 'success');
           } else {
-            showStatus(`Ollama connection failed: ${response?.error || 'Unknown error'}`, 'error');
+            const errorMsg = response?.error || 'Unknown error';
+            const troubleshooting = response?.troubleshooting || 'Make sure Ollama is installed and running on your computer.';
+            
+            console.error('Ollama connection error:', errorMsg);
+            showStatus(`Ollama connection failed: ${errorMsg}`, 'error');
+            
+            // Create a help section with troubleshooting tailored to the specific error
+            const helpSection = document.createElement('div');
+            helpSection.className = 'help-section';
+            
+            let helpContent = `
+              <h3>Troubleshooting Ollama Connection</h3>
+              <ol>
+                <li>Make sure Ollama is installed on your computer. Visit <a href="https://ollama.ai" target="_blank">ollama.ai</a> to download.</li>
+                <li>Open a terminal and run <code>ollama serve</code> to start the Ollama server.</li>
+            `;
+            
+            // Add error-specific help
+            if (errorMsg.includes('Failed to connect') || errorMsg.includes('fetch')) {
+              helpContent += `
+                <li><strong>Connection issue detected:</strong> Ollama server might not be running. Check if you see Ollama in your system tray or task manager.</li>
+                <li>If running, try restarting it with <code>ollama serve</code>.</li>
+              `;
+            } else if (errorMsg.includes('timeout')) {
+              helpContent += `
+                <li><strong>Timeout detected:</strong> Ollama is responding too slowly. This could be due to low system resources or a large model.</li>
+                <li>Try closing other resource-intensive applications.</li>
+                <li>Consider using a smaller model by running <code>ollama pull gemma:2b</code> in your terminal.</li>
+              `;
+            } else if (errorMsg.includes('parse') || errorMsg.includes('format')) {
+              helpContent += `
+                <li><strong>Response format issue detected:</strong> Ollama's response couldn't be properly understood.</li>
+                <li>Try updating Ollama to the latest version.</li>
+                <li>Check if the model is fully downloaded with <code>ollama list</code>.</li>
+              `;
+            }
+            
+            // Add general model instructions
+            helpContent += `
+                <li>Make sure the required model is installed by running <code>ollama pull qwen2.5:3b</code> in your terminal.</li>
+                <li>If that doesn't work, try a different model with <code>ollama pull gemma:2b</code> or <code>ollama pull llama3:8b</code>.</li>
+                <li>Check if any firewall or security software is blocking connections to localhost.</li>
+                <li>Try restarting your computer and the Ollama service.</li>
+              </ol>
+              <p>${troubleshooting}</p>
+            `;
+            
+            helpSection.innerHTML = helpContent;
+            
+            // Add the help section after the status message
+            const statusMessageElement = document.getElementById('status-message');
+            if (statusMessageElement && statusMessageElement.parentNode) {
+              statusMessageElement.parentNode.insertBefore(helpSection, statusMessageElement.nextSibling);
+            }
           }
         });
       } catch (error) {
@@ -264,6 +332,11 @@ function loadDropdownOptions() {
     const companyDropdown = document.getElementById('company-filter');
     const jobDropdown = document.getElementById('job-filter');
     
+    if (!companyDropdown || !jobDropdown) {
+      console.error('Dropdown elements not found!');
+      return;
+    }
+    
     // Clear existing options except the first one
     while (companyDropdown.options.length > 1) companyDropdown.remove(1);
     while (jobDropdown.options.length > 1) jobDropdown.remove(1);
@@ -279,6 +352,8 @@ function loadDropdownOptions() {
       });
     } else {
       console.log('No companies found in dropdownData');
+      // If no data exists, try to load test data
+      insertTestData();
     }
     
     // Load jobs
@@ -301,7 +376,9 @@ function loadDropdownOptions() {
     
     // Question dropdown event listener
     const questionDropdown = document.getElementById('question-filter');
-    questionDropdown.addEventListener('change', displaySelectedQuestionAnswer);
+    if (questionDropdown) {
+      questionDropdown.addEventListener('change', displaySelectedQuestionAnswer);
+    }
     
     console.log('Dropdown data loaded from Chrome storage');
   });
@@ -313,8 +390,13 @@ function updateJobDropdown() {
   const companyDropdown = document.getElementById('company-filter');
   const jobDropdown = document.getElementById('job-filter');
   const questionDropdown = document.getElementById('question-filter');
-  const selectedCompany = companyDropdown.value;
   
+  if (!companyDropdown || !jobDropdown || !questionDropdown) {
+    console.error('Required dropdown elements not found!');
+    return;
+  }
+  
+  const selectedCompany = companyDropdown.value;
   console.log('Selected company:', selectedCompany);
   
   // Store current selection
@@ -332,47 +414,70 @@ function updateJobDropdown() {
   questionDropdown.disabled = true;
   
   // Clear displayed question and answer
-  document.getElementById('question-text').textContent = '';
-  document.getElementById('answer-text').textContent = '';
+  const questionText = document.getElementById('question-text');
+  const answerText = document.getElementById('answer-text');
+  if (questionText) questionText.textContent = '';
+  if (answerText) answerText.textContent = '';
   
   chrome.storage.local.get('dropdownData', function(result) {
     console.log('Retrieved dropdown data for jobs:', result.dropdownData);
     
     if (result.dropdownData && result.dropdownData.jobs) {
-      const jobsToShow = selectedCompany === '' 
-        ? result.dropdownData.jobs 
-        : result.dropdownData.jobs.filter(job => job.company === selectedCompany);
+      let jobsToShow;
+      
+      if (selectedCompany === '') {
+        // Show all jobs
+        jobsToShow = result.dropdownData.jobs;
+      } else {
+        // Filter jobs by company
+        jobsToShow = result.dropdownData.jobs.filter(job => {
+          console.log('Checking job:', job, 'against company:', selectedCompany);
+          return job.company === selectedCompany;
+        });
+      }
       
       console.log('Jobs to show:', jobsToShow);
       
-      jobsToShow.forEach(job => {
-        const option = document.createElement('option');
-        option.value = job.value;
-        option.textContent = job.text;
-        option.setAttribute('data-company', job.company);
-        jobDropdown.appendChild(option);
-      });
-      
-      // Restore selection if possible
-      if (currentJobSelection) {
-        const jobExists = jobsToShow.some(job => job.value === currentJobSelection);
-        if (jobExists) {
-          jobDropdown.value = currentJobSelection;
-        } else {
-          jobDropdown.value = '';
+      if (jobsToShow.length > 0) {
+        jobsToShow.forEach(job => {
+          const option = document.createElement('option');
+          option.value = job.value;
+          option.textContent = job.text;
+          option.setAttribute('data-company', job.company);
+          jobDropdown.appendChild(option);
+        });
+        
+        // Restore selection if possible
+        if (currentJobSelection) {
+          const jobExists = jobsToShow.some(job => job.value === currentJobSelection);
+          if (jobExists) {
+            jobDropdown.value = currentJobSelection;
+          } else {
+            jobDropdown.value = '';
+          }
         }
+      } else {
+        console.log('No jobs found for company:', selectedCompany);
       }
+    } else {
+      console.log('No jobs data found in dropdownData');
     }
   });
 }
 
 // Function to update the question dropdown based on selected job
 function updateQuestionDropdown() {
+  console.log('Updating question dropdown...');
   const jobDropdown = document.getElementById('job-filter');
   const questionDropdown = document.getElementById('question-filter');
-  const selectedJob = jobDropdown.value;
   
-  console.log("Updating question dropdown for job:", selectedJob);
+  if (!jobDropdown || !questionDropdown) {
+    console.error('Required dropdown elements not found!');
+    return;
+  }
+  
+  const selectedJob = jobDropdown.value;
+  console.log("Selected job:", selectedJob);
   
   // Clear all question options except the first "Select a question" option
   while (questionDropdown.options.length > 1) {
@@ -380,8 +485,10 @@ function updateQuestionDropdown() {
   }
   
   // Clear displayed question and answer
-  document.getElementById('question-text').textContent = '';
-  document.getElementById('answer-text').textContent = '';
+  const questionText = document.getElementById('question-text');
+  const answerText = document.getElementById('answer-text');
+  if (questionText) questionText.textContent = '';
+  if (answerText) answerText.textContent = '';
   
   if (selectedJob === '') {
     // If no job is selected, disable the question dropdown
@@ -397,29 +504,45 @@ function updateQuestionDropdown() {
       const jobConversations = result.conversationData[selectedJob];
       console.log("Job conversations:", jobConversations);
       
-      if (jobConversations.length > 0) {
+      if (jobConversations && jobConversations.length > 0) {
         // Enable the question dropdown
         questionDropdown.disabled = false;
         
         // Add each question to the dropdown
         jobConversations.forEach((conversation, index) => {
-          // Find the user message - could be at index 0 or 1
-          const userMsgIndex = conversation.findIndex(msg => msg.role === 'user');
-          const assistantMsgIndex = conversation.findIndex(msg => msg.role === 'assistant');
+          if (!Array.isArray(conversation)) {
+            console.error('Invalid conversation format:', conversation);
+            return;
+          }
           
-          if (userMsgIndex !== -1 && assistantMsgIndex !== -1) {
-            const questionText = extractQuestionText(conversation[userMsgIndex].content);
+          // Find the user message
+          const userMsg = conversation.find(msg => msg.role === 'user');
+          const assistantMsg = conversation.find(msg => msg.role === 'assistant');
+          
+          if (userMsg && assistantMsg) {
+            const questionText = extractQuestionText(userMsg.content);
+            console.log('Adding question:', questionText);
             
             const option = document.createElement('option');
             option.value = index;
             option.textContent = questionText;
             questionDropdown.appendChild(option);
+          } else {
+            console.error('Missing user or assistant message in conversation:', conversation);
           }
         });
         
         if (questionDropdown.options.length <= 1) {
           console.log("No valid questions found for this job");
           questionDropdown.disabled = true;
+        } else {
+          console.log(`Added ${questionDropdown.options.length - 1} questions to dropdown`);
+          
+          // Automatically select the most recent question (last in the array)
+          if (questionDropdown.options.length > 1) {
+            questionDropdown.selectedIndex = questionDropdown.options.length - 1;
+            displaySelectedQuestionAnswer();
+          }
         }
       } else {
         console.log("No conversations found for this job");
@@ -434,10 +557,17 @@ function updateQuestionDropdown() {
 
 // Function to extract a short question title from the full question content
 function extractQuestionText(content) {
-  // Try to extract the question part from the content
-  const questionMatch = content.match(/Form Question: (.*?)(\n|$)/);
+  // Check for "Form Question: " format
+  const questionMatch = content.match(/Form Question: ([^?]+)\s*\?/);
   if (questionMatch && questionMatch[1]) {
     return questionMatch[1].trim();
+  }
+  
+  // Try to find a question in the content with alternative formats
+  const altQuestionMatch = content.match(/Question:\s*([^?]+)\s*\?/i) || 
+                          content.match(/([^.]+\?)/);
+  if (altQuestionMatch && altQuestionMatch[1]) {
+    return altQuestionMatch[1].trim();
   }
   
   // If that fails, just take the first 50 characters
@@ -446,10 +576,16 @@ function extractQuestionText(content) {
 
 // Function to display the selected question and answer
 function displaySelectedQuestionAnswer() {
+  console.log('Displaying selected question and answer...');
   const jobDropdown = document.getElementById('job-filter');
   const questionDropdown = document.getElementById('question-filter');
   const questionText = document.getElementById('question-text');
   const answerText = document.getElementById('answer-text');
+  
+  if (!jobDropdown || !questionDropdown || !questionText || !answerText) {
+    console.error('Required elements not found!');
+    return;
+  }
   
   const selectedJob = jobDropdown.value;
   const selectedQuestion = questionDropdown.value;
@@ -473,18 +609,23 @@ function displaySelectedQuestionAnswer() {
       console.log("Selected conversation:", conversation);
       
       if (Array.isArray(conversation)) {
-        // Find the user and assistant messages regardless of position
+        // Find the user and assistant messages
         const userMsg = conversation.find(msg => msg.role === 'user');
         const assistantMsg = conversation.find(msg => msg.role === 'assistant');
         
         if (userMsg && assistantMsg) {
           questionText.textContent = userMsg.content || "Question not available";
           answerText.textContent = assistantMsg.content || "Answer not available";
+          console.log('Displayed Q&A:', { question: userMsg.content, answer: assistantMsg.content });
+        } else {
+          console.error('Missing user or assistant message in conversation:', conversation);
+          questionText.textContent = "Error: Invalid conversation format";
+          answerText.textContent = "Please try selecting another question";
         }
       } else {
-        console.log("Invalid conversation format:", conversation);
-        questionText.textContent = "Conversation data format error";
-        answerText.textContent = "Invalid conversation data format";
+        console.error("Invalid conversation format:", conversation);
+        questionText.textContent = "Error: Invalid conversation format";
+        answerText.textContent = "Please try selecting another question";
       }
     } else {
       console.log("Conversation data not found for selection");
@@ -549,13 +690,32 @@ function updateConversationDropdowns(data) {
         conversationData[data.title] = [];
       }
       
-      // Check if conversation already exists
-      const isExisting = conversationData[data.title].some(existingConv => {
-        return existingConv[0]?.content === data.conversation[0]?.content;
-      });
+      // Find the user question message and assistant answer for comparison
+      const newUserMsg = data.conversation.find(msg => msg.role === 'user');
+      const newAssistantMsg = data.conversation.find(msg => msg.role === 'assistant');
+      
+      // Better duplicate detection by comparing both question and answer
+      let isExisting = false;
+      if (newUserMsg && newAssistantMsg) {
+        isExisting = conversationData[data.title].some(existingConv => {
+          const existingUserMsg = existingConv.find(msg => msg.role === 'user');
+          return existingUserMsg && existingUserMsg.content === newUserMsg.content;
+        });
+      } else {
+        // Fallback to old method if we can't find user/assistant messages
+        isExisting = conversationData[data.title].some(existingConv => {
+          return existingConv[0]?.content === data.conversation[0]?.content;
+        });
+      }
       
       if (!isExisting) {
+        console.log('Adding new conversation:', {
+          question: newUserMsg?.content,
+          answer: newAssistantMsg?.content
+        });
         conversationData[data.title].push(data.conversation);
+      } else {
+        console.log('Skipping duplicate conversation');
       }
     }
     
@@ -574,38 +734,106 @@ function updateConversationDropdowns(data) {
 
 // Test function to insert sample conversation data
 function insertTestData() {
+    console.log('Inserting test data...');
+    
     const sampleData = {
-        companies: ['Google', 'Microsoft', 'Amazon'],
+        companies: ['Google', 'Microsoft', 'Amazon', 'Tesla', 'Apple'],
         jobs: [
             { company: 'Google', title: 'Software Engineer' },
-            { company: 'Microsoft', title: 'Product Manager' },
-            { company: 'Amazon', title: 'Data Scientist' }
+            { company: 'Google', title: 'Product Manager' },
+            { company: 'Microsoft', title: 'Frontend Developer' },
+            { company: 'Microsoft', title: 'Data Scientist' },
+            { company: 'Amazon', title: 'Backend Engineer' },
+            { company: 'Amazon', title: 'UX Designer' },
+            { company: 'Tesla', title: 'Embedded Systems Engineer' },
+            { company: 'Apple', title: 'iOS Developer' }
         ],
         conversations: {
             'Software Engineer': [
                 [
-                    { role: 'user', content: 'Form Question: Notice period\nUser Context: female [certifications...]\nAvailable Options: "Option auswählen", "Available immediately", "1 week", "2 weeks", "3 weeks", "1 month", "2 months", "3 months and more"\n\nIMPORTANT: You MUST choose EXACTLY ONE option from the list above.' },
+                    { role: 'user', content: 'Form Question: What is your notice period?\nUser Context: female [certifications...]\nAvailable Options: "Option auswählen", "Available immediately", "1 week", "2 weeks", "3 weeks", "1 month", "2 months", "3 months and more"\n\nIMPORTANT: You MUST choose EXACTLY ONE option from the list above.' },
                     { role: 'assistant', content: '3 months and more' }
                 ],
                 [
-                    { role: 'user', content: 'Form Question: What is your salary expectations (gross)?\nUser Context: [education...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'user', content: 'Form Question: What is your salary expectation (gross)?\nUser Context: [education...]\nIMPORTANT: Return ONLY the answer as a plain string' },
                     { role: 'assistant', content: '100000' }
+                ],
+                [
+                    { role: 'user', content: 'Form Question: What programming languages are you proficient in?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'JavaScript, Python, Java, C++, TypeScript' }
                 ]
             ],
             'Product Manager': [
                 [
-                    { role: 'user', content: 'Form Question: Years of experience?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'user', content: 'Form Question: Years of experience in product management?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
                     { role: 'assistant', content: '5' }
+                ],
+                [
+                    { role: 'user', content: 'Form Question: What product management tools do you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'JIRA, Trello, Asana, Google Analytics, Mixpanel' }
+                ]
+            ],
+            'Frontend Developer': [
+                [
+                    { role: 'user', content: 'Form Question: Experience with React.js?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: '4 years' }
+                ],
+                [
+                    { role: 'user', content: 'Form Question: Experience with CSS frameworks?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'Bootstrap, Tailwind CSS, Material UI' }
+                ]
+            ],
+            'Data Scientist': [
+                [
+                    { role: 'user', content: 'Form Question: Experience with machine learning?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: '3 years' }
+                ],
+                [
+                    { role: 'user', content: 'Form Question: What data analysis tools do you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'Python, R, Pandas, NumPy, TensorFlow, PyTorch' }
+                ]
+            ],
+            'Backend Engineer': [
+                [
+                    { role: 'user', content: 'Form Question: Experience with cloud services?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'AWS, Azure, Google Cloud Platform' }
+                ]
+            ],
+            'UX Designer': [
+                [
+                    { role: 'user', content: 'Form Question: Design tools you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'Figma, Sketch, Adobe XD, InVision' }
+                ]
+            ],
+            'Embedded Systems Engineer': [
+                [
+                    { role: 'user', content: 'Form Question: Experience with microcontrollers?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'Arduino, Raspberry Pi, ESP32, STM32' }
+                ]
+            ],
+            'iOS Developer': [
+                [
+                    { role: 'user', content: 'Form Question: Experience with Swift?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: '5 years' }
+                ],
+                [
+                    { role: 'user', content: 'Form Question: Have you published apps on the App Store?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
+                    { role: 'assistant', content: 'Yes, I have published 7 apps on the App Store' }
                 ]
             ]
         }
     };
     
-    console.log('Inserting test data');
+    console.log('Test data prepared:', sampleData);
     
     // Clear existing dropdowns
     const companyDropdown = document.getElementById('company-filter');
     const jobDropdown = document.getElementById('job-filter');
+    
+    if (!companyDropdown || !jobDropdown) {
+        console.error('Dropdown elements not found!');
+        return;
+    }
     
     // Reset dropdowns
     while (companyDropdown.options.length > 1) companyDropdown.remove(1);
@@ -628,8 +856,35 @@ function insertTestData() {
         jobDropdown.appendChild(option);
     });
     
+    // Prepare dropdown data in the format expected by the app
+    const dropdownData = {
+        companies: sampleData.companies.map(company => ({
+            value: company,
+            text: company
+        })),
+        jobs: sampleData.jobs.map(job => ({
+            value: job.title,
+            text: job.title,
+            company: job.company
+        })),
+        companyJobMap: {},
+        lastUpdated: new Date().toISOString()
+    };
+    
+    // Build company-job map
+    sampleData.companies.forEach(company => {
+        dropdownData.companyJobMap[company] = sampleData.jobs
+            .filter(job => job.company === company)
+            .map(job => ({
+                value: job.title,
+                text: job.title
+            }));
+    });
+    
     // Save dropdown data
-    saveDropdownOptions();
+    chrome.storage.local.set({ 'dropdownData': dropdownData }, function() {
+        console.log('Test dropdown data saved:', dropdownData);
+    });
     
     // Save conversation data
     let conversationData = {};
@@ -640,7 +895,13 @@ function insertTestData() {
     chrome.storage.local.set({ 'conversationData': conversationData }, function() {
         console.log('Test conversation data saved:', conversationData);
         // Update UI to show we have data
-        document.getElementById('status-message').textContent = 'Test data loaded successfully';
-        document.getElementById('status-message').className = 'status-message success';
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Test data loaded successfully';
+            statusMessage.className = 'status-message success';
+            
+            // After data is loaded, update dropdown to show it
+            updateJobDropdown();
+        }
     });
 }
