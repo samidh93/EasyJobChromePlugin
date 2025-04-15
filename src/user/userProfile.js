@@ -8,8 +8,7 @@ class UserProfile {
     async loadUserData(yamlContent) {
         try {
             this.profileData = yaml.load(yamlContent);
-            console.log("yaml data: ");
-            console.log(this.getSummary());
+            console.log(this.profileData)
             return this.profileData;
         } catch (error) {
             console.error('Error loading YAML data:', error);

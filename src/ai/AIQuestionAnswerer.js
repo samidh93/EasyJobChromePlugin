@@ -15,7 +15,9 @@ class AIQuestionAnswerer {
 
     async setJob(job) {
         this.job = job;
-        this.conversationHistoryKey = `conversation_history_${this.job.companyName}_${this.job.jobId}`;
+        console.log("current job infos: ", this.job)
+        this.conversationHistoryKey = `conversation_history_${this.job.currentJob.company}_${this.job.currentJob.jobId}`;
+        console.log("conversationHistoryKey set", this.conversationHistoryKey)
     }
 
 
@@ -59,12 +61,22 @@ Your goal is to make the user stand out in a positive and professional way.
     }
 
     async saveConversationHistory() {
+        console.log("saving AI conversation history")
         if (this.conversationHistoryKey) {
             try {
-                localStorage.setItem(
-                    this.conversationHistoryKey,
-                    JSON.stringify(this.conversationHistoryCompany)
-                );
+                console.log("saved conversation history:", this.conversationHistoryCompany)
+                // Send message to popup about new conversation data
+                chrome.runtime.sendMessage({
+                    action: 'CONVERSATION_UPDATED',
+                    data: {
+                        key: this.conversationHistoryKey,
+                        company: this.job.currentJob.company,
+                        title: this.job.currentJob.title,
+                        jobId: this.job.currentJob.jobId,
+                        conversation: this.conversationHistoryCompany,
+                        timestamp: new Date().toISOString()
+                    }
+                });
             } catch (error) {
                 console.error('Error saving conversation history:', error);
             }
@@ -91,55 +103,104 @@ DO NOT add any explanation or additional text.`;
             this.conversationHistory.push({ role: "user", content: prompt });
             this.conversationHistoryCompany.push({ role: "user", content: prompt });
 
+            // Detect if this is an experience question for fallback
+            const isExperience = this.isExperienceQuestion(question);
+            
             console.log('Attempting to connect to Ollama server...');
-            const response = await new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({
-                    action: 'callOllama',
-                    endpoint: 'chat',
-                    data: {
-                        model: this.model,
-                        messages: this.conversationHistory,
-                        stream: false,
-                        options: { temperature: 0.0 }
-                    }
-                }, response => {
-                    if (response.success) {
-                        resolve(response.data);
-                    } else {
-                        reject(new Error(response.error));
-                    }
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    // Add timeout to prevent hanging
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Ollama connection timeout'));
+                    }, 15000); // 15 second timeout
+                    
+                    chrome.runtime.sendMessage({
+                        action: 'callOllama',
+                        endpoint: 'chat',
+                        data: {
+                            model: this.model,
+                            messages: this.conversationHistory,
+                            stream: false,
+                            options: { temperature: 0.0 }
+                        }
+                    }, response => {
+                        clearTimeout(timeout);
+                        if (response && response.success) {
+                            resolve(response.data);
+                        } else {
+                            reject(new Error(response?.error || 'Failed to get response from Ollama'));
+                        }
+                    });
                 });
-            });
 
-            console.log('Response received successfully');
-            let rawAnswer = response.message.content.trim();
-            let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
+                console.log('Response received successfully');
+                let rawAnswer = response.message.content.trim();
+                let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
 
-            let validAnswer;
-            if (options.includes(answerCandidate)) {
-                validAnswer = answerCandidate;
-            } else {
-                let bestMatch = null;
-                let bestScore = -1;
-                for (const option of options) {
-                    const optionLower = option.toLowerCase();
-                    const answerLower = answerCandidate.toLowerCase();
-                    if (optionLower.includes(answerLower) || answerLower.includes(optionLower)) {
-                        const score = this.calculateSimilarity(optionLower, answerLower);
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestMatch = option;
+                let validAnswer;
+                if (options.includes(answerCandidate)) {
+                    validAnswer = answerCandidate;
+                } else {
+                    let bestMatch = null;
+                    let bestScore = -1;
+                    for (const option of options) {
+                        const optionLower = option.toLowerCase();
+                        const answerLower = answerCandidate.toLowerCase();
+                        if (optionLower.includes(answerLower) || answerLower.includes(optionLower)) {
+                            const score = this.calculateSimilarity(optionLower, answerLower);
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestMatch = option;
+                            }
                         }
                     }
+                    validAnswer = bestScore > 0.5 ? bestMatch : options[1];
                 }
-                validAnswer = bestScore > 0.5 ? bestMatch : options[1];
-            }
 
-            this.conversationHistoryCompany.push({ role: "assistant", content: validAnswer });
-            await this.saveConversationHistory();
-            this.conversationHistory = this.conversationHistory.slice(0, 1);
-            this.conversationHistoryCompany = [];
-            return validAnswer;
+                this.conversationHistoryCompany.push({ role: "assistant", content: validAnswer });
+                await this.saveConversationHistory();
+                this.conversationHistory = this.conversationHistory.slice(0, 1);
+                this.conversationHistoryCompany = [];
+                return validAnswer;
+                
+            } catch (apiError) {
+                console.error('API error in answerWithOptions:', apiError);
+                
+                // Select a fallback option based on question type
+                let fallbackAnswer;
+                
+                // For experience questions, choose an appropriate option
+                if (isExperience) {
+                    // Find options related to years of experience
+                    const experienceOptions = options.filter(opt => {
+                        const optLower = opt.toLowerCase();
+                        return /\d+/.test(optLower) || 
+                               optLower.includes('year') || 
+                               optLower.includes('jahr') ||
+                               optLower.includes('experience') ||
+                               optLower.includes('erfahrung');
+                    });
+                    
+                    if (experienceOptions.length > 0) {
+                        // Find a mid-range option
+                        const middleIndex = Math.floor(experienceOptions.length / 2);
+                        fallbackAnswer = experienceOptions[middleIndex];
+                    } else {
+                        // Just pick the second option if available (first is often "Select an option")
+                        fallbackAnswer = options.length > 1 ? options[1] : options[0];
+                    }
+                } else {
+                    // For other questions, pick the second option if available
+                    fallbackAnswer = options.length > 1 ? options[1] : options[0];
+                }
+                
+                console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
+                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
+                await this.saveConversationHistory();
+                this.conversationHistory = this.conversationHistory.slice(0, 1);
+                this.conversationHistoryCompany = [];
+                return fallbackAnswer;
+            }
         } catch (error) {
             console.error('Error details:', {
                 name: error.name,
@@ -147,7 +208,10 @@ DO NOT add any explanation or additional text.`;
                 stack: error.stack,
                 cause: error.cause
             });
-            throw error;
+            
+            // Last resort fallback - pick the second option or first if only one exists
+            const fallback = options.length > 1 ? options[1] : options[0];
+            return fallback;
         }
     }
 
@@ -173,48 +237,84 @@ IMPORTANT:
             this.conversationHistory.push({ role: "user", content: prompt });
             this.conversationHistoryCompany.push({ role: "user", content: prompt });
 
+            // Detect if this is an experience question for fallback
+            const isExperience = this.isExperienceQuestion(question);
+            
             console.log('Attempting to connect to Ollama server...');
-            const response = await new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({
-                    action: 'callOllama',
-                    endpoint: 'chat',
-                    data: {
-                        model: this.model,
-                        messages: this.conversationHistory,
-                        stream: false,
-                        options: { temperature: 0.0 }
-                    }
-                }, response => {
-                    if (response.success) {
-                        resolve(response.data);
-                    } else {
-                        reject(new Error(response.error));
-                    }
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    // Add timeout to prevent hanging
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Ollama connection timeout'));
+                    }, 15000); // 15 second timeout
+                    
+                    chrome.runtime.sendMessage({
+                        action: 'callOllama',
+                        endpoint: 'chat',
+                        data: {
+                            model: this.model,
+                            messages: this.conversationHistory,
+                            stream: false,
+                            options: { temperature: 0.0 }
+                        }
+                    }, response => {
+                        clearTimeout(timeout);
+                        if (response && response.success) {
+                            resolve(response.data);
+                        } else {
+                            reject(new Error(response?.error || 'Failed to get response from Ollama'));
+                        }
+                    });
                 });
-            });
 
-            console.log('Response received successfully');
-            let rawAnswer = response.message.content.trim();
-            let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
+                console.log('Response received successfully');
+                let rawAnswer = response.message.content.trim();
+                let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
 
-            if (this.isNumberQuestion(question)) {
-                const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
-                if (numberMatch) {
-                    if (this.isExperienceQuestion(question)) {
-                        const extractedNum = parseFloat(numberMatch[0]);
-                        answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
-                    } else {
-                        answerCandidate = numberMatch[0];
+                if (this.isNumberQuestion(question)) {
+                    const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
+                    if (numberMatch) {
+                        if (isExperience) {
+                            const extractedNum = parseFloat(numberMatch[0]);
+                            answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
+                        } else {
+                            answerCandidate = numberMatch[0];
+                        }
                     }
                 }
-            }
 
-            if (answerCandidate) {
-                this.conversationHistoryCompany.push({ role: "assistant", content: answerCandidate });
+                if (answerCandidate) {
+                    this.conversationHistoryCompany.push({ role: "assistant", content: answerCandidate });
+                    await this.saveConversationHistory();
+                    this.conversationHistory = this.conversationHistory.slice(0, 1);
+                    this.conversationHistoryCompany = [];
+                    return answerCandidate;
+                }
+                
+                // If we got here, we didn't get a valid answer, provide fallback
+                throw new Error('No valid answer candidate generated');
+                
+            } catch (apiError) {
+                console.error('API error:', apiError);
+                // Provide fallback answers based on question type
+                let fallbackAnswer;
+                
+                if (isExperience) {
+                    fallbackAnswer = "5"; // Default experience years
+                } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
+                    fallbackAnswer = "90000"; // Default salary
+                } else if (this.isNumberQuestion(question)) {
+                    fallbackAnswer = "3"; // Default number
+                } else {
+                    fallbackAnswer = "Yes"; // Default text answer
+                }
+                
+                console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
+                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
                 await this.saveConversationHistory();
                 this.conversationHistory = this.conversationHistory.slice(0, 1);
                 this.conversationHistoryCompany = [];
-                return answerCandidate;
+                return fallbackAnswer;
             }
         } catch (error) {
             console.error('Error details:', {
@@ -223,7 +323,10 @@ IMPORTANT:
                 stack: error.stack,
                 cause: error.cause
             });
-            throw error;
+            
+            // Last resort fallback
+            const fallback = this.isExperienceQuestion(question) ? "5" : "Yes";
+            return fallback;
         }
     }
 
@@ -233,8 +336,13 @@ IMPORTANT:
     }
 
     isExperienceQuestion(question) {
-        const keywords = ["experience", "erfahrung", "jahre", "years"];
-        return keywords.some(keyword => question.toLowerCase().includes(keyword));
+        const lowerQuestion = question.toLowerCase();
+        const experienceKeywords = [
+            'experience', 'years', 'year', 'erfahrung', 'jahre', 'jahr',
+            'how long', 'wie lange', 'worked with', 'gearbeitet mit'
+        ];
+        
+        return experienceKeywords.some(keyword => lowerQuestion.includes(keyword));
     }
 
     calculateSimilarity(str1, str2) {
