@@ -103,6 +103,67 @@ class LinkedInForm extends LinkedInBase {
             this.errorLog("Error clicking on submit button", error);
         }
     }
+    static async clickDoneAfterSubmit() {
+        try {
+            await this.wait();
+            // Try the aria-label approach first
+            let doneButton = document.querySelector('button[aria-label="Done"]');
+            
+            // If not found, try finding by class and text content
+            if (!doneButton) {
+                const buttons = document.querySelectorAll('button.artdeco-button');
+                for (const button of buttons) {
+                    const spanText = button.querySelector('span.artdeco-button__text');
+                    if (spanText && spanText.textContent.trim() === 'Done') {
+                        doneButton = button;
+                        break;
+                    }
+                }
+            }
+            
+            if (doneButton) {
+                doneButton.click();
+                this.debugLog("Clicked on Done button");
+            } else {
+                this.debugLog("Done button not found");
+            }
+        } catch (error) {
+            this.errorLog("Error clicking on Done button", error);
+        }
+    }
+
+    static async clickDismissAfterSubmit() {
+        try {
+            await this.wait();
+            // Try the aria-label approach first
+            let dismissButton = document.querySelector('button[aria-label="Dismiss"]');
+            
+            // If not found, try finding by data attribute
+            if (!dismissButton) {
+                dismissButton = document.querySelector('button[data-test-modal-close-btn]');
+            }
+            
+            // If still not found, try finding by class and SVG icon
+            if (!dismissButton) {
+                const buttons = document.querySelectorAll('button.artdeco-button--circle.artdeco-modal__dismiss');
+                for (const button of buttons) {
+                    if (button.querySelector('svg use[href="#close-medium"]')) {
+                        dismissButton = button;
+                        break;
+                    }
+                }
+            }
+            
+            if (dismissButton) {
+                dismissButton.click();
+                this.debugLog("Clicked on Dismiss button");
+            } else {
+                this.debugLog("Dismiss button not found");
+            }
+        } catch (error) {
+            this.errorLog("Error clicking on Dismiss button", error);
+        }
+    }
 
     static async processForm(shouldStop) {
         try {
@@ -133,31 +194,43 @@ class LinkedInForm extends LinkedInBase {
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
                         await this.processFormQuestions();
-                        reviewButton.click();
+                        await this.clickReviewApplication();
                         this.debugLog("Found and clicked review button");
                         reviewFound = true;
                         await this.wait(2000);
 
                         const submitButton = document.querySelector('button[aria-label="Submit application"]');
                         if (submitButton) {
-                            submitButton.click();
+                            await this.clickSubmitApplication();
                             this.debugLog("Clicked submit button after review");
                             isSubmitted = true;
+                            try {
+                                await this.clickDoneAfterSubmit();
+                                await this.clickDismissAfterSubmit();
+                            } catch (error) {
+                                this.errorLog("Error with post-submission actions", error);
+                            }
                             break;
                         }
                     } else {
                         const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
                         if (nextPageButton) {
                             await this.processFormQuestions();
-                            nextPageButton.click();
+                            await this.clickNextPage();
                             this.debugLog("Clicked next page button");
                             await this.wait(2000);
                         } else {
                             const submitButton = document.querySelector('button[aria-label="Submit application"]');
                             if (submitButton) {
-                                submitButton.click();
+                                await this.clickSubmitApplication();
                                 this.debugLog("Found submit button without review");
                                 isSubmitted = true;
+                                try {
+                                    await this.clickDoneAfterSubmit();
+                                    await this.clickDismissAfterSubmit();
+                                } catch (error) {
+                                    this.errorLog("Error with post-submission actions", error);
+                                }
                                 break;
                             }
                         }
@@ -251,7 +324,9 @@ class LinkedInForm extends LinkedInBase {
             const ai = new AIQuestionAnswerer();
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
-
+            // Save to chrome.storage for persistence
+            const currentJob = await chrome.storage.local.get('currentJob');
+            ai.setJob(currentJob)
             const formElements = document.querySelectorAll("div.fb-dash-form-element");
             for (const element of formElements) {
                 const labelElement = element.querySelector("label");

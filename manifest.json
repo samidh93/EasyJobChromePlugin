@@ -13,13 +13,15 @@
     "storage",
     "notifications",
     "scripting",
+    "downloads",
     "webRequest",
-    "storage",
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
-    "http://localhost:11434/"
+    "http://localhost:11434/",
+    "*://*/*" 
+
   ],
   "background": {
     "service_worker": "dist/background.bundle.js",

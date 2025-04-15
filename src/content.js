@@ -67,6 +67,7 @@ async function startAutoApply() {
                     // Get job info
                     const jobInfo = await LinkedInJobInfo.getAllJobInfo();
                     debugLog('Job info:', jobInfo);
+                    await chrome.storage.local.set({ 'currentJob': jobInfo });
 
                     // Try to click Easy Apply button
                     await LinkedInJobInteraction.clickEasyApply();
@@ -81,6 +82,8 @@ async function startAutoApply() {
                     // process form
                     await LinkedInForm.processForm(() => shouldStop(isAutoApplyRunning));
                     debugLog('Processed application form');
+                    await chrome.storage.local.remove('currentJob');
+                    debugLog('Removed current job from storage');
                     // Close the form
                     //await LinkedInForm.closeForm(false);
                     //debugLog('Closed application form');
@@ -115,7 +118,7 @@ async function startAutoApply() {
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    debugLog('Received message:', message);
+    debugLog('Received message in content script:', message);
     if (message.action === 'START_AUTO_APPLY') {
         if (!isAutoApplyRunning) {
             isAutoApplyRunning = true;

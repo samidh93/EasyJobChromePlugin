@@ -1,6 +1,22 @@
 import LinkedInBase from './LinkedInBase.js';
 
 class LinkedInJobInfo extends LinkedInBase {
+    static async getJobId() {
+        try {
+            const jobId = new URLSearchParams(window.location.search).get("currentJobId");
+    
+            if (!jobId) {
+                this.debugLog("Job ID not found in URL");
+                return null;
+            }
+            this.debugLog(`Found job ID: ${jobId}`);
+            return jobId;
+        } catch (error) {
+            this.errorLog("Error getting job ID", error);
+            return null;
+        }
+    }
+    
     static async getJobTitle() {
         try {
             const titleElement = document.querySelector('.job-details-jobs-unified-top-card__job-title h1');
@@ -51,10 +67,8 @@ class LinkedInJobInfo extends LinkedInBase {
 
     static async getJobType() {
         try {
-            const jobTypeElement = document.querySelector('.job-details-preferences-and-skills__pill .ui-label');
-            if (jobTypeElement) {
-                const jobTypeText = jobTypeElement.textContent.trim();
-                const jobType = jobTypeText.split('Matches')[0].trim();
+            const jobType = document.querySelector("div.job-details-fit-level-preferences").querySelectorAll('button')[1].querySelector('span').textContent.trim()
+            if (jobType) {
                 this.debugLog(`Found job type: ${jobType}`);
                 return jobType;
             }
@@ -66,6 +80,20 @@ class LinkedInJobInfo extends LinkedInBase {
         }
     }
 
+    static async getRemoteType() {
+        try {
+            const RemoteType = document.querySelector("div.job-details-fit-level-preferences").querySelectorAll('button')[0].querySelector('span').textContent.trim()
+            if (RemoteType) {
+                this.debugLog(`Found remote type: ${RemoteType}`);
+                return RemoteType;
+            }
+            this.debugLog("remote type not found");
+            return null;
+        } catch (error) {
+            this.errorLog("Error getting remote type", error);
+            return null;
+        }
+    }
     static async getJobDescription() {
         try {
             const descriptionElement = document.querySelector('.jobs-description__content');
@@ -84,7 +112,8 @@ class LinkedInJobInfo extends LinkedInBase {
 
     static async getApplicantCount() {
         try {
-            const applicantElement = document.querySelector('.jobs-premium-applicant-insights__list-item .jobs-premium-applicant-insights__list-num');
+            const elements = document.querySelectorAll('.job-details-jobs-unified-top-card__tertiary-description-container .tvm__text');
+            const applicantElement = elements.length > 0 ? elements[elements.length - 1] : null;
             if (applicantElement) {
                 const count = applicantElement.textContent.trim();
                 this.debugLog(`Found applicant count: ${count}`);
@@ -98,15 +127,33 @@ class LinkedInJobInfo extends LinkedInBase {
         }
     }
 
+    static async getPostedDate() {
+        try {
+            const applicantElement = document.querySelectorAll('.job-details-jobs-unified-top-card__tertiary-description-container .tvm__text')[2];
+            if (applicantElement) {
+                const count = applicantElement.textContent.trim();
+                this.debugLog(`Found posted date: ${count}`);
+                return count;
+            }
+            this.debugLog("posted date not found");
+            return null;
+        } catch (error) {
+            this.errorLog("Error getting applicant count", error);
+            return null;
+        }
+    }
     static async getAllJobInfo() {
         try {
             const jobInfo = {
+                jobId:await this.getJobId(),
                 title: await this.getJobTitle(),
                 company: await this.getCompanyName(),
                 location: await this.getLocation(),
                 jobType: await this.getJobType(),
+                remoteType: await this.getRemoteType(),
                 description: await this.getJobDescription(),
-                applicantCount: await this.getApplicantCount()
+                applicantCount: await this.getApplicantCount(),
+                postedDate: await this.getPostedDate()
             };
             this.debugLog("Retrieved all job information");
             return jobInfo;

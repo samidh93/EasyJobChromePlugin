@@ -8,18 +8,55 @@
 </head>
 <body>
   <div class="popup-container">
-    <div class="file-input-section">
-      <input type="file" id="yaml-file" accept=".yaml,.yml" />
-      <button id="load-yaml" class="secondary-button">Load Profile</button>
+    <div class="tabs">
+      <button class="tab-button active" data-tab="profile">Profile</button>
+      <button class="tab-button" data-tab="conversations">AI Conversations</button>
     </div>
-    <div class="yaml-display" id="yaml-display">
-      <pre id="yaml-content"></pre>
+    
+    <div class="tab-content active" id="profile-tab">
+      <div class="file-input-section">
+        <input type="file" id="yaml-file" accept=".yaml,.yml" />
+        <button id="load-yaml" class="secondary-button">Load Profile</button>
+      </div>
+      <div class="yaml-display" id="yaml-display">
+        <pre id="yaml-content"></pre>
+      </div>
+      <div class="action-buttons">
+        <button id="start-apply" class="primary-button">Start Auto Apply</button>
+        <button id="stop-apply" class="secondary-button" disabled>Stop</button>
+        <button id="test-ollama" class="secondary-button">Test Ollama Connection</button>
+      </div>
     </div>
-    <div class="action-buttons">
-      <button id="start-apply" class="primary-button">Start Auto Apply</button>
-      <button id="stop-apply" class="secondary-button" disabled>Stop</button>
-      <button id="test-ollama" class="secondary-button">Test Ollama Connection</button>
+
+    <div class="tab-content" id="conversations-tab">
+      <div class="conversations-container">
+        <div class="conversation-filters">
+          <select id="company-filter">
+            <option value="">All Companies</option>
+          </select>
+          <select id="job-filter">
+            <option value="">All Jobs</option>
+          </select>
+          <select id="question-filter" disabled>
+            <option value="">Select a question</option>
+          </select>
+        </div>
+        <div class="conversation-details">
+          <div class="question-container" id="question-container">
+            <h4>Question:</h4>
+            <div id="question-text" class="conversation-text"></div>
+          </div>
+          <div class="answer-container" id="answer-container">
+            <h4>Answer:</h4>
+            <div id="answer-text" class="conversation-text"></div>
+          </div>
+        </div>
+        <div class="conversations-list" id="conversations-list">
+          <!-- Conversations will be loaded here -->
+        </div>
+      </div>
     </div>
+
     <div id="status-message" class="status-message"></div>
   </div>
   <script src="popup.js"></script>
