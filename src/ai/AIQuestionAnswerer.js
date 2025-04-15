@@ -12,6 +12,75 @@ class AIQuestionAnswerer {
         this.ollamaUrl = 'http://localhost:11434';
     }
 
+    async checkOllamaConnection() {
+        try {
+            console.log('Checking Ollama connection...');
+            
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    console.error('Ollama connection check timed out');
+                    resolve({ 
+                        connected: false, 
+                        error: 'Connection timeout', 
+                        troubleshooting: 'Ollama connection check timed out. Make sure Ollama is running and not overloaded.'
+                    });
+                }, 10000); // Increased timeout to 10 seconds
+                
+                chrome.runtime.sendMessage({ 
+                    action: 'testOllama',
+                }, (response) => {
+                    clearTimeout(timeout);
+                    
+                    // Log the full response to help debug
+                    console.log(`Ollama connection check response:`, response);
+                    
+                    // Check for undefined or null response (common messaging error)
+                    if (!response) {
+                        console.error('Ollama connection check returned no response');
+                        resolve({ 
+                            connected: false, 
+                            error: 'No response from connection test', 
+                            troubleshooting: 'Extension messaging error. Try reloading the page or restarting the browser.'
+                        });
+                        return;
+                    }
+                    
+                    // Check if response is just {received: true} which indicates a messaging issue
+                    if (response.received === true && !response.success && !response.error) {
+                        console.error('Received incomplete response from background script:', response);
+                        resolve({ 
+                            connected: false, 
+                            error: 'Incomplete response from extension', 
+                            troubleshooting: 'Try restarting the browser or reinstalling the extension.'
+                        });
+                        return;
+                    }
+                    
+                    if (response.success) {
+                        console.log('Ollama connection successful');
+                        resolve({ 
+                            connected: true, 
+                            port: response.data?.port || 11434 // Always use port 11434
+                        });
+                    } else {
+                        console.error('Ollama connection failed:', response.error);
+                        resolve({ 
+                            connected: false, 
+                            error: response.error || 'Unknown error', 
+                            troubleshooting: response.troubleshooting || 'Make sure Ollama is running on your computer'
+                        });
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('Error checking Ollama connection:', error);
+            return { 
+                connected: false, 
+                error: error.message, 
+                troubleshooting: 'Error checking Ollama connection'
+            };
+        }
+    }
 
     async setJob(job) {
         this.job = job;
@@ -65,6 +134,19 @@ Your goal is to make the user stand out in a positive and professional way.
         if (this.conversationHistoryKey) {
             try {
                 console.log("saved conversation history:", this.conversationHistoryCompany)
+                
+                // Check if there's at least one user message and one assistant message
+                const hasUserMessage = this.conversationHistoryCompany.some(msg => msg.role === 'user');
+                const hasAssistantMessage = this.conversationHistoryCompany.some(msg => msg.role === 'assistant');
+                
+                if (!hasUserMessage || !hasAssistantMessage) {
+                    console.warn("Incomplete conversation history, missing user or assistant message");
+                    return;
+                }
+                
+                // Deep clone the conversation history before sending to avoid reference issues
+                const conversationCopy = JSON.parse(JSON.stringify(this.conversationHistoryCompany));
+                
                 // Send message to popup about new conversation data
                 chrome.runtime.sendMessage({
                     action: 'CONVERSATION_UPDATED',
@@ -73,13 +155,62 @@ Your goal is to make the user stand out in a positive and professional way.
                         company: this.job.currentJob.company,
                         title: this.job.currentJob.title,
                         jobId: this.job.currentJob.jobId,
-                        conversation: this.conversationHistoryCompany,
+                        conversation: conversationCopy,
                         timestamp: new Date().toISOString()
                     }
                 });
+                
+                console.log("Conversation sent to popup for storage");
             } catch (error) {
                 console.error('Error saving conversation history:', error);
             }
+        } else {
+            console.warn("Cannot save conversation history: conversationHistoryKey is not set");
+        }
+    }
+
+    // Add these helper functions to make API calls more reliable
+    async makeOllamaRequest(endpoint, data) {
+        try {
+            console.log(`Making Ollama request to ${endpoint}`);
+            
+            return new Promise((resolve, reject) => {
+                // Add timeout to prevent hanging
+                const timeout = setTimeout(() => {
+                    reject(new Error('Ollama request timeout'));
+                }, 20000); // 20 second timeout
+                
+                chrome.runtime.sendMessage({
+                    action: 'callOllama',
+                    endpoint: endpoint,
+                    data: data
+                }, response => {
+                    clearTimeout(timeout);
+                    console.log(`Received Ollama response:`, response);
+                    
+                    if (!response) {
+                        console.error('No response received from Ollama');
+                        reject(new Error('No response received from Ollama'));
+                        return;
+                    }
+                    
+                    // Check if response is just {received: true} which indicates a messaging issue
+                    if (response.received === true && !response.success && !response.error) {
+                        console.error('Received incomplete response from background script:', response);
+                        reject(new Error('Incomplete response from extension'));
+                        return;
+                    }
+                    
+                    if (response.success) {
+                        resolve(response.data);
+                    } else {
+                        reject(new Error(response.error || 'Failed to get response from Ollama'));
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('Error in makeOllamaRequest:', error);
+            throw error;
         }
     }
 
@@ -106,31 +237,55 @@ DO NOT add any explanation or additional text.`;
             // Detect if this is an experience question for fallback
             const isExperience = this.isExperienceQuestion(question);
             
+            // Check Ollama connection first
+            const connectionStatus = await this.checkOllamaConnection();
+            if (!connectionStatus.connected) {
+                console.error('Ollama not connected:', connectionStatus.error);
+                console.log('Using fallback mechanism due to connection error');
+                
+                // Select a fallback option based on question type using the same logic as in the catch block
+                let fallbackAnswer;
+                
+                if (isExperience) {
+                    // Find options related to years of experience
+                    const experienceOptions = options.filter(opt => {
+                        const optLower = opt.toLowerCase();
+                        return /\d+/.test(optLower) || 
+                               optLower.includes('year') || 
+                               optLower.includes('jahr') ||
+                               optLower.includes('experience') ||
+                               optLower.includes('erfahrung');
+                    });
+                    
+                    if (experienceOptions.length > 0) {
+                        // Find a mid-range option
+                        const middleIndex = Math.floor(experienceOptions.length / 2);
+                        fallbackAnswer = experienceOptions[middleIndex];
+                    } else {
+                        // Just pick the second option if available (first is often "Select an option")
+                        fallbackAnswer = options.length > 1 ? options[1] : options[0];
+                    }
+                } else {
+                    // For other questions, pick the second option if available
+                    fallbackAnswer = options.length > 1 ? options[1] : options[0];
+                }
+                
+                console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
+                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
+                await this.saveConversationHistory();
+                this.conversationHistory = this.conversationHistory.slice(0, 1);
+                this.conversationHistoryCompany = [];
+                return fallbackAnswer;
+            }
+            
             console.log('Attempting to connect to Ollama server...');
             try {
-                const response = await new Promise((resolve, reject) => {
-                    // Add timeout to prevent hanging
-                    const timeout = setTimeout(() => {
-                        reject(new Error('Ollama connection timeout'));
-                    }, 15000); // 15 second timeout
-                    
-                    chrome.runtime.sendMessage({
-                        action: 'callOllama',
-                        endpoint: 'chat',
-                        data: {
-                            model: this.model,
-                            messages: this.conversationHistory,
-                            stream: false,
-                            options: { temperature: 0.0 }
-                        }
-                    }, response => {
-                        clearTimeout(timeout);
-                        if (response && response.success) {
-                            resolve(response.data);
-                        } else {
-                            reject(new Error(response?.error || 'Failed to get response from Ollama'));
-                        }
-                    });
+                // Use the new helper function
+                const response = await this.makeOllamaRequest('chat', {
+                    model: this.model,
+                    messages: this.conversationHistory,
+                    stream: false,
+                    options: { temperature: 0.0 }
                 });
 
                 console.log('Response received successfully');
@@ -240,31 +395,43 @@ IMPORTANT:
             // Detect if this is an experience question for fallback
             const isExperience = this.isExperienceQuestion(question);
             
+            // Check Ollama connection first
+            const connectionStatus = await this.checkOllamaConnection();
+            if (!connectionStatus.connected) {
+                console.error('Ollama not connected:', connectionStatus.error);
+                console.log('Using fallback mechanism due to connection error');
+                
+                // Provide fallback answers based on question type
+                let fallbackAnswer;
+                
+                if (isExperience) {
+                    fallbackAnswer = "5"; // Default experience years
+                } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
+                    fallbackAnswer = this.userData?.personal_information?.desired_salary || "90000"; // Default salary
+                } else if (this.isNumberQuestion(question)) {
+                    fallbackAnswer = "3"; // Default number
+                } else if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('telefon')) {
+                    fallbackAnswer = this.userData?.personal_information?.phone || "+1234567890"; // Default phone
+                } else {
+                    fallbackAnswer = "Yes"; // Default text answer
+                }
+                
+                console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
+                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
+                await this.saveConversationHistory();
+                this.conversationHistory = this.conversationHistory.slice(0, 1);
+                this.conversationHistoryCompany = [];
+                return fallbackAnswer;
+            }
+            
             console.log('Attempting to connect to Ollama server...');
             try {
-                const response = await new Promise((resolve, reject) => {
-                    // Add timeout to prevent hanging
-                    const timeout = setTimeout(() => {
-                        reject(new Error('Ollama connection timeout'));
-                    }, 15000); // 15 second timeout
-                    
-                    chrome.runtime.sendMessage({
-                        action: 'callOllama',
-                        endpoint: 'chat',
-                        data: {
-                            model: this.model,
-                            messages: this.conversationHistory,
-                            stream: false,
-                            options: { temperature: 0.0 }
-                        }
-                    }, response => {
-                        clearTimeout(timeout);
-                        if (response && response.success) {
-                            resolve(response.data);
-                        } else {
-                            reject(new Error(response?.error || 'Failed to get response from Ollama'));
-                        }
-                    });
+                // Use the new helper function
+                const response = await this.makeOllamaRequest('chat', {
+                    model: this.model,
+                    messages: this.conversationHistory,
+                    stream: false,
+                    options: { temperature: 0.0 }
                 });
 
                 console.log('Response received successfully');
@@ -296,6 +463,7 @@ IMPORTANT:
                 
             } catch (apiError) {
                 console.error('API error:', apiError);
+                
                 // Provide fallback answers based on question type
                 let fallbackAnswer;
                 

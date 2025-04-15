@@ -23,40 +23,31 @@ async function testOllamaConnection() {
             stream: false
         };
 
-        const response = await fetch('http://localhost:11434/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(testMessage)
-        });
+        // Reuse the callOllamaAPI function
+        const result = await callOllamaAPI('chat', testMessage);
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Ollama chat test failed:', {
-                status: response.status,
-                statusText: response.statusText,
-                body: errorText
-            });
-            throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
+        if (result.success) {
+            console.log('Ollama chat test successful:', result.data);
+            
+            return { 
+                success: true, 
+                data: {
+                    version: result.data.model,
+                    response: result.data.message.content,
+                    port: 11434
+                }
+            };
+        } else {
+            // If callOllamaAPI returned an error
+            throw new Error(result.error || 'Unknown error from Ollama');
         }
-        
-        const data = await response.json();
-        console.log('Ollama chat test successful:', data);
-        return { 
-            success: true, 
-            data: {
-                version: data.model,
-                response: data.message.content
-            }
-        };
     } catch (error) {
         console.error('Ollama connection failed:', error);
         return { 
             success: false, 
             error: error.message,
-            details: error.stack
+            details: error.stack,
+            troubleshooting: "Please make sure Ollama is running on your computer. Try running 'ollama serve' in your terminal."
         };
     }
 }
@@ -66,15 +57,18 @@ async function callOllamaAPI(endpoint, data) {
     try {
         console.log(`Making Ollama API call to ${endpoint}:`, data);
         
-        const response = await fetch(`http://localhost:11434/api/${endpoint}`, {
+        const port = 11434; // Always use port 11434
+        console.log(`Using Ollama port: ${port}`);
+        
+        const response = await fetch(`http://localhost:${port}/api/${endpoint}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'Access-Control-Allow-Origin': '*'  // Try allowing CORS
-
+                'Access-Control-Allow-Origin': '*'
             },
-            body: JSON.stringify(data)
+            body: JSON.stringify(data),
+            signal: AbortSignal.timeout(15000) // 15 second timeout
         });
 
         if (!response.ok) {
@@ -89,13 +83,33 @@ async function callOllamaAPI(endpoint, data) {
 
         const result = await response.json();
         console.log(`Ollama API call successful:`, result);
+        
+        // Check if result has the expected structure
+        if (!result || !result.message || !result.message.content) {
+            console.error(`Unexpected response structure from Ollama:`, result);
+            throw new Error('Invalid response format from Ollama');
+        }
+        
         return { success: true, data: result };
     } catch (error) {
         console.error(`Ollama API call failed (${endpoint}):`, error);
+        
+        // Provide helpful troubleshooting info
+        let troubleshooting = "Please make sure Ollama is running on your computer. Try running 'ollama serve' in your terminal.";
+        
+        if (error.name === 'AbortError') {
+            troubleshooting += " The request timed out - your model might be too large or your computer too slow.";
+        } else if (error.message.includes('Failed to fetch')) {
+            troubleshooting += " Your computer cannot connect to Ollama. Make sure it's running and not blocked by a firewall.";
+        } else if (error.message.includes('Invalid response format')) {
+            troubleshooting += " Ollama returned an unexpected response format. You might need to update Ollama to a newer version.";
+        }
+        
         return { 
             success: false, 
             error: error.message,
-            details: error.stack
+            details: error.stack,
+            troubleshooting: troubleshooting
         };
     }
 }
@@ -105,14 +119,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Received message in background script:', message);
     
     if (message.action === 'testOllama') {
-        testOllamaConnection().then(sendResponse);
+        // Properly handle the Promise chain with explicit send of response
+        testOllamaConnection()
+            .then(result => {
+                console.log('Sending test Ollama response:', result);
+                sendResponse(result);
+            })
+            .catch(error => {
+                console.error('Error in test Ollama:', error);
+                sendResponse({ 
+                    success: false, 
+                    error: error.message || 'Unknown error',
+                    troubleshooting: "Error in background script" 
+                });
+            });
         return true; // Will respond asynchronously
     }
 
     if (message.action === 'callOllama') {
         const { endpoint, data } = message;
         console.log('Making Ollama API call:', { endpoint, data });
-        callOllamaAPI(endpoint, data).then(sendResponse);
+        
+        // Properly handle the Promise chain with explicit send of response
+        callOllamaAPI(endpoint, data)
+            .then(result => {
+                console.log('Sending Ollama API response:', result);
+                sendResponse(result);
+            })
+            .catch(error => {
+                console.error('Error in call Ollama API:', error);
+                sendResponse({ 
+                    success: false, 
+                    error: error.message || 'Unknown error',
+                    troubleshooting: "Error in background script"
+                });
+            });
         return true; // Will respond asynchronously
     }
 });
