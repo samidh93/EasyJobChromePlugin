@@ -15,58 +15,58 @@ class AIQuestionAnswerer {
     async checkOllamaConnection() {
         try {
             console.log('Checking Ollama connection...');
-            
+
             return new Promise((resolve) => {
                 const timeout = setTimeout(() => {
                     console.error('Ollama connection check timed out');
-                    resolve({ 
-                        connected: false, 
-                        error: 'Connection timeout', 
+                    resolve({
+                        connected: false,
+                        error: 'Connection timeout',
                         troubleshooting: 'Ollama connection check timed out. Make sure Ollama is running and not overloaded.'
                     });
                 }, 10000); // Increased timeout to 10 seconds
-                
-                chrome.runtime.sendMessage({ 
+
+                chrome.runtime.sendMessage({
                     action: 'testOllama',
                 }, (response) => {
                     clearTimeout(timeout);
-                    
+
                     // Log the full response to help debug
                     console.log(`Ollama connection check response:`, response);
-                    
+
                     // Check for undefined or null response (common messaging error)
                     if (!response) {
                         console.error('Ollama connection check returned no response');
-                        resolve({ 
-                            connected: false, 
-                            error: 'No response from connection test', 
+                        resolve({
+                            connected: false,
+                            error: 'No response from connection test',
                             troubleshooting: 'Extension messaging error. Try reloading the page or restarting the browser.'
                         });
                         return;
                     }
-                    
+
                     // Check if response is just {received: true} which indicates a messaging issue
                     if (response.received === true && !response.success && !response.error) {
                         console.error('Received incomplete response from background script:', response);
-                        resolve({ 
-                            connected: false, 
-                            error: 'Incomplete response from extension', 
+                        resolve({
+                            connected: false,
+                            error: 'Incomplete response from extension',
                             troubleshooting: 'Try restarting the browser or reinstalling the extension.'
                         });
                         return;
                     }
-                    
+
                     if (response.success) {
                         console.log('Ollama connection successful');
-                        resolve({ 
-                            connected: true, 
+                        resolve({
+                            connected: true,
                             port: response.data?.port || 11434 // Always use port 11434
                         });
                     } else {
                         console.error('Ollama connection failed:', response.error);
-                        resolve({ 
-                            connected: false, 
-                            error: response.error || 'Unknown error', 
+                        resolve({
+                            connected: false,
+                            error: response.error || 'Unknown error',
                             troubleshooting: response.troubleshooting || 'Make sure Ollama is running on your computer'
                         });
                     }
@@ -74,9 +74,9 @@ class AIQuestionAnswerer {
             });
         } catch (error) {
             console.error('Error checking Ollama connection:', error);
-            return { 
-                connected: false, 
-                error: error.message, 
+            return {
+                connected: false,
+                error: error.message,
                 troubleshooting: 'Error checking Ollama connection'
             };
         }
@@ -114,7 +114,8 @@ Your goal is to make the user stand out in a positive and professional way.
         try {
             this.userData = yaml.load(userContext);
             console.log("User context loaded successfully.");
-            
+            console.log(this.userData)
+
             for (const [key, value] of Object.entries(this.userData)) {
                 if (typeof value === 'object' && value !== null) {
                     for (const [subKey, subValue] of Object.entries(value)) {
@@ -134,19 +135,19 @@ Your goal is to make the user stand out in a positive and professional way.
         if (this.conversationHistoryKey) {
             try {
                 console.log("saved conversation history:", this.conversationHistoryCompany)
-                
+
                 // Check if there's at least one user message and one assistant message
                 const hasUserMessage = this.conversationHistoryCompany.some(msg => msg.role === 'user');
                 const hasAssistantMessage = this.conversationHistoryCompany.some(msg => msg.role === 'assistant');
-                
+
                 if (!hasUserMessage || !hasAssistantMessage) {
                     console.warn("Incomplete conversation history, missing user or assistant message");
                     return;
                 }
-                
+
                 // Deep clone the conversation history before sending to avoid reference issues
                 const conversationCopy = JSON.parse(JSON.stringify(this.conversationHistoryCompany));
-                
+
                 // Send message to popup about new conversation data
                 chrome.runtime.sendMessage({
                     action: 'CONVERSATION_UPDATED',
@@ -159,7 +160,7 @@ Your goal is to make the user stand out in a positive and professional way.
                         timestamp: new Date().toISOString()
                     }
                 });
-                
+
                 console.log("Conversation sent to popup for storage");
             } catch (error) {
                 console.error('Error saving conversation history:', error);
@@ -173,13 +174,13 @@ Your goal is to make the user stand out in a positive and professional way.
     async makeOllamaRequest(endpoint, data) {
         try {
             console.log(`Making Ollama request to ${endpoint}`);
-            
+
             return new Promise((resolve, reject) => {
                 // Add timeout to prevent hanging
                 const timeout = setTimeout(() => {
                     reject(new Error('Ollama request timeout'));
                 }, 20000); // 20 second timeout
-                
+
                 chrome.runtime.sendMessage({
                     action: 'callOllama',
                     endpoint: endpoint,
@@ -187,20 +188,20 @@ Your goal is to make the user stand out in a positive and professional way.
                 }, response => {
                     clearTimeout(timeout);
                     console.log(`Received Ollama response:`, response);
-                    
+
                     if (!response) {
                         console.error('No response received from Ollama');
                         reject(new Error('No response received from Ollama'));
                         return;
                     }
-                    
+
                     // Check if response is just {received: true} which indicates a messaging issue
                     if (response.received === true && !response.success && !response.error) {
                         console.error('Received incomplete response from background script:', response);
                         reject(new Error('Incomplete response from extension'));
                         return;
                     }
-                    
+
                     if (response.success) {
                         resolve(response.data);
                     } else {
@@ -220,10 +221,10 @@ Your goal is to make the user stand out in a positive and professional way.
             const relevantContext = relevantKeys
                 .map(key => `${key}: ${this.memory.data[key].text}`)
                 .join(", ");
-            
+
             const context = relevantContext || "The user has significant experience and qualifications suitable for this question.";
             const optionsStr = options.map(opt => `"${opt}"`).join(", ");
-            
+
             const prompt = `Form Question: ${question} ?
 Available Options: [${optionsStr}]
 User Context Data Hint: ${context}
@@ -236,27 +237,27 @@ DO NOT add any explanation or additional text.`;
 
             // Detect if this is an experience question for fallback
             const isExperience = this.isExperienceQuestion(question);
-            
+
             // Check Ollama connection first
             const connectionStatus = await this.checkOllamaConnection();
             if (!connectionStatus.connected) {
                 console.error('Ollama not connected:', connectionStatus.error);
                 console.log('Using fallback mechanism due to connection error');
-                
+
                 // Select a fallback option based on question type using the same logic as in the catch block
                 let fallbackAnswer;
-                
+
                 if (isExperience) {
                     // Find options related to years of experience
                     const experienceOptions = options.filter(opt => {
                         const optLower = opt.toLowerCase();
-                        return /\d+/.test(optLower) || 
-                               optLower.includes('year') || 
-                               optLower.includes('jahr') ||
-                               optLower.includes('experience') ||
-                               optLower.includes('erfahrung');
+                        return /\d+/.test(optLower) ||
+                            optLower.includes('year') ||
+                            optLower.includes('jahr') ||
+                            optLower.includes('experience') ||
+                            optLower.includes('erfahrung');
                     });
-                    
+
                     if (experienceOptions.length > 0) {
                         // Find a mid-range option
                         const middleIndex = Math.floor(experienceOptions.length / 2);
@@ -269,7 +270,7 @@ DO NOT add any explanation or additional text.`;
                     // For other questions, pick the second option if available
                     fallbackAnswer = options.length > 1 ? options[1] : options[0];
                 }
-                
+
                 console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
                 this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
                 await this.saveConversationHistory();
@@ -277,7 +278,7 @@ DO NOT add any explanation or additional text.`;
                 this.conversationHistoryCompany = [];
                 return fallbackAnswer;
             }
-            
+
             console.log('Attempting to connect to Ollama server...');
             try {
                 // Use the new helper function
@@ -317,25 +318,25 @@ DO NOT add any explanation or additional text.`;
                 this.conversationHistory = this.conversationHistory.slice(0, 1);
                 this.conversationHistoryCompany = [];
                 return validAnswer;
-                
+
             } catch (apiError) {
                 console.error('API error in answerWithOptions:', apiError);
-                
+
                 // Select a fallback option based on question type
                 let fallbackAnswer;
-                
+
                 // For experience questions, choose an appropriate option
                 if (isExperience) {
                     // Find options related to years of experience
                     const experienceOptions = options.filter(opt => {
                         const optLower = opt.toLowerCase();
-                        return /\d+/.test(optLower) || 
-                               optLower.includes('year') || 
-                               optLower.includes('jahr') ||
-                               optLower.includes('experience') ||
-                               optLower.includes('erfahrung');
+                        return /\d+/.test(optLower) ||
+                            optLower.includes('year') ||
+                            optLower.includes('jahr') ||
+                            optLower.includes('experience') ||
+                            optLower.includes('erfahrung');
                     });
-                    
+
                     if (experienceOptions.length > 0) {
                         // Find a mid-range option
                         const middleIndex = Math.floor(experienceOptions.length / 2);
@@ -348,7 +349,7 @@ DO NOT add any explanation or additional text.`;
                     // For other questions, pick the second option if available
                     fallbackAnswer = options.length > 1 ? options[1] : options[0];
                 }
-                
+
                 console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
                 this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
                 await this.saveConversationHistory();
@@ -363,7 +364,7 @@ DO NOT add any explanation or additional text.`;
                 stack: error.stack,
                 cause: error.cause
             });
-            
+
             // Last resort fallback - pick the second option or first if only one exists
             const fallback = options.length > 1 ? options[1] : options[0];
             return fallback;
@@ -376,9 +377,9 @@ DO NOT add any explanation or additional text.`;
             const relevantContext = relevantKeys
                 .map(key => `${key}: ${this.memory.data[key].text}`)
                 .join(", ");
-            
+
             const context = relevantContext || "The user has significant experience and qualifications suitable for this question.";
-            
+
             const prompt = `Form Question: ${question} ?
 User Context Data Hint: ${context}
 IMPORTANT:
@@ -394,16 +395,16 @@ IMPORTANT:
 
             // Detect if this is an experience question for fallback
             const isExperience = this.isExperienceQuestion(question);
-            
+
             // Check Ollama connection first
             const connectionStatus = await this.checkOllamaConnection();
             if (!connectionStatus.connected) {
                 console.error('Ollama not connected:', connectionStatus.error);
                 console.log('Using fallback mechanism due to connection error');
-                
+
                 // Provide fallback answers based on question type
                 let fallbackAnswer;
-                
+
                 if (isExperience) {
                     fallbackAnswer = "5"; // Default experience years
                 } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
@@ -415,7 +416,7 @@ IMPORTANT:
                 } else {
                     fallbackAnswer = "Yes"; // Default text answer
                 }
-                
+
                 console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
                 this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
                 await this.saveConversationHistory();
@@ -423,7 +424,7 @@ IMPORTANT:
                 this.conversationHistoryCompany = [];
                 return fallbackAnswer;
             }
-            
+
             console.log('Attempting to connect to Ollama server...');
             try {
                 // Use the new helper function
@@ -457,16 +458,16 @@ IMPORTANT:
                     this.conversationHistoryCompany = [];
                     return answerCandidate;
                 }
-                
+
                 // If we got here, we didn't get a valid answer, provide fallback
                 throw new Error('No valid answer candidate generated');
-                
+
             } catch (apiError) {
                 console.error('API error:', apiError);
-                
+
                 // Provide fallback answers based on question type
                 let fallbackAnswer;
-                
+
                 if (isExperience) {
                     fallbackAnswer = "5"; // Default experience years
                 } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
@@ -476,7 +477,7 @@ IMPORTANT:
                 } else {
                     fallbackAnswer = "Yes"; // Default text answer
                 }
-                
+
                 console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
                 this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
                 await this.saveConversationHistory();
@@ -491,7 +492,7 @@ IMPORTANT:
                 stack: error.stack,
                 cause: error.cause
             });
-            
+
             // Last resort fallback
             const fallback = this.isExperienceQuestion(question) ? "5" : "Yes";
             return fallback;
@@ -509,7 +510,7 @@ IMPORTANT:
             'experience', 'years', 'year', 'erfahrung', 'jahre', 'jahr',
             'how long', 'wie lange', 'worked with', 'gearbeitet mit'
         ];
-        
+
         return experienceKeywords.some(keyword => lowerQuestion.includes(keyword));
     }
 
@@ -521,10 +522,18 @@ IMPORTANT:
     }
 
     async answerQuestion(question, options = null) {
-        if (options && options.length > 0) {
-            return await this.answerWithOptions(question, options);
-        } else {
-            return await this.answerWithNoOptions(question);
+        try {
+            const result = await chrome.storage.local.get('userProfileYaml');
+            if (result.userProfileYaml) {
+                await this.setUserContext(result.userProfileYaml)
+            }
+            if (options && options.length > 0) {
+                return await this.answerWithOptions(question, options);
+            } else {
+                return await this.answerWithNoOptions(question);
+            }
+        } catch (error) {
+            console.error('Error getting yaml from storage:', error);
         }
     }
 }

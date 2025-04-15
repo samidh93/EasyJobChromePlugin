@@ -52,6 +52,64 @@ async function testOllamaConnection() {
     }
 }
 
+// Function to get embeddings from Ollama API
+async function getEmbeddings(text) {
+    try {
+        console.log(`Getting embeddings for text: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+        
+        const port = 11434;
+        const data = {
+            model: "nomic-embed-text",
+            prompt: text,
+            stream: false
+        };
+        
+        const response = await fetch(`http://localhost:${port}/api/embeddings`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify(data),
+            signal: AbortSignal.timeout(15000) // 15 second timeout
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Ollama embeddings API error:`, {
+                status: response.status,
+                statusText: response.statusText,
+                body: errorText
+            });
+            throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log(`Embeddings generated successfully`);
+        
+        return { success: true, data: result };
+    } catch (error) {
+        console.error(`Embeddings API call failed:`, error);
+        
+        // Provide helpful troubleshooting info
+        let troubleshooting = "Please make sure Ollama is running on your computer. Try running 'ollama serve' in your terminal.";
+        
+        if (error.name === 'AbortError') {
+            troubleshooting += " The request timed out - your model might be too large or your computer too slow.";
+        } else if (error.message.includes('Failed to fetch')) {
+            troubleshooting += " Your computer cannot connect to Ollama. Make sure it's running and not blocked by a firewall.";
+        }
+        
+        return { 
+            success: false, 
+            error: error.message,
+            details: error.stack,
+            troubleshooting: troubleshooting
+        };
+    }
+}
+
 // Function to make Ollama API calls
 async function callOllamaAPI(endpoint, data) {
     try {
@@ -152,6 +210,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     success: false, 
                     error: error.message || 'Unknown error',
                     troubleshooting: "Error in background script"
+                });
+            });
+        return true; // Will respond asynchronously
+    }
+
+    if (message.action === 'getEmbeddings') {
+        const { text } = message;
+        console.log('Getting embeddings for text');
+        
+        getEmbeddings(text)
+            .then(result => {
+                console.log('Sending embeddings response');
+                sendResponse(result);
+            })
+            .catch(error => {
+                console.error('Error getting embeddings:', error);
+                sendResponse({ 
+                    success: false, 
+                    error: error.message || 'Unknown error',
+                    troubleshooting: "Error generating embeddings"
                 });
             });
         return true; // Will respond asynchronously

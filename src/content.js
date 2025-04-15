@@ -131,26 +131,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'GET_STATE') {
         debugLog('Getting current state');
         sendResponse({ isRunning: isAutoApplyRunning });
-    } else if (message.action === 'LOAD_YAML') {
-        try {
-            userProfile = new UserProfile();
-            userProfile.loadUserData(message.content)
-                .then(() => {
-                    debugLog('Successfully loaded user profile data');
-                    sendResponse({ success: true });
-                })
-                .catch(error => {
-                    console.error('Error loading YAML:', error);
-                    debugLog('Error loading YAML:', error);
-                    sendResponse({ success: false, error: error.message });
-                });
-            return true; // Will respond asynchronously
-        } catch (error) {
-            console.error('Error parsing YAML:', error);
-            debugLog('Error parsing YAML:', error);
-            sendResponse({ success: false, error: error.message });
-        }
-    }
+    } 
     // Return true to indicate we will send a response asynchronously
     return true;
 }); 

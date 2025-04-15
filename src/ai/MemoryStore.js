@@ -6,26 +6,27 @@ class MemoryStore {
     async addEntry(key, text) {
         if (text) {
             try {
-                const response = await fetch('http://localhost:11434/api/embeddings', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        model: "nomic-embed-text",
-                        prompt: text,
-                        stream: false
-                    })
+                // Send message to background script to get embeddings
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage(
+                        { action: 'getEmbeddings', text },
+                        (response) => {
+                            if (chrome.runtime.lastError) {
+                                reject(new Error(chrome.runtime.lastError.message));
+                            } else {
+                                resolve(response);
+                            }
+                        }
+                    );
                 });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+
+                if (!response.success) {
+                    throw new Error(response.error || 'Unknown error generating embedding');
                 }
-                
-                const result = await response.json();
+
                 this.data[key] = {
                     text: text,
-                    embedding: result.embedding
+                    embedding: response.data.embedding
                 };
             } catch (error) {
                 console.error('Error generating embedding:', error);
@@ -39,24 +40,25 @@ class MemoryStore {
         }
 
         try {
-            const response = await fetch('http://localhost:11434/api/embeddings', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: "nomic-embed-text",
-                    prompt: query,
-                    stream: false
-                })
+            // Send message to background script to get embeddings for search query
+            const response = await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(
+                    { action: 'getEmbeddings', text: query },
+                    (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    }
+                );
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.success) {
+                throw new Error(response.error || 'Unknown error generating embedding for search');
             }
 
-            const result = await response.json();
-            const queryEmbedding = result.embedding;
+            const queryEmbedding = response.data.embedding;
 
             const similarities = {};
             for (const [key, entry] of Object.entries(this.data)) {

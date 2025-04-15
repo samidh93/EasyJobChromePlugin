@@ -263,7 +263,27 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-   
+    loadYamlButton.addEventListener('click', async () => {
+      const file = yamlFileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const yamlContent = e.target.result;
+          try {
+            // Store the YAML content in chrome.storage
+            await chrome.storage.local.set({ 'userProfileYaml': yamlContent });
+            showStatus('Resume YAML saved to storage. Refresh the page to apply it.', 'success');
+          } catch (error) {
+            console.error('Error saving YAML to storage:', error);
+            showStatus('Error saving YAML data', 'error');
+          }
+        };
+        reader.readAsText(file);
+      } else {
+        showStatus('Please select a YAML file first', 'error');
+      }
+    });
+
 });
 
 // Function to save dropdown options to Chrome storage with company-job mapping
@@ -737,88 +757,15 @@ function insertTestData() {
     console.log('Inserting test data...');
     
     const sampleData = {
-        companies: ['Google', 'Microsoft', 'Amazon', 'Tesla', 'Apple'],
+        companies: ['Test'],
         jobs: [
-            { company: 'Google', title: 'Software Engineer' },
-            { company: 'Google', title: 'Product Manager' },
-            { company: 'Microsoft', title: 'Frontend Developer' },
-            { company: 'Microsoft', title: 'Data Scientist' },
-            { company: 'Amazon', title: 'Backend Engineer' },
-            { company: 'Amazon', title: 'UX Designer' },
-            { company: 'Tesla', title: 'Embedded Systems Engineer' },
-            { company: 'Apple', title: 'iOS Developer' }
+            { company: 'Test', title: 'Test Job' }
         ],
         conversations: {
-            'Software Engineer': [
+            'Test Job': [
                 [
-                    { role: 'user', content: 'Form Question: What is your notice period?\nUser Context: female [certifications...]\nAvailable Options: "Option auswählen", "Available immediately", "1 week", "2 weeks", "3 weeks", "1 month", "2 months", "3 months and more"\n\nIMPORTANT: You MUST choose EXACTLY ONE option from the list above.' },
-                    { role: 'assistant', content: '3 months and more' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: What is your salary expectation (gross)?\nUser Context: [education...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: '100000' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: What programming languages are you proficient in?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'JavaScript, Python, Java, C++, TypeScript' }
-                ]
-            ],
-            'Product Manager': [
-                [
-                    { role: 'user', content: 'Form Question: Years of experience in product management?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: '5' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: What product management tools do you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'JIRA, Trello, Asana, Google Analytics, Mixpanel' }
-                ]
-            ],
-            'Frontend Developer': [
-                [
-                    { role: 'user', content: 'Form Question: Experience with React.js?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: '4 years' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: Experience with CSS frameworks?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'Bootstrap, Tailwind CSS, Material UI' }
-                ]
-            ],
-            'Data Scientist': [
-                [
-                    { role: 'user', content: 'Form Question: Experience with machine learning?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: '3 years' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: What data analysis tools do you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'Python, R, Pandas, NumPy, TensorFlow, PyTorch' }
-                ]
-            ],
-            'Backend Engineer': [
-                [
-                    { role: 'user', content: 'Form Question: Experience with cloud services?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'AWS, Azure, Google Cloud Platform' }
-                ]
-            ],
-            'UX Designer': [
-                [
-                    { role: 'user', content: 'Form Question: Design tools you use?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'Figma, Sketch, Adobe XD, InVision' }
-                ]
-            ],
-            'Embedded Systems Engineer': [
-                [
-                    { role: 'user', content: 'Form Question: Experience with microcontrollers?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'Arduino, Raspberry Pi, ESP32, STM32' }
-                ]
-            ],
-            'iOS Developer': [
-                [
-                    { role: 'user', content: 'Form Question: Experience with Swift?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: '5 years' }
-                ],
-                [
-                    { role: 'user', content: 'Form Question: Have you published apps on the App Store?\nUser Context: [experience...]\nIMPORTANT: Return ONLY the answer as a plain string' },
-                    { role: 'assistant', content: 'Yes, I have published 7 apps on the App Store' }
+                    { role: 'user', content: 'Form Question: What is your experience level?\nUser Context: [experience...]\nAvailable Options: "Junior", "Mid-level", "Senior"\nIMPORTANT: You MUST choose EXACTLY ONE option from the list above.' },
+                    { role: 'assistant', content: 'Senior' }
                 ]
             ]
         }
