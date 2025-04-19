@@ -2,6 +2,7 @@ import * as esbuild from 'esbuild';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import fs from 'fs';
+import path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,10 +24,18 @@ const commonOptions = {
 };
 
 try {
-    // ✅ Copy popup.html to dist/
+    // ✅ Create dist directories if they don't exist
     if (!fs.existsSync('dist')) {
         fs.mkdirSync('dist');
     }
+    if (!fs.existsSync('dist/input')) {
+        fs.mkdirSync('dist/input');
+    }
+    
+    // ✅ Copy example profile to dist folder
+    fs.copyFileSync('input/example_profile.yaml', 'dist/input/example_profile.yaml');
+    console.log('Example profile copied to dist/input/');
+    
     // ✅ Build Content Script
     await esbuild.build({
         ...commonOptions,
@@ -39,7 +48,6 @@ try {
         ...commonOptions,
         entryPoints: ['src/background.js'],
         outfile: 'dist/background.bundle.js',
-
     });
 
     // ✅ Build AIQuestionAnswerer
@@ -49,7 +57,8 @@ try {
         outfile: 'dist/ai/AIQuestionAnswerer.js',
         external: ['js-yaml'], // Exclude js-yaml from the bundle
     });
-    // Copy static files
+    
+    // ✅ Copy static files
     await esbuild.build({
         entryPoints: ['./src/popup.html', './src/popup.js', './src/styles.css'],
         loader: {
@@ -59,7 +68,6 @@ try {
         },
         outdir: './dist',
     });
-
 
     console.log('Build completed successfully');
 } catch (error) {
