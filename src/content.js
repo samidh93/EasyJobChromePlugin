@@ -63,7 +63,14 @@ async function startAutoApply() {
                     await LinkedInJobInteraction.scrollDownToLoadNextJob(job);
                     debugLog('Scrolled to job');
                     if (await shouldStop(isAutoApplyRunning)) return;
-                    
+                    // check if the job is already applied
+                    const isNotApplied = await LinkedInJobInteraction.isEasyButtonAvailable();
+                    debugLog('Is Easy Apply button available:', isNotApplied);
+                    if (!isNotApplied) {
+                        debugLog('Job already applied. Skipping...');
+                        sendStatusUpdate('Job already applied. Skipping...', 'info');
+                        continue;
+                    }
                     // Get job info
                     const jobInfo = await LinkedInJobInfo.getAllJobInfo();
                     debugLog('Job info:', jobInfo);

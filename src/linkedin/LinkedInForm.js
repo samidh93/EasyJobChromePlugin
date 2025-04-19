@@ -4,6 +4,9 @@ import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
         try {
+            // Reset AIQuestionAnswerer instance when closing the form
+            AIQuestionAnswerer.resetInstance();
+            
             let closeButton = document.querySelector('button[aria-label="Dismiss"]');
 
             if (!closeButton) {
@@ -167,6 +170,9 @@ class LinkedInForm extends LinkedInBase {
 
     static async processForm(shouldStop) {
         try {
+            // Reset the AIQuestionAnswerer instance for a fresh form
+            AIQuestionAnswerer.resetInstance();
+            
             const startTime = Date.now();
             const timeout = 3 * 60 * 1000; // 3 minutes
             let isSubmitted = false;
@@ -321,9 +327,12 @@ class LinkedInForm extends LinkedInBase {
 
     static async answerQuestion(question, options = []) {
         try {
-            const ai = new AIQuestionAnswerer();
+            // Use the singleton instance instead of creating a new one
+            const ai = AIQuestionAnswerer.getInstance();
+            
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
+            
             // Save to chrome.storage for persistence
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob)

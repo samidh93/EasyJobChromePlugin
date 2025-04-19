@@ -21,7 +21,12 @@
   "host_permissions": [
     "http://localhost:11434/",
     "*://*/*" 
-
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["input/example_profile.yaml"],
+      "matches": ["<all_urls>"]
+    }
   ],
   "background": {
     "service_worker": "dist/background.bundle.js",

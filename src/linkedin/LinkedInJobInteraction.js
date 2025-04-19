@@ -36,7 +36,22 @@ class LinkedInJobInteraction extends LinkedInBase {
             this.debugLog("Could not click on job element", error);
         }
     }
-
+    static async isEasyButtonAvailable() {
+        try {
+            const applyButton = document.querySelector('.jobs-s-apply button');
+            if (applyButton) {
+                this.debugLog("found easy apply button");
+                return true;
+            }
+            else {
+                this.debugLog("easy apply button not found");
+                return false;
+            }
+        } catch (error) {
+            console.error("easy apply button not found error", error);
+            return false;
+        }
+    }
     static async clickEasyApply() {
         try {
             const applyButton = document.querySelector('.jobs-s-apply button');

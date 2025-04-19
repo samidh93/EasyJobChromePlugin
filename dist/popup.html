@@ -15,8 +15,16 @@
     
     <div class="tab-content active" id="profile-tab">
       <div class="file-input-section">
-        <input type="file" id="yaml-file" accept=".yaml,.yml" />
-        <button id="load-yaml" class="secondary-button">Load Profile</button>
+        <div class="file-input-row">
+          <input type="file" id="yaml-file" accept=".yaml,.yml" />
+          <button id="load-yaml" class="secondary-button">Load Profile</button>
+        </div>
+        <div class="file-input-actions">
+          <button id="download-example" class="utility-button">
+            <span class="button-icon">📝</span> Download Example Profile
+          </button>
+        </div>
+        <div id="profile-info-container"></div>
       </div>
       <div class="yaml-display" id="yaml-display">
         <pre id="yaml-content"></pre>

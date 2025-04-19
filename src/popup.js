@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadYamlButton = document.getElementById('load-yaml');
     const yamlContent = document.getElementById('yaml-content');
     const statusMessage = document.getElementById('status-message');
+    const downloadExampleButton = document.getElementById('download-example');
 
     function showStatus(message, type = 'info') {
       statusMessage.textContent = message;
@@ -18,6 +19,98 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateButtonStates(isRunning) {
         startApplyButton.disabled = isRunning;
         stopApplyButton.disabled = !isRunning;
+    }
+
+    // Function to check if YAML profile is already loaded
+    function checkYamlStatus() {
+        chrome.storage.local.get(['userProfileYaml', 'yamlLastUploaded', 'yamlFileName'], function(result) {
+            if (result && result.userProfileYaml) {
+                // Get file name or show default
+                const fileName = result.yamlFileName || 'profile.yaml';
+                
+                // Show a preview of the YAML content (first 50 chars)
+                const previewContent = result.userProfileYaml.substring(0, 50) + 
+                                      (result.userProfileYaml.length > 50 ? '...' : '');
+                
+                // Format timestamp if available
+                let timeInfo = '';
+                if (result.yamlLastUploaded) {
+                    try {
+                        const uploadDate = new Date(result.yamlLastUploaded);
+                        timeInfo = `${uploadDate.toLocaleDateString()} at ${uploadDate.toLocaleTimeString()}`;
+                    } catch (e) {
+                        console.error('Error parsing timestamp:', e);
+                    }
+                }
+                
+                // Display the status message
+                showStatus('YAML profile is loaded and ready to use', 'success');
+                
+                // Update the yaml content display
+                if (yamlContent) {
+                    yamlContent.textContent = previewContent;
+                }
+                
+                // Create profile info container
+                const profileInfoContainer = document.getElementById('profile-info-container');
+                profileInfoContainer.innerHTML = ''; // Clear previous content
+                
+                const profileInfo = document.createElement('div');
+                profileInfo.className = 'yaml-profile-info';
+                
+                // Add file name and upload time
+                const profileName = document.createElement('span');
+                profileName.className = 'yaml-profile-name';
+                profileName.textContent = `📄 ${fileName}`;
+                profileInfo.appendChild(profileName);
+                
+                if (timeInfo) {
+                    const profileTimestamp = document.createElement('span');
+                    profileTimestamp.className = 'yaml-profile-timestamp';
+                    profileTimestamp.textContent = `Uploaded on: ${timeInfo}`;
+                    profileInfo.appendChild(profileTimestamp);
+                }
+                
+                // Add actions section with remove button
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'yaml-profile-actions';
+                
+                const removeButton = document.createElement('button');
+                removeButton.className = 'remove-profile-btn';
+                removeButton.textContent = 'Remove Profile';
+                removeButton.onclick = removeUserProfile;
+                actionsDiv.appendChild(removeButton);
+                
+                profileInfo.appendChild(actionsDiv);
+                profileInfoContainer.appendChild(profileInfo);
+            } else {
+                // Clear the profile info container if no profile is loaded
+                const profileInfoContainer = document.getElementById('profile-info-container');
+                if (profileInfoContainer) {
+                    profileInfoContainer.innerHTML = '';
+                }
+            }
+        });
+    }
+
+    // Function to remove user profile from storage
+    async function removeUserProfile() {
+        try {
+            await chrome.storage.local.remove(['userProfileYaml', 'yamlLastUploaded', 'yamlFileName', 'userDataHash']);
+            
+            // Clear UI elements
+            const profileInfoContainer = document.getElementById('profile-info-container');
+            profileInfoContainer.innerHTML = '';
+            
+            if (yamlContent) {
+                yamlContent.textContent = '';
+            }
+            
+            showStatus('Profile removed successfully', 'info');
+        } catch (error) {
+            console.error('Error removing profile:', error);
+            showStatus('Failed to remove profile', 'error');
+        }
     }
 
     // Function to send message to content script with retry
@@ -81,6 +174,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize state when popup opens
     checkCurrentState();
+    
+    // Check if YAML is already loaded
+    checkYamlStatus();
 
     // Load saved dropdown options
     loadDropdownOptions();
@@ -270,9 +366,16 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.onload = async (e) => {
           const yamlContent = e.target.result;
           try {
-            // Store the YAML content in chrome.storage
-            await chrome.storage.local.set({ 'userProfileYaml': yamlContent });
-            showStatus('Resume YAML saved to storage. Refresh the page to apply it.', 'success');
+            // Store the YAML content in chrome.storage with filename and timestamp
+            await chrome.storage.local.set({ 
+              'userProfileYaml': yamlContent,
+              'yamlFileName': file.name,
+              'yamlLastUploaded': new Date().toISOString()
+            });
+            showStatus(`Profile "${file.name}" saved to storage`, 'success');
+            
+            // Update the status immediately without requiring refresh
+            checkYamlStatus();
           } catch (error) {
             console.error('Error saving YAML to storage:', error);
             showStatus('Error saving YAML data', 'error');
@@ -282,6 +385,40 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         showStatus('Please select a YAML file first', 'error');
       }
+    });
+
+    // Download example profile button
+    downloadExampleButton.addEventListener('click', async () => {
+        try {
+            // Fetch the example profile from the extension
+            const response = await fetch(chrome.runtime.getURL('input/example_profile.yaml'));
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch example profile: ${response.status} ${response.statusText}`);
+            }
+            
+            const yamlText = await response.text();
+            
+            // Create a download link
+            const blob = new Blob([yamlText], { type: 'text/yaml' });
+            const url = URL.createObjectURL(blob);
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = 'example_profile.yaml';
+            
+            // Append link to the document, click it, and remove it
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            // Clean up the URL object
+            URL.revokeObjectURL(url);
+            
+            showStatus('Example profile downloaded successfully', 'success');
+        } catch (error) {
+            console.error('Error downloading example profile:', error);
+            showStatus('Error downloading example profile', 'error');
+        }
     });
 
 });

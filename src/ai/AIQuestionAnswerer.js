@@ -1,8 +1,16 @@
 import MemoryStore from './MemoryStore.js';
 import yaml from 'js-yaml';
 
+// Singleton instance
+let instance = null;
+
 class AIQuestionAnswerer {
     constructor() {
+        // Return existing instance if available
+        if (instance) {
+            return instance;
+        }
+        
         this.model = "qwen2.5:3b";
         this.memory = new MemoryStore();
         this.conversationHistory = [];
@@ -10,6 +18,22 @@ class AIQuestionAnswerer {
         this.job = null;
         this.userData = null;
         this.ollamaUrl = 'http://localhost:11434';
+        
+        // Store this instance as the singleton
+        instance = this;
+    }
+    
+    // Static method to get the instance
+    static getInstance() {
+        if (!instance) {
+            instance = new AIQuestionAnswerer();
+        }
+        return instance;
+    }
+    
+    // Method to reset the instance (useful for testing or clearing state)
+    static resetInstance() {
+        instance = null;
     }
 
     async checkOllamaConnection() {
@@ -112,10 +136,28 @@ Your goal is to make the user stand out in a positive and professional way.
 
     async setUserContext(userContext) {
         try {
-            this.userData = yaml.load(userContext);
-            console.log("User context loaded successfully.");
-            console.log(this.userData)
-
+            // First parse the YAML data
+            await this.parseUserContext(userContext);
+            
+            // Then generate embeddings for each field
+            console.log("Generating embeddings for user context...");
+            
+            // Check if we already have embeddings that match this userData
+            const dataHash = this.calculateDataHash(this.userData);
+            
+            // Get current stored hash from memory
+            const currentHash = await this.getStoredHash();
+            
+            // If hash matches, embeddings are already up-to-date
+            if (currentHash === dataHash && Object.keys(this.memory.data).length > 0) {
+                console.log("Embeddings are already up-to-date. Skipping generation.");
+                return;
+            }
+            
+            // Clear existing embeddings before adding new ones
+            this.memory.data = {};
+            
+            // Generate new embeddings
             for (const [key, value] of Object.entries(this.userData)) {
                 if (typeof value === 'object' && value !== null) {
                     for (const [subKey, subValue] of Object.entries(value)) {
@@ -125,9 +167,56 @@ Your goal is to make the user stand out in a positive and professional way.
                     await this.memory.addEntry(key, String(value));
                 }
             }
+            
+            // Store the hash of processed data
+            await this.storeDataHash(dataHash);
+            
+            console.log("Embeddings generated successfully");
         } catch (error) {
             console.error('Error setting user context:', error);
         }
+    }
+
+    async parseUserContext(userContext) {
+        try {
+            this.userData = yaml.load(userContext);
+            console.log("User context parsed successfully.");
+            console.log(this.userData);
+            return true;
+        } catch (error) {
+            console.error('Error parsing user context:', error);
+            return false;
+        }
+    }
+
+    // Calculate a simple hash of userData to detect changes
+    calculateDataHash(data) {
+        try {
+            // Convert data to string and get its length (simple but effective)
+            const dataString = JSON.stringify(data);
+            return dataString.length + '_' + dataString.slice(0, 100);
+        } catch (error) {
+            console.error('Error calculating data hash:', error);
+            return Date.now().toString(); // Fallback to timestamp
+        }
+    }
+
+    // Store hash in Chrome storage
+    async storeDataHash(hash) {
+        return new Promise((resolve) => {
+            chrome.storage.local.set({ 'userDataHash': hash }, () => {
+                resolve(true);
+            });
+        });
+    }
+
+    // Get stored hash from Chrome storage
+    async getStoredHash() {
+        return new Promise((resolve) => {
+            chrome.storage.local.get('userDataHash', (result) => {
+                resolve(result.userDataHash || '');
+            });
+        });
     }
 
     async saveConversationHistory() {
@@ -237,48 +326,6 @@ DO NOT add any explanation or additional text.`;
 
             // Detect if this is an experience question for fallback
             const isExperience = this.isExperienceQuestion(question);
-
-            // Check Ollama connection first
-            const connectionStatus = await this.checkOllamaConnection();
-            if (!connectionStatus.connected) {
-                console.error('Ollama not connected:', connectionStatus.error);
-                console.log('Using fallback mechanism due to connection error');
-
-                // Select a fallback option based on question type using the same logic as in the catch block
-                let fallbackAnswer;
-
-                if (isExperience) {
-                    // Find options related to years of experience
-                    const experienceOptions = options.filter(opt => {
-                        const optLower = opt.toLowerCase();
-                        return /\d+/.test(optLower) ||
-                            optLower.includes('year') ||
-                            optLower.includes('jahr') ||
-                            optLower.includes('experience') ||
-                            optLower.includes('erfahrung');
-                    });
-
-                    if (experienceOptions.length > 0) {
-                        // Find a mid-range option
-                        const middleIndex = Math.floor(experienceOptions.length / 2);
-                        fallbackAnswer = experienceOptions[middleIndex];
-                    } else {
-                        // Just pick the second option if available (first is often "Select an option")
-                        fallbackAnswer = options.length > 1 ? options[1] : options[0];
-                    }
-                } else {
-                    // For other questions, pick the second option if available
-                    fallbackAnswer = options.length > 1 ? options[1] : options[0];
-                }
-
-                console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
-                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return fallbackAnswer;
-            }
-
             console.log('Attempting to connect to Ollama server...');
             try {
                 // Use the new helper function
@@ -322,40 +369,8 @@ DO NOT add any explanation or additional text.`;
             } catch (apiError) {
                 console.error('API error in answerWithOptions:', apiError);
 
-                // Select a fallback option based on question type
-                let fallbackAnswer;
-
-                // For experience questions, choose an appropriate option
-                if (isExperience) {
-                    // Find options related to years of experience
-                    const experienceOptions = options.filter(opt => {
-                        const optLower = opt.toLowerCase();
-                        return /\d+/.test(optLower) ||
-                            optLower.includes('year') ||
-                            optLower.includes('jahr') ||
-                            optLower.includes('experience') ||
-                            optLower.includes('erfahrung');
-                    });
-
-                    if (experienceOptions.length > 0) {
-                        // Find a mid-range option
-                        const middleIndex = Math.floor(experienceOptions.length / 2);
-                        fallbackAnswer = experienceOptions[middleIndex];
-                    } else {
-                        // Just pick the second option if available (first is often "Select an option")
-                        fallbackAnswer = options.length > 1 ? options[1] : options[0];
-                    }
-                } else {
-                    // For other questions, pick the second option if available
-                    fallbackAnswer = options.length > 1 ? options[1] : options[0];
-                }
-
-                console.log(`Using fallback option: "${fallbackAnswer}" for question: ${question}`);
-                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return fallbackAnswer;
+                // Instead of fallback, throw an error to be handled by the caller
+                throw new Error('Could not get a response from Ollama. Please check your connection and try again.');
             }
         } catch (error) {
             console.error('Error details:', {
@@ -365,9 +380,8 @@ DO NOT add any explanation or additional text.`;
                 cause: error.cause
             });
 
-            // Last resort fallback - pick the second option or first if only one exists
-            const fallback = options.length > 1 ? options[1] : options[0];
-            return fallback;
+            // Return error message instead of fallback
+            throw new Error('Failed to answer question. Please try again later.');
         }
     }
 
@@ -392,150 +406,117 @@ IMPORTANT:
 
             this.conversationHistory.push({ role: "user", content: prompt });
             this.conversationHistoryCompany.push({ role: "user", content: prompt });
-
-            // Detect if this is an experience question for fallback
+            // Detect if this is an experience question
             const isExperience = this.isExperienceQuestion(question);
-
-            // Check Ollama connection first
-            const connectionStatus = await this.checkOllamaConnection();
-            if (!connectionStatus.connected) {
-                console.error('Ollama not connected:', connectionStatus.error);
-                console.log('Using fallback mechanism due to connection error');
-
-                // Provide fallback answers based on question type
-                let fallbackAnswer;
-
-                if (isExperience) {
-                    fallbackAnswer = "5"; // Default experience years
-                } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
-                    fallbackAnswer = this.userData?.personal_information?.desired_salary || "90000"; // Default salary
-                } else if (this.isNumberQuestion(question)) {
-                    fallbackAnswer = "3"; // Default number
-                } else if (question.toLowerCase().includes('phone') || question.toLowerCase().includes('telefon')) {
-                    fallbackAnswer = this.userData?.personal_information?.phone || "+1234567890"; // Default phone
-                } else {
-                    fallbackAnswer = "Yes"; // Default text answer
-                }
-
-                console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
-                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return fallbackAnswer;
-            }
-
             console.log('Attempting to connect to Ollama server...');
-            try {
-                // Use the new helper function
-                const response = await this.makeOllamaRequest('chat', {
-                    model: this.model,
-                    messages: this.conversationHistory,
-                    stream: false,
-                    options: { temperature: 0.0 }
-                });
-
-                console.log('Response received successfully');
-                let rawAnswer = response.message.content.trim();
-                let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
-
-                if (this.isNumberQuestion(question)) {
-                    const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
-                    if (numberMatch) {
-                        if (isExperience) {
-                            const extractedNum = parseFloat(numberMatch[0]);
-                            answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
-                        } else {
-                            answerCandidate = numberMatch[0];
-                        }
-                    }
-                }
-
-                if (answerCandidate) {
-                    this.conversationHistoryCompany.push({ role: "assistant", content: answerCandidate });
-                    await this.saveConversationHistory();
-                    this.conversationHistory = this.conversationHistory.slice(0, 1);
-                    this.conversationHistoryCompany = [];
-                    return answerCandidate;
-                }
-
-                // If we got here, we didn't get a valid answer, provide fallback
-                throw new Error('No valid answer candidate generated');
-
-            } catch (apiError) {
-                console.error('API error:', apiError);
-
-                // Provide fallback answers based on question type
-                let fallbackAnswer;
-
-                if (isExperience) {
-                    fallbackAnswer = "5"; // Default experience years
-                } else if (question.toLowerCase().includes('gehalt') || question.toLowerCase().includes('salary')) {
-                    fallbackAnswer = "90000"; // Default salary
-                } else if (this.isNumberQuestion(question)) {
-                    fallbackAnswer = "3"; // Default number
-                } else {
-                    fallbackAnswer = "Yes"; // Default text answer
-                }
-
-                console.log(`Using fallback answer: ${fallbackAnswer} for question: ${question}`);
-                this.conversationHistoryCompany.push({ role: "assistant", content: fallbackAnswer });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return fallbackAnswer;
-            }
-        } catch (error) {
-            console.error('Error details:', {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-                cause: error.cause
+        try {
+            // Use the new helper function
+            const response = await this.makeOllamaRequest('chat', {
+                model: this.model,
+                messages: this.conversationHistory,
+                stream: false,
+                options: { temperature: 0.0 }
             });
 
-            // Last resort fallback
-            const fallback = this.isExperienceQuestion(question) ? "5" : "Yes";
-            return fallback;
+            console.log('Response received successfully');
+            let rawAnswer = response.message.content.trim();
+            let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
+
+            if (this.isNumberQuestion(question)) {
+                const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
+                if (numberMatch) {
+                    if (isExperience) {
+                        const extractedNum = parseFloat(numberMatch[0]);
+                        answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
+                    } else {
+                        answerCandidate = numberMatch[0];
+                    }
+                }
+            }
+
+            if (answerCandidate) {
+                this.conversationHistoryCompany.push({ role: "assistant", content: answerCandidate });
+                await this.saveConversationHistory();
+                this.conversationHistory = this.conversationHistory.slice(0, 1);
+                this.conversationHistoryCompany = [];
+                return answerCandidate;
+            }
+
+            // If we got here, we didn't get a valid answer, provide fallback
+            throw new Error('No valid answer candidate generated');
+
+        } catch (apiError) {
+            console.error('API error:', apiError);
+            
+            // Propagate the error instead of using fallback
+            throw new Error('Could not get a response from Ollama: ' + apiError.message);
         }
+    } catch(error) {
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            cause: error.cause
+        });
+        
+        // Propagate the error
+        throw error;
     }
+}
 
-    isNumberQuestion(question) {
-        const keywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
-        return keywords.some(keyword => question.toLowerCase().includes(keyword));
-    }
+isNumberQuestion(question) {
+    const keywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
+    return keywords.some(keyword => question.toLowerCase().includes(keyword));
+}
 
-    isExperienceQuestion(question) {
-        const lowerQuestion = question.toLowerCase();
-        const experienceKeywords = [
-            'experience', 'years', 'year', 'erfahrung', 'jahre', 'jahr',
-            'how long', 'wie lange', 'worked with', 'gearbeitet mit'
-        ];
+isExperienceQuestion(question) {
+    const lowerQuestion = question.toLowerCase();
+    const experienceKeywords = [
+        'experience', 'years', 'year', 'erfahrung', 'jahre', 'jahr',
+        'how long', 'wie lange', 'worked with', 'gearbeitet mit'
+    ];
 
-        return experienceKeywords.some(keyword => lowerQuestion.includes(keyword));
-    }
+    return experienceKeywords.some(keyword => lowerQuestion.includes(keyword));
+}
 
-    calculateSimilarity(str1, str2) {
-        const set1 = new Set(str1);
-        const set2 = new Set(str2);
-        const intersection = new Set([...set1].filter(x => set2.has(x)));
-        return intersection.size / Math.max(set1.size, set2.size);
-    }
+calculateSimilarity(str1, str2) {
+    const set1 = new Set(str1);
+    const set2 = new Set(str2);
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    return intersection.size / Math.max(set1.size, set2.size);
+}
 
     async answerQuestion(question, options = null) {
-        try {
-            const result = await chrome.storage.local.get('userProfileYaml');
-            if (result.userProfileYaml) {
-                await this.setUserContext(result.userProfileYaml)
+    try {
+        // Get the YAML from storage
+        const result = await chrome.storage.local.get('userProfileYaml');
+        if (result.userProfileYaml) {
+            // Parse the YAML and check if embeddings need updating
+            const success = await this.parseUserContext(result.userProfileYaml);
+            if (!success) {
+                throw new Error('Failed to parse user profile YAML');
             }
-            if (options && options.length > 0) {
-                return await this.answerWithOptions(question, options);
-            } else {
-                return await this.answerWithNoOptions(question);
+            
+            // Check if embeddings need updating
+            const dataHash = this.calculateDataHash(this.userData);
+            const currentHash = await this.getStoredHash();
+            
+            if (currentHash !== dataHash || Object.keys(this.memory.data).length === 0) {
+                console.log("Embeddings need updating, generating new ones...");
+                await this.setUserContext(result.userProfileYaml);
             }
-        } catch (error) {
-            console.error('Error getting yaml from storage:', error);
         }
+        
+        if (options && options.length > 0) {
+            return await this.answerWithOptions(question, options);
+        } else {
+            return await this.answerWithNoOptions(question);
+        }
+    } catch (error) {
+        console.error('Error in answerQuestion:', error);
+        throw error;
     }
+}
 }
 
 export default AIQuestionAnswerer; 
