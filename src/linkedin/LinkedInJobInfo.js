@@ -67,33 +67,32 @@ class LinkedInJobInfo extends LinkedInBase {
 
     static async getJobType() {
         try {
-            const jobType = document.querySelector("div.job-details-fit-level-preferences").querySelectorAll('button')[1].querySelector('span').textContent.trim()
+            const jobType = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill")[1].querySelectorAll("span")[0].querySelectorAll("span")[0].textContent.trim();
             if (jobType) {
-                this.debugLog(`Found job type: ${jobType}`);
+                this.debugLog(`Found jobType type: ${jobType}`);
                 return jobType;
             }
-            this.debugLog("Job type not found");
-            return null;
+            this.debugLog("jobType type not found");
         } catch (error) {
-            this.errorLog("Error getting job type", error);
+            this.errorLog("Error getting jobType type", error);
             return null;
         }
     }
-
+    
     static async getRemoteType() {
         try {
-            const RemoteType = document.querySelector("div.job-details-fit-level-preferences").querySelectorAll('button')[0].querySelector('span').textContent.trim()
-            if (RemoteType) {
-                this.debugLog(`Found remote type: ${RemoteType}`);
-                return RemoteType;
+            const remote = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill")[0].querySelectorAll("span")[0].querySelectorAll("span")[0].textContent.trim();
+            if (remote) {
+                this.debugLog(`Found remote type: ${remote}`);
+                return remote;
             }
-            this.debugLog("remote type not found");
-            return null;
+            this.debugLog("Remote type not found");
         } catch (error) {
             this.errorLog("Error getting remote type", error);
             return null;
         }
     }
+    
     static async getJobDescription() {
         try {
             const descriptionElement = document.querySelector('.jobs-description__content');

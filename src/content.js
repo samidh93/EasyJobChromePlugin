@@ -1,9 +1,9 @@
 import { LinkedInJobSearch, LinkedInJobInteraction, LinkedInJobInfo, LinkedInForm } from './linkedin/index.js';
 import { debugLog, sendStatusUpdate, shouldStop, DEBUG } from './utils.js';
-import UserProfile from './user/userProfile.js';
+import memoryStore from './ai/MemoryStore.js';
+import AIQuestionAnswerer from './ai/AIQuestionAnswerer.js';
 
 let isAutoApplyRunning = false;
-let userProfile = null;
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -141,4 +141,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } 
     // Return true to indicate we will send a response asynchronously
     return true;
-}); 
+});
+
+// Initialize AI systems
+console.log('Initializing EasyJob AI systems...');
+
+// Load stored embeddings on page load
+async function initializeAI() {
+  try {
+    console.log('-----------------------------------');
+    console.log('🔄 EasyJob AI System Initialization');
+    console.log('-----------------------------------');
+    
+    // Preload embeddings first (added optimization)
+    console.log('Preloading embeddings into memory...');
+    await memoryStore.preloadEmbeddings();
+    
+    // Get memory store size
+    const memoryStoreSize = Object.keys(memoryStore.data).length;
+    
+    // Get storage size
+    const storageCount = await memoryStore.getStoredEmbeddingsCount();
+    
+    console.log('Memory status:', {
+      memoryStoreSize: memoryStoreSize,
+      storageCount: storageCount,
+      hasLoadedFromStorage: memoryStore.hasTriedLoading
+    });
+    
+    if (memoryStoreSize > 0) {
+      console.log('✅ Embeddings successfully loaded into memory');
+      
+      // Initialize AI Question Answerer for form filling
+      const ai = new AIQuestionAnswerer();
+      console.log('✅ AI question answerer initialized and ready');
+    } else {
+      console.log('⚠️ No embeddings found in memory. Checking storage and profile status...');
+      
+      // Check if user profile exists
+      const profileExists = await new Promise(resolve => {
+        chrome.storage.local.get('userProfile', result => {
+          resolve(!!result.userProfile);
+        });
+      });
+      
+      if (profileExists) {
+        console.log('🔍 User profile exists but embeddings are not generated or failed to load.');
+        console.log('💡 Please open the extension popup and reload the profile to generate embeddings.');
+        
+        // Try one more direct storage check
+        chrome.storage.local.get(null, function(items) {
+          console.log('📊 Storage overview:', {
+            totalItems: Object.keys(items).length,
+            hasProfile: !!items.userProfile,
+            hasEmbeddings: !!items.storedEmbeddings,
+            profileSize: items.userProfile ? JSON.stringify(items.userProfile).length : 0,
+            embeddingsSize: items.storedEmbeddings ? JSON.stringify(items.storedEmbeddings).length : 0
+          });
+        });
+      } else {
+        console.log('❌ No user profile found in storage.');
+        console.log('💡 Please upload a profile through the extension popup.');
+      }
+    }
+    
+    console.log('-----------------------------------');
+  } catch (error) {
+    console.error('❌ Error initializing AI:', error);
+  }
+}
+
+// Run initialization
+initializeAI(); 

@@ -1,522 +1,503 @@
-import MemoryStore from './MemoryStore.js';
-import yaml from 'js-yaml';
-
-// Singleton instance
-let instance = null;
+import memoryStore from './MemoryStore.js';
+import conversationHistory from './ConversationHistory.js';
+import profileLoader from './profileLoader.js';
 
 class AIQuestionAnswerer {
-    constructor() {
-        // Return existing instance if available
-        if (instance) {
-            return instance;
-        }
-        
-        this.model = "qwen2.5:3b";
-        this.memory = new MemoryStore();
-        this.conversationHistory = [];
-        this.setSystemContext();
+    constructor(apiEndpoint = null) {
+        this.apiEndpoint = apiEndpoint || 'http://localhost:11434/api/generate';
+        this.model = 'qwen2.5:3b';
         this.job = null;
-        this.userData = null;
-        this.ollamaUrl = 'http://localhost:11434';
+        this.user_data = null;
+    }
+
+    /**
+     * Set the current job information
+     * @param {Object} jobInfo - Job details
+     */
+    setJob(jobInfo) {
+        this.job = jobInfo;
+        console.log('Job information set:', jobInfo);
         
-        // Store this instance as the singleton
-        instance = this;
-    }
-    
-    // Static method to get the instance
-    static getInstance() {
-        if (!instance) {
-            instance = new AIQuestionAnswerer();
+        // In Python this would create a conversation history file for this company
+        if (jobInfo && jobInfo.currentJob) {
+            console.log(`Creating conversation context for ${jobInfo.currentJob.company || 'Unknown'}`);
         }
-        return instance;
-    }
-    
-    // Method to reset the instance (useful for testing or clearing state)
-    static resetInstance() {
-        instance = null;
     }
 
-    async checkOllamaConnection() {
+    /**
+     * Process user data from YAML and store as embeddings
+     * @param {string} yamlContent - YAML content to process
+     * @param {function} progressCallback - Optional callback for progress updates
+     * @returns {Promise<Object>} - Success status
+     */
+    async setUserContext(yamlContent, progressCallback = null) {
         try {
-            console.log('Checking Ollama connection...');
-
-            return new Promise((resolve) => {
-                const timeout = setTimeout(() => {
-                    console.error('Ollama connection check timed out');
-                    resolve({
-                        connected: false,
-                        error: 'Connection timeout',
-                        troubleshooting: 'Ollama connection check timed out. Make sure Ollama is running and not overloaded.'
-                    });
-                }, 10000); // Increased timeout to 10 seconds
-
-                chrome.runtime.sendMessage({
-                    action: 'testOllama',
-                }, (response) => {
-                    clearTimeout(timeout);
-
-                    // Log the full response to help debug
-                    console.log(`Ollama connection check response:`, response);
-
-                    // Check for undefined or null response (common messaging error)
-                    if (!response) {
-                        console.error('Ollama connection check returned no response');
-                        resolve({
-                            connected: false,
-                            error: 'No response from connection test',
-                            troubleshooting: 'Extension messaging error. Try reloading the page or restarting the browser.'
-                        });
-                        return;
-                    }
-
-                    // Check if response is just {received: true} which indicates a messaging issue
-                    if (response.received === true && !response.success && !response.error) {
-                        console.error('Received incomplete response from background script:', response);
-                        resolve({
-                            connected: false,
-                            error: 'Incomplete response from extension',
-                            troubleshooting: 'Try restarting the browser or reinstalling the extension.'
-                        });
-                        return;
-                    }
-
-                    if (response.success) {
-                        console.log('Ollama connection successful');
-                        resolve({
-                            connected: true,
-                            port: response.data?.port || 11434 // Always use port 11434
-                        });
-                    } else {
-                        console.error('Ollama connection failed:', response.error);
-                        resolve({
-                            connected: false,
-                            error: response.error || 'Unknown error',
-                            troubleshooting: response.troubleshooting || 'Make sure Ollama is running on your computer'
-                        });
-                    }
-                });
-            });
-        } catch (error) {
-            console.error('Error checking Ollama connection:', error);
-            return {
-                connected: false,
-                error: error.message,
-                troubleshooting: 'Error checking Ollama connection'
+            // Use profileLoader to process the user context
+            const result = await profileLoader.processUserContext(yamlContent, progressCallback);
+            
+            if (result.success) {
+                // Store the user data for future use
+                this.user_data = result.data;
+            }
+            
+            return { 
+                success: result.success,
+                error: result.error || null
             };
+        } catch (error) {
+            console.error('Error in setUserContext:', error);
+            if (progressCallback) {
+                progressCallback({ progress: 0, message: `Error: ${error.message}` });
+            }
+            return { success: false, error: error.message };
         }
     }
 
-    async setJob(job) {
-        this.job = job;
-        console.log("current job infos: ", this.job)
-        this.conversationHistoryKey = `conversation_history_${this.job.currentJob.company}_${this.job.currentJob.jobId}`;
-        console.log("conversationHistoryKey set", this.conversationHistoryKey)
-    }
-
-
-    setSystemContext(systemContext = null) {
-        const todayDate = new Date().toISOString().split('T')[0];
-        if (!systemContext) {
-            systemContext = `You are an AI expert in filling out job application forms. 
-Your goal is to make the user stand out in a positive and professional way.
-*****************STRICT RULES***************:
-- ALWAYS return an answer that BENEFITS the user. If information is missing, MAKE AN EDUCATED GUESS in their favor.
-- Return ONLY the answer as a plain string. DO NOT add explanations or additional text.
-- If the question requires a number (e.g., 'Zahl angeben' or 'give number'), return ONLY a number.
-- If the question provides options, return ONLY one option from the given options EXACTLY as written.
-- If insufficient data is found, assume the user has solid experience and provide a reasonable answer.
-- If asked about how many years of experience, do NOT return 0. Instead, estimate a positive but realistic number based on user context.
-- If asked about legal status or certifications, assume the best reasonable scenario for the user.
-- If asked about salary, use the user's expected salary or provide a reasonable estimate based on job market data.
-- Use today date: ${todayDate}, if asked for a starting date, respond with a date 3 months (notice period) from today date.`;
-        }
-        this.conversationHistory = [{ role: "system", content: systemContext }];
-        this.conversationHistoryCompany = [...this.conversationHistory];
-    }
-
-    async setUserContext(userContext) {
+    /**
+     * Main method to answer a question with or without options
+     * @param {string} question - The question to answer
+     * @param {Array} options - Optional list of choices
+     * @returns {Promise<string>} - The answer
+     */
+    async answerQuestion(question, options = null) {
         try {
-            // First parse the YAML data
-            await this.parseUserContext(userContext);
+            console.log("Answering question:", question);
+            console.log("Options:", options);
             
-            // Then generate embeddings for each field
-            console.log("Generating embeddings for user context...");
+            // Improve userData presence debug message to be clearer
+            console.log(
+                this.user_data ? 
+                "In-memory user data cache: Available" : 
+                "In-memory user data cache: Not available (will use embedding search from storage)"
+            );
             
-            // Check if we already have embeddings that match this userData
-            const dataHash = this.calculateDataHash(this.userData);
+            if (options && Array.isArray(options) && options.length > 0) {
+                return await this.answerWithOptions(question, options);
+            } else {
+                return await this.answerWithNoOptions(question);
+            }
+        } catch (error) {
+            console.error('Error in answerQuestion:', error);
+            return "Error processing question";
+        }
+    }
+
+    /**
+     * Answer a question with provided options
+     * @param {string} question - The question to answer
+     * @param {Array} options - Available options to choose from
+     * @returns {Promise<string>} - The answer
+     */
+    async answerWithOptions(question, options) {
+        try {
+            console.log(`Getting an answer for "${question}" with options:`, options);
             
-            // Get current stored hash from memory
-            const currentHash = await this.getStoredHash();
-            
-            // If hash matches, embeddings are already up-to-date
-            if (currentHash === dataHash && Object.keys(this.memory.data).length > 0) {
-                console.log("Embeddings are already up-to-date. Skipping generation.");
-                return;
+            if (!options || !Array.isArray(options) || options.length === 0) {
+                console.warn("Options array is empty or invalid, falling back to answerWithNoOptions");
+                return this.answerWithNoOptions(question);
             }
             
-            // Clear existing embeddings before adding new ones
-            this.memory.data = {};
+            // Get relevant context like in Python
+            console.log("Starting semantic search for relevant information...");
+            const relevantKeys = await memoryStore.search(question, 3);
             
-            // Generate new embeddings
-            for (const [key, value] of Object.entries(this.userData)) {
-                if (typeof value === 'object' && value !== null) {
-                    for (const [subKey, subValue] of Object.entries(value)) {
-                        await this.memory.addEntry(`${key}.${subKey}`, String(subValue));
-                    }
-                } else {
-                    await this.memory.addEntry(key, String(value));
-                }
+            let relevantContext = "";
+            
+            if (relevantKeys.length > 0) {
+                console.log(`Found ${relevantKeys.length} relevant keys:`, relevantKeys);
+                relevantContext = relevantKeys.map(key => 
+                    `${key}: ${memoryStore.data[key].text}`
+                ).join(", ");
+            } else {
+                console.log("No relevant information found in profile data. Using generic context.");
+                relevantContext = "The user has significant experience and qualifications suitable for this question.";
             }
             
-            // Store the hash of processed data
-            await this.storeDataHash(dataHash);
+            // Get user's phone and salary for specific prompts
+            const personalInfo = this.user_data?.personal_information || {};
+            const phone = personalInfo.phone || "";
+            const desiredSalary = personalInfo.salary || "";
             
-            console.log("Embeddings generated successfully");
-        } catch (error) {
-            console.error('Error setting user context:', error);
-        }
-    }
-
-    async parseUserContext(userContext) {
-        try {
-            this.userData = yaml.load(userContext);
-            console.log("User context parsed successfully.");
-            console.log(this.userData);
-            return true;
-        } catch (error) {
-            console.error('Error parsing user context:', error);
-            return false;
-        }
-    }
-
-    // Calculate a simple hash of userData to detect changes
-    calculateDataHash(data) {
-        try {
-            // Convert data to string and get its length (simple but effective)
-            const dataString = JSON.stringify(data);
-            return dataString.length + '_' + dataString.slice(0, 100);
-        } catch (error) {
-            console.error('Error calculating data hash:', error);
-            return Date.now().toString(); // Fallback to timestamp
-        }
-    }
-
-    // Store hash in Chrome storage
-    async storeDataHash(hash) {
-        return new Promise((resolve) => {
-            chrome.storage.local.set({ 'userDataHash': hash }, () => {
-                resolve(true);
-            });
-        });
-    }
-
-    // Get stored hash from Chrome storage
-    async getStoredHash() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get('userDataHash', (result) => {
-                resolve(result.userDataHash || '');
-            });
-        });
-    }
-
-    async saveConversationHistory() {
-        console.log("saving AI conversation history")
-        if (this.conversationHistoryKey) {
             try {
-                console.log("saved conversation history:", this.conversationHistoryCompany)
-
-                // Check if there's at least one user message and one assistant message
-                const hasUserMessage = this.conversationHistoryCompany.some(msg => msg.role === 'user');
-                const hasAssistantMessage = this.conversationHistoryCompany.some(msg => msg.role === 'assistant');
-
-                if (!hasUserMessage || !hasAssistantMessage) {
-                    console.warn("Incomplete conversation history, missing user or assistant message");
-                    return;
-                }
-
-                // Deep clone the conversation history before sending to avoid reference issues
-                const conversationCopy = JSON.parse(JSON.stringify(this.conversationHistoryCompany));
-
-                // Send message to popup about new conversation data
-                chrome.runtime.sendMessage({
-                    action: 'CONVERSATION_UPDATED',
-                    data: {
-                        key: this.conversationHistoryKey,
-                        company: this.job.currentJob.company,
-                        title: this.job.currentJob.title,
-                        jobId: this.job.currentJob.jobId,
-                        conversation: conversationCopy,
-                        timestamp: new Date().toISOString()
-                    }
+                // Build prompt using ConversationHistory
+                const prompt = conversationHistory.buildOptionsPrompt(question, options, relevantContext);
+                
+                // Add to conversation history
+                conversationHistory.addUserMessage(prompt);
+                
+                // Call Ollama API
+                const response = await this.callOllamaAPI({
+                    model: this.model,
+                    messages: conversationHistory.getCurrentHistory(),
+                    options: { temperature: 0.0 },
+                    stream: false // Explicitly disable streaming
                 });
-
-                console.log("Conversation sent to popup for storage");
-            } catch (error) {
-                console.error('Error saving conversation history:', error);
+                
+                let rawAnswer = response?.message?.content?.trim() || "";
+                
+                // Remove thinking sections like in Python
+                let answerCandidate = rawAnswer.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                
+                // First check if the answer directly matches one of the options
+                if (options.includes(answerCandidate)) {
+                    // Direct match found, use it
+                    console.log(`Found exact match in options: "${answerCandidate}"`);
+                    conversationHistory.addAssistantResponse(answerCandidate);
+                    return answerCandidate;
+                }
+                
+                // If we're here, the answer wasn't an exact match - try to refine it
+                console.log(`Answer "${answerCandidate}" not found in options, attempting to refine`);
+                return await this.refineOptionSelection(answerCandidate, options);
+                
+            } catch (ollamaError) {
+                console.error("Ollama API error in answerWithOptions:", ollamaError);
+                
+                // Smart fallback based on context when Ollama fails
+                console.log("[Function] Falling back to direct context match due to API error");
+                
+                // Log what we found
+                console.log("[Function] AI Answer:", memoryStore.data[relevantKeys[0]]?.text);
+                
+                // Simple fallback - if we found a relevant key, use its value
+                if (relevantKeys.length > 0) {
+                    const contextValue = memoryStore.data[relevantKeys[0]]?.text || "";
+                    
+                    // Try to find the best matching option based on the context
+                    return await this.refineOptionSelection(contextValue, options);
+                }
+                
+                // Still fallback to options[1] or options[0] as last resort
+                const fallbackOption = options.length > 1 ? options[1] : options[0];
+                console.log("[Function] Selected fallback option:", fallbackOption);
+                return fallbackOption;
             }
-        } else {
-            console.warn("Cannot save conversation history: conversationHistoryKey is not set");
+        } catch (error) {
+            console.error('Error in answerWithOptions:', error);
+            // Fallback to second option like Python
+            return options.length > 1 ? options[1] : options[0];
         }
     }
 
-    // Add these helper functions to make API calls more reliable
-    async makeOllamaRequest(endpoint, data) {
+    /**
+     * Refine an initial answer to match one of the available options
+     * @param {string} initialAnswer - The initial answer that doesn't match any option
+     * @param {Array} options - Available options to choose from
+     * @returns {Promise<string>} - The refined answer
+     */
+    async refineOptionSelection(initialAnswer, options) {
         try {
-            console.log(`Making Ollama request to ${endpoint}`);
+            console.log(`Refining answer: "${initialAnswer}" to match available options`);
+            
+            // Check if this is a country code question (Landesvorwahl)
+            const isCountryCodeQuestion = 
+                initialAnswer.toLowerCase().includes("germany") || 
+                initialAnswer.toLowerCase().includes("deutschland") ||
+                initialAnswer.includes("+49");
+            
+            let refinementPrompt = `
+Original answer: ${initialAnswer}
+Available options: ${JSON.stringify(options)}
 
-            return new Promise((resolve, reject) => {
-                // Add timeout to prevent hanging
-                const timeout = setTimeout(() => {
-                    reject(new Error('Ollama request timeout'));
-                }, 20000); // 20 second timeout
+Which option from the list above most closely matches "${initialAnswer}"?
+You MUST select EXACTLY one option from the list as written.
+Do not add any explanation. Return only the option text exactly as it appears in the list.
+`;
 
-                chrome.runtime.sendMessage({
-                    action: 'callOllama',
-                    endpoint: endpoint,
-                    data: data
-                }, response => {
-                    clearTimeout(timeout);
-                    console.log(`Received Ollama response:`, response);
+            // Special handling for country/country code questions
+            if (isCountryCodeQuestion || options.some(opt => opt.includes("(+") && opt.includes(")"))) {
+                refinementPrompt = `
+I need to select a country code from a dropdown list.
+The user's country is: ${initialAnswer}
 
-                    if (!response) {
-                        console.error('No response received from Ollama');
-                        reject(new Error('No response received from Ollama'));
-                        return;
+Available options in the dropdown: ${JSON.stringify(options)}
+
+IMPORTANT: Please select the option that matches this country, noting that:
+1. Country names may be in German (e.g., "Deutschland" for Germany)
+2. Options include country codes (e.g., "Deutschland (+49)")
+3. For Germany, you should select "Deutschland (+49)"
+4. You MUST select EXACTLY one option from the list AS WRITTEN
+
+Which option should I select? Return ONLY the exact text of the option.`;
+            }
+            
+            // Call Ollama API for refinement
+            const response = await this.callOllamaAPI({
+                model: this.model,
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are a helpful assistant that selects the most appropriate option from a list."
+                    },
+                    {
+                        role: "user",
+                        content: refinementPrompt
                     }
-
-                    // Check if response is just {received: true} which indicates a messaging issue
-                    if (response.received === true && !response.success && !response.error) {
-                        console.error('Received incomplete response from background script:', response);
-                        reject(new Error('Incomplete response from extension'));
-                        return;
+                ],
+                options: { temperature: 0.0 },
+                stream: false
+            });
+            
+            let refinedAnswer = response?.message?.content?.trim() || "";
+            
+            // Check if the refined answer is in the options
+            if (options.includes(refinedAnswer)) {
+                console.log(`Successfully refined to "${refinedAnswer}"`);
+                conversationHistory.addAssistantResponse(refinedAnswer);
+                return refinedAnswer;
+            }
+            
+            // Special handling for country codes
+            if (isCountryCodeQuestion || options.some(opt => opt.includes("(+") && opt.includes(")"))) {
+                // Directly look for Deutschland or Germany options
+                for (const option of options) {
+                    if (option.toLowerCase().includes("deutsch")) {
+                        console.log(`Found German option: "${option}"`);
+                        conversationHistory.addAssistantResponse(option);
+                        return option;
                     }
-
-                    if (response.success) {
-                        resolve(response.data);
-                    } else {
-                        reject(new Error(response.error || 'Failed to get response from Ollama'));
+                }
+            }
+            
+            // If still not in options, do a basic match
+            console.log(`Refined answer "${refinedAnswer}" still not in options, using basic matching`);
+            
+            // Find best match
+            let bestMatch = null;
+            let bestScore = -1;
+            
+            for (const option of options) {
+                const optionLower = option.toLowerCase();
+                const answerLower = initialAnswer.toLowerCase();
+                
+                // Simple contains matching
+                if (optionLower.includes(answerLower) || answerLower.includes(optionLower)) {
+                    const score = Math.min(optionLower.length, answerLower.length) / 
+                                Math.max(optionLower.length, answerLower.length);
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = option;
                     }
+                }
+            }
+            
+            // If we found a decent match, use it
+            if (bestMatch && bestScore > 0.2) {
+                console.log(`Basic matching found: "${bestMatch}" with score ${bestScore}`);
+                conversationHistory.addAssistantResponse(bestMatch);
+                return bestMatch;
+            }
+            
+            // Last resort, return the second option or first if there's only one
+            const fallback = options.length > 1 ? options[1] : options[0];
+            console.log(`No match found, using fallback: "${fallback}"`);
+            conversationHistory.addAssistantResponse(fallback);
+            return fallback;
+            
+        } catch (error) {
+            console.error('Error in refineOptionSelection:', error);
+            // Fallback to second option or first if there's only one
+            const fallback = options.length > 1 ? options[1] : options[0];
+            return fallback;
+        }
+    }
+
+    /**
+     * Answer a question without options using relevant context from user data
+     * @param {string} question - The question to answer
+     * @returns {Promise<string>} - The answer
+     */
+    async answerWithNoOptions(question) {
+        try {
+            // Get relevant context - use top 3 results like Python
+            console.log("Starting semantic search for relevant information...");
+            const relevantKeys = await memoryStore.search(question, 3);
+            
+            let relevantContext = "";
+            
+            if (relevantKeys.length > 0) {
+                console.log(`Found ${relevantKeys.length} relevant keys:`, relevantKeys);
+                relevantContext = relevantKeys.map(key => 
+                    `${key}: ${memoryStore.data[key].text}`
+                ).join(", ");
+            } else {
+                console.log("No relevant information found in profile data. Using generic context.");
+                relevantContext = "The user has significant experience and qualifications suitable for this question.";
+            }
+            
+            // Get user's phone and salary for specific prompts
+            const personalInfo = this.user_data?.personal_information || {};
+            const phone = personalInfo.phone || "";
+            const desiredSalary = personalInfo.salary || "";
+            
+            try {
+                // Build prompt using ConversationHistory
+                const prompt = conversationHistory.buildNoOptionsPrompt(
+                    question, 
+                    relevantContext, 
+                    phone, 
+                    desiredSalary,
+                    this.user_data
+                );
+                
+                // Add to conversation history
+                conversationHistory.addUserMessage(prompt);
+                
+                // Call Ollama API
+                const response = await this.callOllamaAPI({
+                    model: this.model,
+                    messages: conversationHistory.getCurrentHistory(),
+                    options: { temperature: 0.0 },
+                    stream: false
                 });
+                
+                let rawAnswer = response?.message?.content?.trim() || "";
+                
+                // Remove thinking sections like in Python
+                let answerCandidate = rawAnswer.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                
+                // Handle numeric answers like in Python
+                const numberKeywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
+                const isNumericQuestion = numberKeywords.some(keyword => question.toLowerCase().includes(keyword));
+                
+                if (isNumericQuestion) {
+                    const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
+                    if (numberMatch) {
+                        // Handle experience questions
+                        const isExperienceQuestion = ["experience", "erfahrung", "jahre", "years"].some(
+                            keyword => question.toLowerCase().includes(keyword)
+                        );
+                        
+                        if (isExperienceQuestion) {
+                            const extractedNum = parseFloat(numberMatch[0]);
+                            answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
+                        } else {
+                            answerCandidate = numberMatch[0];
+                        }
+                    }
+                }
+                
+                if (answerCandidate) {
+                    // Add response to history and reset
+                    conversationHistory.addAssistantResponse(answerCandidate);
+                    return answerCandidate;
+                }
+                
+                return "Information not available";
+            } catch (ollamaError) {
+                console.error("Ollama API error in answerWithNoOptions:", ollamaError);
+                
+                // Smart fallback based on context when Ollama fails
+                console.log("[Function] Falling back to direct context match due to API error");
+                
+                // If we found relevant information, use the text from the most relevant match
+                if (relevantKeys.length > 0) {
+                    const directValue = memoryStore.data[relevantKeys[0]]?.text || "";
+                    console.log("[Function] AI Answer:", directValue);
+                    
+                    // For numeric questions, try to extract a number
+                    const numberKeywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
+                    const isNumericQuestion = numberKeywords.some(keyword => question.toLowerCase().includes(keyword));
+                    
+                    if (isNumericQuestion) {
+                        const numberMatch = directValue.match(/\d+(?:\.\d+)?/);
+                        if (numberMatch) {
+                            console.log("[Function] Extracted number:", numberMatch[0]);
+                            return numberMatch[0];
+                        }
+                    }
+                    
+                    // Return the direct value if it's not empty
+                    if (directValue && directValue.trim()) {
+                        return directValue;
+                    }
+                }
+                
+                // Special case for phone or salary questions
+                const phoneSalaryKeywords = ["phone", "telefon", "salary", "gehalt", "compensation", "vergütung"];
+                const isPhoneSalaryQuestion = phoneSalaryKeywords.some(keyword => question.toLowerCase().includes(keyword));
+                
+                if (isPhoneSalaryQuestion) {
+                    if (question.toLowerCase().includes("phone") || question.toLowerCase().includes("telefon")) {
+                        return phone || "Not provided";
+                    }
+                    if (question.toLowerCase().includes("salary") || question.toLowerCase().includes("gehalt") || 
+                        question.toLowerCase().includes("compensation") || question.toLowerCase().includes("vergütung")) {
+                        return desiredSalary || "Negotiable";
+                    }
+                }
+                
+                return "Information not available";
+            }
+        } catch (error) {
+            console.error('Error in answerWithNoOptions:', error);
+            return "Error generating response";
+        }
+    }
+
+    /**
+     * Call the Ollama API through the background script
+     * @param {Object} requestBody - Request body
+     * @returns {Promise<Object>} - API response
+     */
+    async callOllamaAPI(requestBody) {
+        try {
+            // Remove connection check for better performance
+            // Directly call the API without checking connection first
+            
+            // Call via background script to avoid CORS issues
+            return new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(
+                    {
+                        action: 'callOllama',
+                        endpoint: 'chat',
+                        data: requestBody
+                    },
+                    response => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else if (response.success === false) {
+                            reject(new Error(response.error || 'Unknown error from Ollama API'));
+                        } else {
+                            resolve(response.data);
+                        }
+                    }
+                );
             });
         } catch (error) {
-            console.error('Error in makeOllamaRequest:', error);
+            console.error('Error calling Ollama API:', error);
             throw error;
         }
     }
 
-    async answerWithOptions(question, options) {
+    /**
+     * Optional method to check connection to Ollama
+     * This method is no longer called automatically before API calls.
+     * You can call it manually when needed to verify Ollama is running.
+     * @returns {Promise<boolean>} - Whether connection was successful
+     */
+    async checkOllamaConnection() {
         try {
-            const relevantKeys = await this.memory.search(question, 1);
-            const relevantContext = relevantKeys
-                .map(key => `${key}: ${this.memory.data[key].text}`)
-                .join(", ");
-
-            const context = relevantContext || "The user has significant experience and qualifications suitable for this question.";
-            const optionsStr = options.map(opt => `"${opt}"`).join(", ");
-
-            const prompt = `Form Question: ${question} ?
-Available Options: [${optionsStr}]
-User Context Data Hint: ${context}
-IMPORTANT: You MUST choose EXACTLY ONE option from the list above.
-Your answer should match one of the options EXACTLY as written.
-DO NOT add any explanation or additional text.`;
-
-            this.conversationHistory.push({ role: "user", content: prompt });
-            this.conversationHistoryCompany.push({ role: "user", content: prompt });
-
-            // Detect if this is an experience question for fallback
-            const isExperience = this.isExperienceQuestion(question);
-            console.log('Attempting to connect to Ollama server...');
-            try {
-                // Use the new helper function
-                const response = await this.makeOllamaRequest('chat', {
-                    model: this.model,
-                    messages: this.conversationHistory,
-                    stream: false,
-                    options: { temperature: 0.0 }
-                });
-
-                console.log('Response received successfully');
-                let rawAnswer = response.message.content.trim();
-                let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
-
-                let validAnswer;
-                if (options.includes(answerCandidate)) {
-                    validAnswer = answerCandidate;
-                } else {
-                    let bestMatch = null;
-                    let bestScore = -1;
-                    for (const option of options) {
-                        const optionLower = option.toLowerCase();
-                        const answerLower = answerCandidate.toLowerCase();
-                        if (optionLower.includes(answerLower) || answerLower.includes(optionLower)) {
-                            const score = this.calculateSimilarity(optionLower, answerLower);
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestMatch = option;
-                            }
+            return new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage(
+                    { action: 'testOllama' },
+                    response => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else if (response && response.success) {
+                            resolve(true);
+                        } else {
+                            reject(new Error(response?.error || 'Failed to connect to Ollama'));
                         }
                     }
-                    validAnswer = bestScore > 0.5 ? bestMatch : options[1];
-                }
-
-                this.conversationHistoryCompany.push({ role: "assistant", content: validAnswer });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return validAnswer;
-
-            } catch (apiError) {
-                console.error('API error in answerWithOptions:', apiError);
-
-                // Instead of fallback, throw an error to be handled by the caller
-                throw new Error('Could not get a response from Ollama. Please check your connection and try again.');
-            }
+                );
+            });
         } catch (error) {
-            console.error('Error details:', {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-                cause: error.cause
-            });
-
-            // Return error message instead of fallback
-            throw new Error('Failed to answer question. Please try again later.');
+            console.error('Error checking Ollama connection:', error);
+            throw error;
         }
     }
-
-    async answerWithNoOptions(question) {
-        try {
-            const relevantKeys = await this.memory.search(question, 3);
-            const relevantContext = relevantKeys
-                .map(key => `${key}: ${this.memory.data[key].text}`)
-                .join(", ");
-
-            const context = relevantContext || "The user has significant experience and qualifications suitable for this question.";
-
-            const prompt = `Form Question: ${question} ?
-User Context Data Hint: ${context}
-IMPORTANT:
-- Return ONLY the answer as a plain string
-- If the question requires a number, return ONLY a number
-- If the question requires a phone number, return the user's phone ${this.userData?.personal_information?.phone || ""}
-- If the question asks for a salary, use the user's expected salary ${this.userData?.personal_information?.desired_salary || ""} or provide a reasonable estimate based on job market data
-- DO NOT add any explanation or additional text
-- Make sure the answer is professional and benefits the user`;
-
-            this.conversationHistory.push({ role: "user", content: prompt });
-            this.conversationHistoryCompany.push({ role: "user", content: prompt });
-            // Detect if this is an experience question
-            const isExperience = this.isExperienceQuestion(question);
-            console.log('Attempting to connect to Ollama server...');
-        try {
-            // Use the new helper function
-            const response = await this.makeOllamaRequest('chat', {
-                model: this.model,
-                messages: this.conversationHistory,
-                stream: false,
-                options: { temperature: 0.0 }
-            });
-
-            console.log('Response received successfully');
-            let rawAnswer = response.message.content.trim();
-            let answerCandidate = rawAnswer.replace(/<think>.*?<\/think>/gs, '').trim();
-
-            if (this.isNumberQuestion(question)) {
-                const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
-                if (numberMatch) {
-                    if (isExperience) {
-                        const extractedNum = parseFloat(numberMatch[0]);
-                        answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
-                    } else {
-                        answerCandidate = numberMatch[0];
-                    }
-                }
-            }
-
-            if (answerCandidate) {
-                this.conversationHistoryCompany.push({ role: "assistant", content: answerCandidate });
-                await this.saveConversationHistory();
-                this.conversationHistory = this.conversationHistory.slice(0, 1);
-                this.conversationHistoryCompany = [];
-                return answerCandidate;
-            }
-
-            // If we got here, we didn't get a valid answer, provide fallback
-            throw new Error('No valid answer candidate generated');
-
-        } catch (apiError) {
-            console.error('API error:', apiError);
-            
-            // Propagate the error instead of using fallback
-            throw new Error('Could not get a response from Ollama: ' + apiError.message);
-        }
-    } catch(error) {
-        console.error('Error details:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-            cause: error.cause
-        });
-        
-        // Propagate the error
-        throw error;
-    }
-}
-
-isNumberQuestion(question) {
-    const keywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
-    return keywords.some(keyword => question.toLowerCase().includes(keyword));
-}
-
-isExperienceQuestion(question) {
-    const lowerQuestion = question.toLowerCase();
-    const experienceKeywords = [
-        'experience', 'years', 'year', 'erfahrung', 'jahre', 'jahr',
-        'how long', 'wie lange', 'worked with', 'gearbeitet mit'
-    ];
-
-    return experienceKeywords.some(keyword => lowerQuestion.includes(keyword));
-}
-
-calculateSimilarity(str1, str2) {
-    const set1 = new Set(str1);
-    const set2 = new Set(str2);
-    const intersection = new Set([...set1].filter(x => set2.has(x)));
-    return intersection.size / Math.max(set1.size, set2.size);
-}
-
-    async answerQuestion(question, options = null) {
-    try {
-        // Get the YAML from storage
-        const result = await chrome.storage.local.get('userProfileYaml');
-        if (result.userProfileYaml) {
-            // Parse the YAML and check if embeddings need updating
-            const success = await this.parseUserContext(result.userProfileYaml);
-            if (!success) {
-                throw new Error('Failed to parse user profile YAML');
-            }
-            
-            // Check if embeddings need updating
-            const dataHash = this.calculateDataHash(this.userData);
-            const currentHash = await this.getStoredHash();
-            
-            if (currentHash !== dataHash || Object.keys(this.memory.data).length === 0) {
-                console.log("Embeddings need updating, generating new ones...");
-                await this.setUserContext(result.userProfileYaml);
-            }
-        }
-        
-        if (options && options.length > 0) {
-            return await this.answerWithOptions(question, options);
-        } else {
-            return await this.answerWithNoOptions(question);
-        }
-    } catch (error) {
-        console.error('Error in answerQuestion:', error);
-        throw error;
-    }
-}
 }
 
 export default AIQuestionAnswerer; 

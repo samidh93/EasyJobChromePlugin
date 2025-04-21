@@ -9,6 +9,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const yamlContent = document.getElementById('yaml-content');
     const statusMessage = document.getElementById('status-message');
     const downloadExampleButton = document.getElementById('download-example');
+    
+    // Variable to store the selected file
+    let selectedYamlFile = null;
+
+    // Add Clear All Data button
+    const clearAllDataButton = document.createElement('button');
+    clearAllDataButton.id = 'clear-all-data';
+    clearAllDataButton.textContent = 'Clear All Data';
+    clearAllDataButton.classList.add('danger-button');
+    clearAllDataButton.style.marginTop = '10px';
+    clearAllDataButton.style.backgroundColor = '#dc3545';
+    clearAllDataButton.style.color = 'white';
+    clearAllDataButton.style.border = 'none';
+    clearAllDataButton.style.padding = '8px 16px';
+    clearAllDataButton.style.borderRadius = '4px';
+    clearAllDataButton.style.cursor = 'pointer';
+    clearAllDataButton.style.width = '100%'; // Make button full width
+    clearAllDataButton.style.display = 'block'; // Ensure block display
+    clearAllDataButton.onclick = clearAllData;
+    
+    // Add the clear all data button under the Load Profile button's parent container
+    const fileInputRow = document.querySelector('.file-input-row');
+    if (fileInputRow && fileInputRow.parentNode) {
+        fileInputRow.parentNode.insertBefore(clearAllDataButton, fileInputRow.nextSibling);
+    }
 
     function showStatus(message, type = 'info') {
       statusMessage.textContent = message;
@@ -183,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // For testing: Add sample conversation data when in development
     const testDataButton = document.createElement('button');
-    testDataButton.textContent = 'Load Test Data';
+    testDataButton.textContent = 'Reset Data';
     testDataButton.classList.add('secondary-button');
     testDataButton.style.marginTop = '10px';
     testDataButton.onclick = insertTestData;
@@ -206,6 +231,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (message.action === 'CONVERSATION_UPDATED') {
             console.log('Conversation updated:', message.data);
             updateConversationDropdowns(message.data);
+            handled = true;
+        }
+        if (message.type === 'EMBEDDING_PROGRESS') {
+            // Handle embedding progress updates
+            const { progress, total, percent, status } = message.data;
+            console.log(`Embedding progress: ${progress}/${total} (${percent}%) - ${status}`);
+            
+            // Ensure progress bar is visible
+            showEmbeddingProgressBar();
+            updateEmbeddingProgress(progress, total, status);
+            handled = true;
+        }
+        if (message.type === 'EMBEDDING_COMPLETE') {
+            // Handle embedding completion
+            if (message.success) {
+                showStatus('Embeddings generated successfully!', 'success');
+                // Update progress to 100%
+                updateEmbeddingProgress(100, 100, 'Complete!');
+                
+                // Update YAML status display without requiring refresh
+                checkYamlStatus();
+                
+                // Hide progress bar after a delay
+                setTimeout(() => {
+                    hideEmbeddingProgressBar();
+                }, 3000);
+            } else {
+                showStatus(`Embedding generation failed: ${message.error || 'Unknown error'}`, 'error');
+                updateEmbeddingProgress(0, 100, `Error: ${message.error || 'Unknown error'}`);
+                
+                // Mark progress bar as error
+                const progressBar = document.getElementById('embedding-progress-bar');
+                if (progressBar) progressBar.classList.add('error');
+            }
             handled = true;
         }
         
@@ -359,32 +418,60 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    loadYamlButton.addEventListener('click', async () => {
-      const file = yamlFileInput.files[0];
-      if (file) {
+    // Function to handle file selection (but not upload yet)
+    yamlFileInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+            selectedYamlFile = null;
+            return;
+        }
+        
+        // Store the file for later processing
+        selectedYamlFile = file;
+        
+        // Show a status message indicating the file is selected but not processed
+        showStatus(`File "${file.name}" selected. Click "Load Profile" to process it.`, 'info');
+    });
+    
+    // Function to handle the Load Profile button click
+    loadYamlButton.addEventListener('click', () => {
+        // Check if a file has been selected
+        if (!selectedYamlFile) {
+            showStatus('Please select a YAML file first.', 'error');
+            return;
+        }
+        
+        // Process the selected file
         const reader = new FileReader();
-        reader.onload = async (e) => {
-          const yamlContent = e.target.result;
-          try {
-            // Store the YAML content in chrome.storage with filename and timestamp
-            await chrome.storage.local.set({ 
-              'userProfileYaml': yamlContent,
-              'yamlFileName': file.name,
-              'yamlLastUploaded': new Date().toISOString()
-            });
-            showStatus(`Profile "${file.name}" saved to storage`, 'success');
+        reader.onload = function(e) {
+            const content = e.target.result;
             
-            // Update the status immediately without requiring refresh
-            checkYamlStatus();
-          } catch (error) {
-            console.error('Error saving YAML to storage:', error);
-            showStatus('Error saving YAML data', 'error');
-          }
+            showStatus('Uploading YAML profile...', 'info');
+            
+            // Show the embedding progress bar immediately
+            showEmbeddingProgressBar();
+            updateEmbeddingProgress(0, 100, 'Preparing to generate embeddings...');
+            
+            // Upload to background script for processing
+            chrome.runtime.sendMessage({
+                action: 'setUserData',
+                yamlContent: content,
+                fileName: selectedYamlFile.name
+            }, function(response) {
+                if (response.success) {
+                    showStatus('YAML profile uploaded successfully. Generating embeddings...', 'success');
+                } else {
+                    showStatus('Error: ' + (response.error || 'Failed to process YAML'), 'error');
+                    // Hide progress bar on error
+                    hideEmbeddingProgressBar();
+                }
+            });
+            
+            // Clear the file input and selected file
+            yamlFileInput.value = '';
+            selectedYamlFile = null;
         };
-        reader.readAsText(file);
-      } else {
-        showStatus('Please select a YAML file first', 'error');
-      }
+        reader.readAsText(selectedYamlFile);
     });
 
     // Download example profile button
@@ -420,6 +507,30 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatus('Error downloading example profile', 'error');
         }
     });
+
+    // Function to clear all data
+    function clearAllData() {
+        // Ask for confirmation before clearing data
+        if (!confirm('Are you sure you want to clear all data? This will remove your YAML profile, embeddings, and all other stored data. This action cannot be undone.')) {
+            return;
+        }
+
+        // Show status message
+        showStatus('Clearing all data...', 'info');
+        
+        // Remove all data from storage
+        chrome.storage.local.clear(function() {
+            console.log('All data cleared from Chrome storage');
+            
+            // Update UI to reflect cleared data
+            yamlContent.textContent = '';
+            checkYamlStatus();
+            loadDropdownOptions();
+            
+            // Show success message
+            showStatus('All data has been cleared successfully', 'success');
+        });
+    }
 
 });
 
@@ -981,11 +1092,158 @@ function insertTestData() {
         // Update UI to show we have data
         const statusMessage = document.getElementById('status-message');
         if (statusMessage) {
-            statusMessage.textContent = 'Test data loaded successfully';
+            statusMessage.textContent = 'Data resetted successfully';
             statusMessage.className = 'status-message success';
             
             // After data is loaded, update dropdown to show it
             updateJobDropdown();
         }
     });
+}
+
+// Add these new functions for the progress bar
+function showEmbeddingProgressBar() {
+  let progressContainer = document.getElementById('embedding-progress-container');
+  
+  if (!progressContainer) {
+    // Create the progress bar container if it doesn't exist
+    progressContainer = document.createElement('div');
+    progressContainer.id = 'embedding-progress-container';
+    progressContainer.className = 'progress-container';
+    
+    // Create the actual progress bar element
+    const progressBar = document.createElement('div');
+    progressBar.id = 'embedding-progress-bar';
+    progressBar.className = 'progress-bar';
+    
+    // Create text for percentage and status
+    const progressText = document.createElement('div');
+    progressText.id = 'embedding-progress-text';
+    progressText.className = 'progress-text';
+    progressText.textContent = '0%';
+    
+    const progressStatus = document.createElement('div');
+    progressStatus.id = 'embedding-progress-status';
+    progressStatus.className = 'progress-status';
+    progressStatus.textContent = 'Starting...';
+    
+    // Add elements to container
+    progressContainer.appendChild(progressBar);
+    progressContainer.appendChild(progressText);
+    progressContainer.appendChild(progressStatus);
+    
+    // Add some CSS to the head if not already present
+    const styleId = 'progress-bar-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        .progress-container {
+          width: 100%;
+          height: 24px;
+          background-color: #f5f5f5;
+          border-radius: 4px;
+          margin: 15px 0;
+          position: relative;
+          overflow: hidden;
+          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .progress-bar {
+          height: 100%;
+          background-color: #4CAF50;
+          width: 0%;
+          transition: width 0.3s ease;
+          position: relative;
+          border-radius: 4px;
+        }
+        .progress-bar.error {
+          background-color: #f44336;
+        }
+        .progress-text {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #333;
+          font-weight: bold;
+          z-index: 2;
+        }
+        .progress-status {
+          position: absolute;
+          left: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #333;
+          font-size: 12px;
+          z-index: 2;
+          max-width: 70%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    // Append to the proper location in the popup
+    const profileInfoContainer = document.getElementById('profile-info-container');
+    profileInfoContainer.appendChild(progressContainer);
+  } else {
+    // If it exists, just make it visible
+    progressContainer.style.display = 'block';
+    
+    // Reset the progress bar
+    const progressBar = document.getElementById('embedding-progress-bar');
+    if (progressBar) {
+      progressBar.style.width = '0%';
+      progressBar.classList.remove('error');
+    }
+    
+    const progressText = document.getElementById('embedding-progress-text');
+    if (progressText) {
+      progressText.textContent = '0%';
+    }
+    
+    const progressStatus = document.getElementById('embedding-progress-status');
+    if (progressStatus) {
+      progressStatus.textContent = 'Starting...';
+    }
+  }
+}
+
+function updateEmbeddingProgress(progress, total, status) {
+  const percent = total > 0 ? Math.round((progress / total) * 100) : 0;
+  
+  const progressBar = document.getElementById('embedding-progress-bar');
+  const progressText = document.getElementById('embedding-progress-text');
+  const progressStatus = document.getElementById('embedding-progress-status');
+  
+  if (progressBar && progressText && progressStatus) {
+    progressBar.style.width = `${percent}%`;
+    progressText.textContent = `${percent}%`;
+    progressStatus.textContent = status || '';
+    
+    // Mark as error if status includes 'Error'
+    if (status && status.includes('Error')) {
+      progressBar.classList.add('error');
+    } else {
+      progressBar.classList.remove('error');
+    }
+    
+    // Hide when complete (100%)
+    if (percent === 100 && !status.includes('Error')) {
+      // Wait a moment before hiding so the user can see the completion
+      setTimeout(() => {
+        hideEmbeddingProgressBar();
+      }, 3000);
+    }
+  }
+}
+
+function hideEmbeddingProgressBar() {
+  // Don't remove it, just hide it so we can reuse it later
+  const progressContainer = document.getElementById('embedding-progress-container');
+  if (progressContainer) {
+    progressContainer.style.display = 'none';
+  }
 }

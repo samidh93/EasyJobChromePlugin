@@ -4,9 +4,7 @@ import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
         try {
-            // Reset AIQuestionAnswerer instance when closing the form
-            AIQuestionAnswerer.resetInstance();
-            
+            // Reset AIQuestionAnswerer instance when closing the form            
             let closeButton = document.querySelector('button[aria-label="Dismiss"]');
 
             if (!closeButton) {
@@ -170,12 +168,13 @@ class LinkedInForm extends LinkedInBase {
 
     static async processForm(shouldStop) {
         try {
-            // Reset the AIQuestionAnswerer instance for a fresh form
-            AIQuestionAnswerer.resetInstance();
-            
+            // Reset the AIQuestionAnswerer instance for a fresh form            
             const startTime = Date.now();
             const timeout = 3 * 60 * 1000; // 3 minutes
             let isSubmitted = false;
+            
+            // Flag to track if we've processed the current page already
+            let currentPageProcessed = false;
 
             while (!isSubmitted && (Date.now() - startTime) < timeout) {
                 this.debugLog("Starting form processing iteration");
@@ -185,7 +184,14 @@ class LinkedInForm extends LinkedInBase {
                     return false;
                 }
 
-                await this.processFormQuestions();
+                // Process the form questions only if we haven't processed this page yet
+                if (!currentPageProcessed) {
+                    await this.processFormQuestions();
+                    currentPageProcessed = true;
+                    this.debugLog("Current page form questions processed, will not reprocess");
+                } else {
+                    this.debugLog("Skipping redundant form processing for current page");
+                }
 
                 const reviewStartTime = Date.now();
                 const reviewTimeout = 60 * 1000; // 1 minute
@@ -199,7 +205,7 @@ class LinkedInForm extends LinkedInBase {
 
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
-                        await this.processFormQuestions();
+                        // Don't reprocess the form before clicking review
                         await this.clickReviewApplication();
                         this.debugLog("Found and clicked review button");
                         reviewFound = true;
@@ -221,10 +227,13 @@ class LinkedInForm extends LinkedInBase {
                     } else {
                         const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
                         if (nextPageButton) {
-                            await this.processFormQuestions();
+                            // Don't reprocess the form before clicking next
                             await this.clickNextPage();
                             this.debugLog("Clicked next page button");
                             await this.wait(2000);
+                            
+                            // Reset the flag since we're on a new page
+                            currentPageProcessed = false;
                         } else {
                             const submitButton = document.querySelector('button[aria-label="Submit application"]');
                             if (submitButton) {
@@ -311,7 +320,8 @@ class LinkedInForm extends LinkedInBase {
                         this.debugLog(`Available options for "${questionText}":`);
                     }
 
-                    await this.answerQuestion(questionText, options);
+                    // Pass the inputField directly to avoid redundant search
+                    await this.answerQuestion(questionText, options, inputField, element);
                 } catch (error) {
                     this.errorLog(`Error processing form element: ${error.message}`, error);
                 }
@@ -325,93 +335,92 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
-    static async answerQuestion(question, options = []) {
+    static async answerQuestion(question, options = [], inputField, element) {
         try {
-            // Use the singleton instance instead of creating a new one
-            const ai = AIQuestionAnswerer.getInstance();
+            // Create a new instance of AIQuestionAnswerer instead of using singleton
+            const ai = new AIQuestionAnswerer();
             
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
             
+            // Load user profile data from Chrome storage
+            try {
+                const result = await chrome.storage.local.get('userProfileYaml');
+                if (result && result.userProfileYaml) {
+                    this.debugLog('Found user profile YAML in storage');
+                    // Set the user context in the AI instance
+                    await ai.setUserContext(result.userProfileYaml);
+                    this.debugLog('Set user context in AI instance');
+                } else {
+                    this.debugLog('No user profile found in storage');
+                }
+            } catch (error) {
+                this.errorLog('Error loading user profile from storage:', error);
+            }
+            
             // Save to chrome.storage for persistence
             const currentJob = await chrome.storage.local.get('currentJob');
-            ai.setJob(currentJob)
-            const formElements = document.querySelectorAll("div.fb-dash-form-element");
-            for (const element of formElements) {
-                const labelElement = element.querySelector("label");
-                if (!labelElement) continue;
+            ai.setJob(currentJob);
+            
+            // Get the answer directly without re-searching for form elements
+            let answer = await ai.answerQuestion(question, options);
 
-                let questionText = labelElement.textContent.trim();
-                questionText = questionText.replace(/(.+?)\1/, '$1');
-                if (questionText !== question) continue;
+            if (!answer) {
+                this.debugLog("No answer generated for question");
+                return false;
+            }
+            
+            this.debugLog(`AI Answer: ${answer}`);
 
-                const inputField = element.querySelector("input, textarea, select");
-                if (!inputField) {
-                    this.debugLog("No input field found for question");
-                    continue;
-                }
+            // Fill in the answer using the provided inputField
+            switch (inputField.tagName.toLowerCase()) {
+                case 'input':
+                    switch (inputField.type) {
+                        case 'text':
+                        case 'tel':
+                        case 'email':
+                            inputField.value = answer;
+                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                            break;
 
-                let answer;
-                answer = await ai.answerQuestion(question, options);
-
-                if (!answer) {
-                    this.debugLog("No answer generated for question");
-                    continue;
-                }
-                this.debugLog(`AI Answer: ${answer}`);
-
-                switch (inputField.tagName.toLowerCase()) {
-                    case 'input':
-                        switch (inputField.type) {
-                            case 'text':
-                            case 'tel':
-                            case 'email':
-                                inputField.value = answer;
-                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                                break;
-
-                            case 'radio':
-                                const radioOptions = element.querySelectorAll('input[type="radio"]');
-                                for (const radio of radioOptions) {
-                                    const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
-                                    if (radioLabel && radioLabel.textContent.trim() === answer) {
-                                        radio.click();
-                                        this.debugLog(`Selected radio option: ${answer}`);
-                                        break;
-                                    }
+                        case 'radio':
+                            const radioOptions = element.querySelectorAll('input[type="radio"]');
+                            for (const radio of radioOptions) {
+                                const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                if (radioLabel && radioLabel.textContent.trim() === answer) {
+                                    radio.click();
+                                    this.debugLog(`Selected radio option: ${answer}`);
+                                    break;
                                 }
-                                break;
-
-                            case 'checkbox':
-                                inputField.checked = true;
-                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                                break;
-                        }
-                        break;
-
-                    case 'textarea':
-                        inputField.value = answer;
-                        inputField.dispatchEvent(new Event('input', { bubbles: true }));
-                        break;
-
-                    case 'select':
-                        for (let i = 0; i < inputField.options.length; i++) {
-                            if (inputField.options[i].text.trim() === answer) {
-                                inputField.selectedIndex = i;
-                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                                this.debugLog(`Selected option: ${answer}`);
-                                break;
                             }
-                        }
-                        break;
-                }
+                            break;
 
-                await this.wait(500);
-                return true;
+                        case 'checkbox':
+                            inputField.checked = true;
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                    }
+                    break;
+
+                case 'textarea':
+                    inputField.value = answer;
+                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                    break;
+
+                case 'select':
+                    for (let i = 0; i < inputField.options.length; i++) {
+                        if (inputField.options[i].text.trim() === answer) {
+                            inputField.selectedIndex = i;
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            this.debugLog(`Selected option: ${answer}`);
+                            break;
+                        }
+                    }
+                    break;
             }
 
-            this.debugLog(`Question not found: ${question}`);
-            return false;
+            await this.wait(500);
+            return true;
         } catch (error) {
             this.errorLog(`Error answering question "${question}"`, error);
             return false;
