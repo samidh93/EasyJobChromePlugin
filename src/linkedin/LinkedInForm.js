@@ -1,5 +1,6 @@
 import LinkedInBase from './LinkedInBase.js';
 import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
+import conversationHistory from '../ai/ConversationHistory.js';
 
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
@@ -187,11 +188,18 @@ class LinkedInForm extends LinkedInBase {
                     return false;
                 }
 
-                // Process the form questions only if we haven't processed this page yet
-                if (!currentPageProcessed) {
+                // Check if the current page has form questions that need processing
+                const formElements = document.querySelectorAll("div.fb-dash-form-element");
+                const hasFormQuestions = formElements.length > 0;
+                
+                // Process the form questions only if we haven't processed this page yet and there are questions
+                if (!currentPageProcessed && hasFormQuestions) {
+                    this.debugLog(`Found ${formElements.length} form questions on current page`);
                     await this.processFormQuestions();
                     currentPageProcessed = true;
                     this.debugLog("Current page form questions processed, will not reprocess");
+                } else if (!hasFormQuestions) {
+                    this.debugLog("No form questions found on current page");
                 } else {
                     this.debugLog("Skipping redundant form processing for current page");
                 }
@@ -208,17 +216,29 @@ class LinkedInForm extends LinkedInBase {
 
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
-
-                        
-                        // Don't reprocess the form before clicking review
+                        // Click the review button
                         await this.clickReviewApplication();
                         this.debugLog("Found and clicked review button");
                         reviewFound = true;
                         await this.wait(2000);
+                        
+                        // Reset the currentPageProcessed flag because we're now on a new page (the review page)
+                        // This allows us to check for and process any questions on the review page
+                        currentPageProcessed = false;
 
+                        // Check if we now have a submit button
                         const submitButton = document.querySelector('button[aria-label="Submit application"]');
                         if (submitButton) {
-                        // Finalize conversation before moving to review
+                            // Check if there are any questions on the review page
+                            const reviewPageFormElements = document.querySelectorAll("div.fb-dash-form-element");
+                            if (reviewPageFormElements.length > 0) {
+                                this.debugLog(`Found ${reviewPageFormElements.length} form questions on review page`);
+                                await this.processFormQuestions();
+                            } else {
+                                this.debugLog("No questions found on review page");
+                            }
+                            
+                            // Finalize conversation before submitting
                             await this.finalizePageConversation();
                             await this.clickSubmitApplication();
                             this.debugLog("Clicked submit button after review");
@@ -446,6 +466,11 @@ class LinkedInForm extends LinkedInBase {
      */
     static async finalizePageConversation() {
         try {
+            this.debugLog("Preparing to finalize conversation for current page");
+            
+            // Add a delay to ensure all conversation updates have been processed
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
             // Create a new instance of AIQuestionAnswerer
             const ai = new AIQuestionAnswerer();
             
@@ -453,7 +478,33 @@ class LinkedInForm extends LinkedInBase {
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob);
             
-            // Finalize conversation
+            // Save the conversation data directly to storage before finalizing
+            // This ensures we have a backup of the full conversation
+            try {
+                const conversation = conversationHistory.getCurrentHistory();
+                if (conversation && conversation.length > 1 && currentJob?.currentJob?.title) {
+                    await new Promise(resolve => {
+                        chrome.storage.local.get(['conversationData'], function(result) {
+                            let conversationData = result.conversationData || {};
+                            const jobTitle = currentJob.currentJob.title;
+                            
+                            if (!conversationData[jobTitle]) {
+                                conversationData[jobTitle] = [];
+                            }
+                            
+                            // Add the full conversation as a backup
+                            conversationData[jobTitle].push(conversation);
+                            
+                            chrome.storage.local.set({ conversationData }, resolve);
+                        });
+                    });
+                    this.debugLog("Saved full conversation backup to storage before finalizing");
+                }
+            } catch (storageError) {
+                this.errorLog("Error saving conversation backup:", storageError);
+            }
+            
+            // Now finalize the conversation
             ai.finalizeConversation();
             
             this.debugLog("Finalized conversation for current page");
