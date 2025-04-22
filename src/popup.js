@@ -825,9 +825,17 @@ function updateQuestionDropdown() {
 
 // Function to extract a short question title from the full question content
 function extractQuestionText(content) {
+  // Clean up the content first
+  const cleanContent = content
+    .replace(/User Context Data Hint:.+/s, '') // Remove context data
+    .replace(/IMPORTANT:.+/s, '') // Remove IMPORTANT section
+    .replace(/Available Options:.+/s, '') // Remove options
+    .trim();
+    
   // Check for "Form Question: " format
-  const questionMatch = content.match(/Form Question: ([^?]+)\s*\?/);
+  const questionMatch = cleanContent.match(/Form Question:\s*([^?]+)\s*\?/);
   if (questionMatch && questionMatch[1]) {
+    // Return just the question part, nicely formatted
     return questionMatch[1].trim();
   }
   
@@ -877,14 +885,48 @@ function displaySelectedQuestionAnswer() {
       console.log("Selected conversation:", conversation);
       
       if (Array.isArray(conversation)) {
-        // Find the user and assistant messages
+        // Find the user and assistant messages (skip system message)
         const userMsg = conversation.find(msg => msg.role === 'user');
         const assistantMsg = conversation.find(msg => msg.role === 'assistant');
         
         if (userMsg && assistantMsg) {
-          questionText.textContent = userMsg.content || "Question not available";
-          answerText.textContent = assistantMsg.content || "Answer not available";
-          console.log('Displayed Q&A:', { question: userMsg.content, answer: assistantMsg.content });
+          // Clean up the user message (question) for display
+          let displayQuestion = userMsg.content || "Question not available";
+          
+          // Remove boilerplate from the question
+          displayQuestion = displayQuestion
+            .replace(/User Context Data Hint:.+/s, '') // Remove context data
+            .replace(/IMPORTANT:.+/s, '') // Remove IMPORTANT section
+            .trim();
+            
+          // If it has Form Question format, clean it up more
+          const formQuestionMatch = displayQuestion.match(/Form Question:\s*([^?]+)\s*\?/);
+          if (formQuestionMatch) {
+            displayQuestion = `Question: ${formQuestionMatch[1].trim()}?`;
+          }
+          
+          // Now handle the options part if present
+          const optionsMatch = userMsg.content.match(/Available Options:\s*\[(.*)\]/);
+          if (optionsMatch && optionsMatch[1]) {
+            const options = optionsMatch[1]
+              .split(',')
+              .map(opt => opt.trim().replace(/^"|"$/g, ''))
+              .filter(opt => opt);
+              
+            if (options.length > 0) {
+              displayQuestion += "\n\nOptions:\n• " + options.join("\n• ");
+            }
+          }
+          
+          // Format answer for display
+          let displayAnswer = assistantMsg.content || "Answer not available";
+          
+          questionText.textContent = displayQuestion;
+          answerText.textContent = displayAnswer;
+          console.log('Displayed Q&A:', { 
+            question: displayQuestion, 
+            answer: displayAnswer 
+          });
         } else {
           console.error('Missing user or assistant message in conversation:', conversation);
           questionText.textContent = "Error: Invalid conversation format";

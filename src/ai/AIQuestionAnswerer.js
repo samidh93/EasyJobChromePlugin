@@ -8,6 +8,7 @@ class AIQuestionAnswerer {
         this.model = 'qwen2.5:3b';
         this.job = null;
         this.user_data = null;
+        this.jobInfo = null;
     }
 
     /**
@@ -18,9 +19,20 @@ class AIQuestionAnswerer {
         this.job = jobInfo;
         console.log('Job information set:', jobInfo);
         
-        // In Python this would create a conversation history file for this company
-        if (jobInfo && jobInfo.currentJob) {
-            console.log(`Creating conversation context for ${jobInfo.currentJob.company || 'Unknown'}`);
+        const currentJob = jobInfo && jobInfo.currentJob ? jobInfo.currentJob : null;
+        
+        if (currentJob) {
+            this.jobInfo = {
+                company: currentJob.company || '',
+                title: currentJob.title || '',
+                location: currentJob.location || '',
+                description: currentJob.description || ''
+            };
+            
+            // Create a conversation context for this company
+            console.log(`Creating conversation context for ${this.jobInfo.company}`);
+        } else {
+            console.log('No job information provided');
         }
     }
 
@@ -97,6 +109,64 @@ class AIQuestionAnswerer {
                 return this.answerWithNoOptions(question);
             }
             
+            // Special handling for common questions without using embeddings
+            // Phone country code matching
+            if (question.toLowerCase().includes("phone country") || 
+                question.toLowerCase().includes("country code") ||
+                question.toLowerCase().includes("landesvorwahl")) {
+                
+                console.log("Found direct match for contact query");
+                
+                const contactInfo = this.user_data?.personal_information || {};
+                if (contactInfo.country) {
+                    const countryName = contactInfo.country;
+                    
+                    // Try to find this country in the options
+                    let matchedOption = null;
+                    
+                    // Check if any option contains the country name
+                    for (const option of options) {
+                        if (option.toLowerCase().includes(countryName.toLowerCase())) {
+                            matchedOption = option;
+                            break;
+                        }
+                    }
+                    
+                    if (matchedOption) {
+                        console.log(`Found country match: ${matchedOption}`);
+                        
+                        // Record this answer in the conversation history
+                        conversationHistory.addAssistantResponse(matchedOption);
+                        
+                        // Send the conversation update to the popup
+                        this.sendConversationUpdate();
+                        
+                        return matchedOption;
+                    } else {
+                        // If we can't find the country directly, try Deutschland / Germany
+                        if (countryName.toLowerCase().includes("german") || countryName.toLowerCase().includes("deutsch")) {
+                            // Look for German options
+                            for (const option of options) {
+                                if (option.toLowerCase().includes("germany") || 
+                                    option.toLowerCase().includes("deutsch") ||
+                                    option.toLowerCase().includes("+49")) {
+                                    
+                                    console.log(`Found German option: ${option}`);
+                                    
+                                    // Record this answer in the conversation history
+                                    conversationHistory.addAssistantResponse(option);
+                                    
+                                    // Send the conversation update to the popup
+                                    this.sendConversationUpdate();
+                                    
+                                    return option;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             // Get relevant context like in Python
             console.log("Starting semantic search for relevant information...");
             const relevantKeys = await memoryStore.search(question, 3);
@@ -143,12 +213,21 @@ class AIQuestionAnswerer {
                     // Direct match found, use it
                     console.log(`Found exact match in options: "${answerCandidate}"`);
                     conversationHistory.addAssistantResponse(answerCandidate);
+                    
+                    // Send the conversation update to the popup
+                    this.sendConversationUpdate();
+                    
                     return answerCandidate;
                 }
                 
                 // If we're here, the answer wasn't an exact match - try to refine it
                 console.log(`Answer "${answerCandidate}" not found in options, attempting to refine`);
-                return await this.refineOptionSelection(answerCandidate, options);
+                const refinedAnswer = await this.refineOptionSelection(answerCandidate, options);
+                
+                // Send the conversation update to the popup after refinement
+                this.sendConversationUpdate();
+                
+                return refinedAnswer;
                 
             } catch (ollamaError) {
                 console.error("Ollama API error in answerWithOptions:", ollamaError);
@@ -164,18 +243,34 @@ class AIQuestionAnswerer {
                     const contextValue = memoryStore.data[relevantKeys[0]]?.text || "";
                     
                     // Try to find the best matching option based on the context
-                    return await this.refineOptionSelection(contextValue, options);
+                    const bestMatch = await this.refineOptionSelection(contextValue, options);
+                    
+                    // Send the conversation update to the popup
+                    this.sendConversationUpdate();
+                    
+                    return bestMatch;
                 }
                 
                 // Still fallback to options[1] or options[0] as last resort
                 const fallbackOption = options.length > 1 ? options[1] : options[0];
                 console.log("[Function] Selected fallback option:", fallbackOption);
+                conversationHistory.addAssistantResponse(fallbackOption);
+                
+                // Send the conversation update to the popup
+                this.sendConversationUpdate();
+                
                 return fallbackOption;
             }
         } catch (error) {
             console.error('Error in answerWithOptions:', error);
             // Fallback to second option like Python
-            return options.length > 1 ? options[1] : options[0];
+            const fallbackOption = options.length > 1 ? options[1] : options[0];
+            conversationHistory.addAssistantResponse(fallbackOption);
+            
+            // Send the conversation update to the popup even when there's an error
+            this.sendConversationUpdate();
+            
+            return fallbackOption;
         }
     }
 
@@ -244,6 +339,7 @@ Which option should I select? Return ONLY the exact text of the option.`;
             if (options.includes(refinedAnswer)) {
                 console.log(`Successfully refined to "${refinedAnswer}"`);
                 conversationHistory.addAssistantResponse(refinedAnswer);
+                this.sendConversationUpdate();
                 return refinedAnswer;
             }
             
@@ -254,6 +350,7 @@ Which option should I select? Return ONLY the exact text of the option.`;
                     if (option.toLowerCase().includes("deutsch")) {
                         console.log(`Found German option: "${option}"`);
                         conversationHistory.addAssistantResponse(option);
+                        this.sendConversationUpdate();
                         return option;
                     }
                 }
@@ -286,6 +383,7 @@ Which option should I select? Return ONLY the exact text of the option.`;
             if (bestMatch && bestScore > 0.2) {
                 console.log(`Basic matching found: "${bestMatch}" with score ${bestScore}`);
                 conversationHistory.addAssistantResponse(bestMatch);
+                this.sendConversationUpdate();
                 return bestMatch;
             }
             
@@ -293,12 +391,15 @@ Which option should I select? Return ONLY the exact text of the option.`;
             const fallback = options.length > 1 ? options[1] : options[0];
             console.log(`No match found, using fallback: "${fallback}"`);
             conversationHistory.addAssistantResponse(fallback);
+            this.sendConversationUpdate();
             return fallback;
             
         } catch (error) {
             console.error('Error in refineOptionSelection:', error);
             // Fallback to second option or first if there's only one
             const fallback = options.length > 1 ? options[1] : options[0];
+            conversationHistory.addAssistantResponse(fallback);
+            this.sendConversationUpdate();
             return fallback;
         }
     }
@@ -310,6 +411,75 @@ Which option should I select? Return ONLY the exact text of the option.`;
      */
     async answerWithNoOptions(question) {
         try {
+            console.log(`Answering question without options: "${question}"`);
+            
+            // Special handling for super common questions without using embeddings
+            // Check if this is a direct contact information question
+            if (this.user_data?.personal_information) {
+                const personalInfo = this.user_data.personal_information;
+                
+                // Direct matching for common fields
+                if (question.toLowerCase().includes("email")) {
+                    const email = personalInfo.email || "";
+                    if (email) {
+                        console.log("Found direct match for email query");
+                        conversationHistory.addAssistantResponse(email);
+                        
+                        // Send the conversation update to the popup
+                        this.sendConversationUpdate();
+                        
+                        return email;
+                    }
+                }
+                
+                if (question.toLowerCase().includes("phone") || 
+                    question.toLowerCase().includes("mobile") || 
+                    question.toLowerCase().includes("telephone") ||
+                    question.toLowerCase().includes("telefon")) {
+                    
+                    console.log("Found direct match for contact query");
+                    // Check international prefix is included
+                    const phone = personalInfo.phone_prefix 
+                        ? personalInfo.phone_prefix.replace('+', '') + personalInfo.phone 
+                        : personalInfo.phone || "";
+                        
+                    if (phone) {
+                        conversationHistory.addAssistantResponse(phone);
+                        
+                        // Send the conversation update to the popup
+                        this.sendConversationUpdate();
+                        
+                        return phone;
+                    }
+                }
+                
+                if (question.toLowerCase().includes("name") && question.toLowerCase().includes("first")) {
+                    console.log("Found direct match for first name query");
+                    const firstName = personalInfo.name || "";
+                    if (firstName) {
+                        conversationHistory.addAssistantResponse(firstName);
+                        
+                        // Send the conversation update to the popup
+                        this.sendConversationUpdate();
+                        
+                        return firstName;
+                    }
+                }
+                
+                if (question.toLowerCase().includes("name") && question.toLowerCase().includes("last")) {
+                    console.log("Found direct match for last name query");
+                    const lastName = personalInfo.surname || "";
+                    if (lastName) {
+                        conversationHistory.addAssistantResponse(lastName);
+                        
+                        // Send the conversation update to the popup
+                        this.sendConversationUpdate();
+                        
+                        return lastName;
+                    }
+                }
+            }
+            
             // Get relevant context - use top 3 results like Python
             console.log("Starting semantic search for relevant information...");
             const relevantKeys = await memoryStore.search(question, 3);
@@ -381,10 +551,19 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 if (answerCandidate) {
                     // Add response to history and reset
                     conversationHistory.addAssistantResponse(answerCandidate);
+                    
+                    // Send the conversation update to the popup
+                    this.sendConversationUpdate();
+                    
                     return answerCandidate;
                 }
                 
-                return "Information not available";
+                // Fallback response if no candidate is found
+                const fallbackResponse = "Information not available";
+                conversationHistory.addAssistantResponse(fallbackResponse);
+                this.sendConversationUpdate();
+                return fallbackResponse;
+                
             } catch (ollamaError) {
                 console.error("Ollama API error in answerWithNoOptions:", ollamaError);
                 
@@ -404,12 +583,16 @@ Which option should I select? Return ONLY the exact text of the option.`;
                         const numberMatch = directValue.match(/\d+(?:\.\d+)?/);
                         if (numberMatch) {
                             console.log("[Function] Extracted number:", numberMatch[0]);
+                            conversationHistory.addAssistantResponse(numberMatch[0]);
+                            this.sendConversationUpdate();
                             return numberMatch[0];
                         }
                     }
                     
                     // Return the direct value if it's not empty
                     if (directValue && directValue.trim()) {
+                        conversationHistory.addAssistantResponse(directValue);
+                        this.sendConversationUpdate();
                         return directValue;
                     }
                 }
@@ -420,19 +603,29 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 
                 if (isPhoneSalaryQuestion) {
                     if (question.toLowerCase().includes("phone") || question.toLowerCase().includes("telefon")) {
+                        conversationHistory.addAssistantResponse(phone || "Not provided");
+                        this.sendConversationUpdate();
                         return phone || "Not provided";
                     }
                     if (question.toLowerCase().includes("salary") || question.toLowerCase().includes("gehalt") || 
                         question.toLowerCase().includes("compensation") || question.toLowerCase().includes("vergütung")) {
+                        conversationHistory.addAssistantResponse(desiredSalary || "Negotiable");
+                        this.sendConversationUpdate();
                         return desiredSalary || "Negotiable";
                     }
                 }
                 
-                return "Information not available";
+                const fallbackResponse = "Information not available";
+                conversationHistory.addAssistantResponse(fallbackResponse);
+                this.sendConversationUpdate();
+                return fallbackResponse;
             }
         } catch (error) {
             console.error('Error in answerWithNoOptions:', error);
-            return "Error generating response";
+            const fallbackResponse = "Error generating response";
+            conversationHistory.addAssistantResponse(fallbackResponse);
+            this.sendConversationUpdate();
+            return fallbackResponse;
         }
     }
 
@@ -496,6 +689,77 @@ Which option should I select? Return ONLY the exact text of the option.`;
         } catch (error) {
             console.error('Error checking Ollama connection:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Send conversation update to the popup for display
+     */
+    sendConversationUpdate() {
+        if (!this.jobInfo) {
+            console.log("No job info available, skipping conversation update");
+            return;
+        }
+        
+        try {
+            // Get current conversation
+            const conversation = conversationHistory.getCurrentHistory();
+            if (!conversation || conversation.length < 2) {
+                console.log("No meaningful conversation to send");
+                return;
+            }
+            
+            console.log("Sending conversation update to popup:", {
+                company: this.jobInfo.company,
+                title: this.jobInfo.title,
+                conversationLength: conversation.length
+            });
+            
+            // Send the current conversation
+            chrome.runtime.sendMessage({
+                action: 'CONVERSATION_UPDATED',
+                data: {
+                    company: this.jobInfo.company,
+                    title: this.jobInfo.title,
+                    conversation: conversation
+                }
+            }, response => {
+                if (chrome.runtime.lastError) {
+                    console.warn("Error sending conversation update:", chrome.runtime.lastError);
+                } else {
+                    console.log("Conversation update sent successfully");
+                }
+            });
+            
+            // Also send any saved conversations
+            const savedConversations = conversationHistory.getSavedConversations(this.jobInfo.title);
+            if (savedConversations && savedConversations.length > 0) {
+                console.log(`Sending ${savedConversations.length} saved conversations`);
+                
+                // Send each saved conversation
+                for (const savedConversation of savedConversations) {
+                    chrome.runtime.sendMessage({
+                        action: 'CONVERSATION_UPDATED',
+                        data: {
+                            company: this.jobInfo.company,
+                            title: this.jobInfo.title,
+                            conversation: savedConversation
+                        }
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error sending conversation update:", error);
+        }
+    }
+    
+    /**
+     * Finalize the current conversation
+     * This should be called when moving to a new form or page
+     */
+    finalizeConversation() {
+        if (this.jobInfo) {
+            conversationHistory.finalizeAndSaveConversation(this.jobInfo);
         }
     }
 }

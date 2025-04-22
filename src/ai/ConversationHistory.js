@@ -5,6 +5,7 @@ class ConversationHistory {
   constructor() {
     this.conversation_history = [];
     this.conversation_history_company = [];
+    this.savedConversations = [];
     
     // Set default system context
     this.setSystemContext();
@@ -51,10 +52,49 @@ Your goal is to make the user stand out in a positive and professional way.
    * @param {string} content - Response content
    */
   addAssistantResponse(content) {
-    this.conversation_history_company.push({ role: "assistant", content });
+    // First, add assistant response to conversation history so it can be sent to the popup
+    const assistantMessage = { role: "assistant", content };
+    this.conversation_history.push(assistantMessage);
     
-    // Reset histories like in Python implementation
+    // Also add to company history
+    this.conversation_history_company.push(assistantMessage);
+    
+    // We no longer reset immediately, to allow the conversation to be sent to the popup
+  }
+  
+  /**
+   * Finalize current conversation and save it before starting new
+   * This should be called at the beginning of form processing
+   * @param {Object} jobInfo - Job information to associate with this conversation
+   */
+  finalizeAndSaveConversation(jobInfo) {
+    // Only save if we have a meaningful conversation (more than just system message)
+    if (this.conversation_history.length > 1) {
+      console.log(`Finalizing conversation with ${this.conversation_history.length} messages`);
+      
+      // Save the conversation with job info
+      this.savedConversations.push({
+        timestamp: new Date().toISOString(),
+        job: jobInfo,
+        conversation: JSON.parse(JSON.stringify(this.conversation_history))
+      });
+      
+      console.log(`Saved conversation. Total saved: ${this.savedConversations.length}`);
+    }
+    
+    // Reset for new conversation
     this.resetConversations();
+  }
+  
+  /**
+   * Get all saved conversations for a specific job
+   * @param {string} jobTitle - Job title to filter by
+   * @returns {Array} - All conversations for this job
+   */
+  getSavedConversations(jobTitle) {
+    return this.savedConversations
+      .filter(item => !jobTitle || item.job?.title === jobTitle)
+      .map(item => item.conversation);
   }
   
   /**
@@ -64,6 +104,7 @@ Your goal is to make the user stand out in a positive and professional way.
     // Keep only the first message (system context)
     this.conversation_history = this.conversation_history.slice(0, 1);
     this.conversation_history_company = [];
+    console.log('Conversation history reset for new form');
   }
   
   /**
@@ -71,7 +112,9 @@ Your goal is to make the user stand out in a positive and professional way.
    * @returns {Array} - Conversation history
    */
   getCurrentHistory() {
-    return this.conversation_history;
+    // Make sure we return a complete conversation including system message and all user/assistant messages
+    // We want to return a deep copy to prevent any modifications
+    return JSON.parse(JSON.stringify(this.conversation_history));
   }
   
   /**

@@ -173,6 +173,9 @@ class LinkedInForm extends LinkedInBase {
             const timeout = 3 * 60 * 1000; // 3 minutes
             let isSubmitted = false;
             
+            // Create a new instance of AIQuestionAnswerer
+            const ai = new AIQuestionAnswerer();
+            
             // Flag to track if we've processed the current page already
             let currentPageProcessed = false;
 
@@ -205,6 +208,9 @@ class LinkedInForm extends LinkedInBase {
 
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
+                        // Finalize conversation before moving to review
+                        await this.finalizePageConversation();
+                        
                         // Don't reprocess the form before clicking review
                         await this.clickReviewApplication();
                         this.debugLog("Found and clicked review button");
@@ -227,6 +233,9 @@ class LinkedInForm extends LinkedInBase {
                     } else {
                         const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
                         if (nextPageButton) {
+                            // Finalize conversation before moving to next page
+                            await this.finalizePageConversation();
+                            
                             // Don't reprocess the form before clicking next
                             await this.clickNextPage();
                             this.debugLog("Clicked next page button");
@@ -237,6 +246,9 @@ class LinkedInForm extends LinkedInBase {
                         } else {
                             const submitButton = document.querySelector('button[aria-label="Submit application"]');
                             if (submitButton) {
+                                // Finalize conversation before submitting
+                                await this.finalizePageConversation();
+                                
                                 await this.clickSubmitApplication();
                                 this.debugLog("Found submit button without review");
                                 isSubmitted = true;
@@ -424,6 +436,28 @@ class LinkedInForm extends LinkedInBase {
         } catch (error) {
             this.errorLog(`Error answering question "${question}"`, error);
             return false;
+        }
+    }
+
+    /**
+     * Finalize conversation for the current page before moving to next
+     * This ensures each page's conversation is saved properly
+     */
+    static async finalizePageConversation() {
+        try {
+            // Create a new instance of AIQuestionAnswerer
+            const ai = new AIQuestionAnswerer();
+            
+            // Load job info
+            const currentJob = await chrome.storage.local.get('currentJob');
+            ai.setJob(currentJob);
+            
+            // Finalize conversation
+            ai.finalizeConversation();
+            
+            this.debugLog("Finalized conversation for current page");
+        } catch (error) {
+            this.errorLog("Error finalizing page conversation", error);
         }
     }
 }
