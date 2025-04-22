@@ -709,13 +709,13 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 return;
             }
             
-            console.log("Sending conversation update to popup:", {
+            console.log("Sending conversation update to background:", {
                 company: this.jobInfo.company,
                 title: this.jobInfo.title,
                 conversationLength: conversation.length
             });
             
-            // Send the current conversation
+            // Send the current conversation but don't expect a response
             chrome.runtime.sendMessage({
                 action: 'CONVERSATION_UPDATED',
                 data: {
@@ -723,15 +723,9 @@ Which option should I select? Return ONLY the exact text of the option.`;
                     title: this.jobInfo.title,
                     conversation: conversation
                 }
-            }, response => {
-                if (chrome.runtime.lastError) {
-                    console.warn("Error sending conversation update:", chrome.runtime.lastError);
-                } else {
-                    console.log("Conversation update sent successfully");
-                }
             });
             
-            // Also send any saved conversations
+            // Also send any saved conversations, without expecting responses
             const savedConversations = conversationHistory.getSavedConversations(this.jobInfo.title);
             if (savedConversations && savedConversations.length > 0) {
                 console.log(`Sending ${savedConversations.length} saved conversations`);

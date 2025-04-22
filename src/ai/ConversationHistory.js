@@ -1,4 +1,4 @@
-/**
+/*
  * ConversationHistory class to manage conversation state for AI interactions
  */
 class ConversationHistory {

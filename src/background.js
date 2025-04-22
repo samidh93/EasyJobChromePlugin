@@ -585,6 +585,90 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
         return true; // Will respond asynchronously
     }
+
+    // Handle conversation updates from content scripts
+    if (message.action === 'CONVERSATION_UPDATED') {
+        // Store conversation data directly in Chrome storage
+        chrome.storage.local.get(['dropdownData', 'conversationData'], function(result) {
+            let dropdownData = result.dropdownData || { companies: [], jobs: [], companyJobMap: {} };
+            let conversationData = result.conversationData || {};
+            
+            const data = message.data;
+            
+            // Only proceed if we have the required data
+            if (!data || !data.company || !data.title || !data.conversation) {
+                console.log('Missing required data in conversation update');
+                return;
+            }
+            
+            // Check if company already exists
+            if (!dropdownData.companies.some(c => c.value === data.company)) {
+                dropdownData.companies.push({
+                    value: data.company,
+                    text: data.company
+                });
+            }
+            
+            // Check if job already exists
+            if (!dropdownData.jobs.some(j => j.value === data.title)) {
+                dropdownData.jobs.push({
+                    value: data.title,
+                    text: data.title,
+                    company: data.company
+                });
+            }
+            
+            // Update company-job mapping
+            if (!dropdownData.companyJobMap[data.company]) {
+                dropdownData.companyJobMap[data.company] = [];
+            }
+            
+            if (!dropdownData.companyJobMap[data.company].some(j => j.value === data.title)) {
+                dropdownData.companyJobMap[data.company].push({
+                    value: data.title,
+                    text: data.title
+                });
+            }
+            
+            // Save conversation data
+            if (data.conversation && Array.isArray(data.conversation) && data.conversation.length > 0) {
+                if (!conversationData[data.title]) {
+                    conversationData[data.title] = [];
+                }
+                
+                // Find the user question message and assistant answer for comparison
+                const newUserMsg = data.conversation.find(msg => msg.role === 'user');
+                
+                // Better duplicate detection
+                let isExisting = false;
+                if (newUserMsg) {
+                    isExisting = conversationData[data.title].some(existingConv => {
+                        const existingUserMsg = existingConv.find(msg => msg.role === 'user');
+                        return existingUserMsg && existingUserMsg.content === newUserMsg.content;
+                    });
+                }
+                
+                if (!isExisting) {
+                    console.log('Background: Adding new conversation');
+                    conversationData[data.title].push(data.conversation);
+                    
+                    // Save all data to storage
+                    chrome.storage.local.set({
+                        dropdownData: dropdownData,
+                        conversationData: conversationData
+                    }, function() {
+                        console.log('Background: Conversation data saved to storage');
+                    });
+                } else {
+                    console.log('Background: Skipping duplicate conversation');
+                }
+            }
+        });
+        
+        // No need to wait for a response
+        if (sendResponse) sendResponse({received: true});
+        return false;
+    }
     
     // Restore the getEmbeddings handler
     if (message.action === 'getEmbeddings') {
