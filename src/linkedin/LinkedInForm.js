@@ -208,8 +208,7 @@ class LinkedInForm extends LinkedInBase {
 
                     const reviewButton = document.querySelector('button[aria-label="Review your application"]');
                     if (reviewButton) {
-                        // Finalize conversation before moving to review
-                        await this.finalizePageConversation();
+
                         
                         // Don't reprocess the form before clicking review
                         await this.clickReviewApplication();
@@ -219,6 +218,8 @@ class LinkedInForm extends LinkedInBase {
 
                         const submitButton = document.querySelector('button[aria-label="Submit application"]');
                         if (submitButton) {
+                        // Finalize conversation before moving to review
+                            await this.finalizePageConversation();
                             await this.clickSubmitApplication();
                             this.debugLog("Clicked submit button after review");
                             isSubmitted = true;
