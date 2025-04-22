@@ -652,36 +652,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 
                 // Extract just the question part for better comparison
                 const questionText = extractQuestionPart(newUserMsg.content);
+                const answer = newAssistantMsg.content;
                 
-                // Better duplicate detection with logging
-                let isExisting = false;
-                let existingIndex = -1;
+                // Use timestamp to differentiate between duplicate questions
+                const timestamp = data.timestamp || Date.now();
+                const questionWithTimestamp = `${questionText}_${timestamp}`;
                 
-                conversationData[data.title].forEach((existingConv, index) => {
-                    const existingUserMsg = existingConv.find(msg => msg.role === 'user');
-                    if (existingUserMsg) {
-                        const existingQuestionText = extractQuestionPart(existingUserMsg.content);
-                        if (questionText === existingQuestionText) {
-                            isExisting = true;
-                            existingIndex = index;
-                        }
-                    }
+                // Instead of looking for duplicates, just add the new conversation
+                // This allows multiple entries for the same question with different answers
+                console.log(`Background: Adding new conversation for "${questionText}" with timestamp ${timestamp}`);
+                conversationData[data.title].push(data.conversation);
+                
+                // Save all data to storage
+                chrome.storage.local.set({
+                    dropdownData: dropdownData,
+                    conversationData: conversationData
+                }, function() {
+                    console.log(`Background: Saved conversation data. Total for ${data.title}: ${conversationData[data.title].length}`);
                 });
-                
-                if (!isExisting) {
-                    console.log(`Background: Adding new conversation for "${questionText}"`);
-                    conversationData[data.title].push(data.conversation);
-                    
-                    // Save all data to storage
-                    chrome.storage.local.set({
-                        dropdownData: dropdownData,
-                        conversationData: conversationData
-                    }, function() {
-                        console.log(`Background: Saved conversation data. Total for ${data.title}: ${conversationData[data.title].length}`);
-                    });
-                } else {
-                    console.log(`Background: Skipping duplicate conversation for "${questionText}" (index: ${existingIndex})`);
-                }
             }
         });
         

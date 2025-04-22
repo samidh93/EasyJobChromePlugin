@@ -776,6 +776,9 @@ function updateQuestionDropdown() {
         // Enable the question dropdown
         questionDropdown.disabled = false;
         
+        // Track questions already added to avoid duplicates in the dropdown
+        const addedQuestions = new Set();
+        
         // Add each question to the dropdown
         jobConversations.forEach((conversation, index) => {
           if (!Array.isArray(conversation)) {
@@ -789,11 +792,22 @@ function updateQuestionDropdown() {
           
           if (userMsg && assistantMsg) {
             const questionText = extractQuestionText(userMsg.content);
-            console.log('Adding question:', questionText);
             
+            // Create a unique identifier for the option value (index in array)
+            // and add the question text as the display text
             const option = document.createElement('option');
             option.value = index;
-            option.textContent = questionText;
+            
+            // If we have seen this question before, add the answer as a suffix to differentiate
+            if (addedQuestions.has(questionText)) {
+              const shortAnswer = assistantMsg.content.substring(0, 10);
+              option.textContent = `${questionText} (${shortAnswer}...)`;
+            } else {
+              option.textContent = questionText;
+              addedQuestions.add(questionText);
+            }
+            
+            console.log('Adding question to dropdown:', option.textContent);
             questionDropdown.appendChild(option);
           } else {
             console.error('Missing user or assistant message in conversation:', conversation);
