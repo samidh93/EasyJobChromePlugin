@@ -709,11 +709,21 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 return;
             }
             
-            // Find the latest question for identification
+            // Find the latest question for identification - improved to get the full question
             const latestUserMsg = conversation.find(msg => msg.role === 'user');
-            const questionId = latestUserMsg ? latestUserMsg.content.substring(0, 30) : 'unknown';
+            if (!latestUserMsg) {
+                console.log("No user message found in conversation");
+                return;
+            }
             
-            console.log(`Sending conversation update to background for question: "${questionId}..."`);
+            // Extract the question part for a more reliable identifier
+            const questionMatch = latestUserMsg.content.match(/Form Question:\s*([^?]+)\s*\?/);
+            const questionId = questionMatch ? questionMatch[1].trim() : latestUserMsg.content.substring(0, 30);
+            
+            // Add timestamp to questionId to ensure uniqueness
+            const uniqueQuestionId = `${questionId}_${Date.now()}`;
+            
+            console.log(`Sending conversation update to background for question: "${questionId}"`);
             
             // Send the current conversation but don't expect a response
             // Include a timestamp and question ID for better tracking
