@@ -709,39 +709,27 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 return;
             }
             
-            console.log("Sending conversation update to background:", {
-                company: this.jobInfo.company,
-                title: this.jobInfo.title,
-                conversationLength: conversation.length
-            });
+            // Find the latest question for identification
+            const latestUserMsg = conversation.find(msg => msg.role === 'user');
+            const questionId = latestUserMsg ? latestUserMsg.content.substring(0, 30) : 'unknown';
+            
+            console.log(`Sending conversation update to background for question: "${questionId}..."`);
             
             // Send the current conversation but don't expect a response
+            // Include a timestamp and question ID for better tracking
             chrome.runtime.sendMessage({
                 action: 'CONVERSATION_UPDATED',
                 data: {
                     company: this.jobInfo.company,
                     title: this.jobInfo.title,
-                    conversation: conversation
+                    conversation: conversation,
+                    timestamp: Date.now(),
+                    questionId: questionId
                 }
             });
             
-            // Also send any saved conversations, without expecting responses
-            const savedConversations = conversationHistory.getSavedConversations(this.jobInfo.title);
-            if (savedConversations && savedConversations.length > 0) {
-                console.log(`Sending ${savedConversations.length} saved conversations`);
-                
-                // Send each saved conversation
-                for (const savedConversation of savedConversations) {
-                    chrome.runtime.sendMessage({
-                        action: 'CONVERSATION_UPDATED',
-                        data: {
-                            company: this.jobInfo.company,
-                            title: this.jobInfo.title,
-                            conversation: savedConversation
-                        }
-                    });
-                }
-            }
+            // We don't need to send saved conversations here - they'll be handled
+            // during finalizeConversation
         } catch (error) {
             console.error("Error sending conversation update:", error);
         }
