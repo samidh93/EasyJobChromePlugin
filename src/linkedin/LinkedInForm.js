@@ -110,7 +110,7 @@ class LinkedInForm extends LinkedInBase {
             await this.wait();
             // Try the aria-label approach first
             let doneButton = document.querySelector('button[aria-label="Done"]');
-            
+
             // If not found, try finding by class and text content
             if (!doneButton) {
                 const buttons = document.querySelectorAll('button.artdeco-button');
@@ -122,7 +122,7 @@ class LinkedInForm extends LinkedInBase {
                     }
                 }
             }
-            
+
             if (doneButton) {
                 doneButton.click();
                 this.debugLog("Clicked on Done button");
@@ -139,12 +139,12 @@ class LinkedInForm extends LinkedInBase {
             await this.wait();
             // Try the aria-label approach first
             let dismissButton = document.querySelector('button[aria-label="Dismiss"]');
-            
+
             // If not found, try finding by data attribute
             if (!dismissButton) {
                 dismissButton = document.querySelector('button[data-test-modal-close-btn]');
             }
-            
+
             // If still not found, try finding by class and SVG icon
             if (!dismissButton) {
                 const buttons = document.querySelectorAll('button.artdeco-button--circle.artdeco-modal__dismiss');
@@ -155,7 +155,7 @@ class LinkedInForm extends LinkedInBase {
                     }
                 }
             }
-            
+
             if (dismissButton) {
                 dismissButton.click();
                 this.debugLog("Clicked on Dismiss button");
@@ -173,10 +173,10 @@ class LinkedInForm extends LinkedInBase {
             const startTime = Date.now();
             const timeout = 3 * 60 * 1000; // 3 minutes
             let isSubmitted = false;
-            
+
             // Create a new instance of AIQuestionAnswerer
             const ai = new AIQuestionAnswerer();
-            
+
             // Flag to track if we've processed the current page already
             let currentPageProcessed = false;
 
@@ -191,7 +191,7 @@ class LinkedInForm extends LinkedInBase {
                 // Check if the current page has form questions that need processing
                 const formElements = document.querySelectorAll("div.fb-dash-form-element");
                 const hasFormQuestions = formElements.length > 0;
-                
+
                 // Process the form questions only if we haven't processed this page yet and there are questions
                 if (!currentPageProcessed && hasFormQuestions) {
                     this.debugLog(`Found ${formElements.length} form questions on current page`);
@@ -221,7 +221,7 @@ class LinkedInForm extends LinkedInBase {
                         this.debugLog("Found and clicked review button");
                         reviewFound = true;
                         await this.wait(2000);
-                        
+
                         // Reset the currentPageProcessed flag because we're now on a new page (the review page)
                         // This allows us to check for and process any questions on the review page
                         currentPageProcessed = false;
@@ -237,7 +237,7 @@ class LinkedInForm extends LinkedInBase {
                             } else {
                                 this.debugLog("No questions found on review page");
                             }
-                            
+
                             // Finalize conversation before submitting
                             await this.finalizePageConversation();
                             await this.clickSubmitApplication();
@@ -256,12 +256,12 @@ class LinkedInForm extends LinkedInBase {
                         if (nextPageButton) {
                             // Finalize conversation before moving to next page
                             await this.finalizePageConversation();
-                            
+
                             // Don't reprocess the form before clicking next
                             await this.clickNextPage();
                             this.debugLog("Clicked next page button");
                             await this.wait(2000);
-                            
+
                             // Reset the flag since we're on a new page
                             currentPageProcessed = false;
                         } else {
@@ -269,7 +269,7 @@ class LinkedInForm extends LinkedInBase {
                             if (submitButton) {
                                 // Finalize conversation before submitting
                                 await this.finalizePageConversation();
-                                
+
                                 await this.clickSubmitApplication();
                                 this.debugLog("Found submit button without review");
                                 isSubmitted = true;
@@ -315,7 +315,8 @@ class LinkedInForm extends LinkedInBase {
 
             for (const element of formElements) {
                 try {
-                    const labelElement = element.querySelector("label");
+                    const labelElement = element.querySelector("legend span.fb-dash-form-element__label span")
+                        || element.querySelector("label");
                     if (!labelElement) {
                         this.debugLog("No label found for form element");
                         continue;
@@ -372,10 +373,10 @@ class LinkedInForm extends LinkedInBase {
         try {
             // Create a new instance of AIQuestionAnswerer instead of using singleton
             const ai = new AIQuestionAnswerer();
-            
+
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
-            
+
             // Load user profile data from Chrome storage
             try {
                 const result = await chrome.storage.local.get('userProfileYaml');
@@ -390,11 +391,11 @@ class LinkedInForm extends LinkedInBase {
             } catch (error) {
                 this.errorLog('Error loading user profile from storage:', error);
             }
-            
+
             // Save to chrome.storage for persistence
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob);
-            
+
             // Get the answer directly without re-searching for form elements
             let answer = await ai.answerQuestion(question, options);
 
@@ -402,7 +403,7 @@ class LinkedInForm extends LinkedInBase {
                 this.debugLog("No answer generated for question");
                 return false;
             }
-            
+
             this.debugLog(`AI Answer: ${answer}`);
 
             // Fill in the answer using the provided inputField
@@ -467,34 +468,34 @@ class LinkedInForm extends LinkedInBase {
     static async finalizePageConversation() {
         try {
             this.debugLog("Preparing to finalize conversation for current page");
-            
+
             // Add a delay to ensure all conversation updates have been processed
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             // Create a new instance of AIQuestionAnswerer
             const ai = new AIQuestionAnswerer();
-            
+
             // Load job info
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob);
-            
+
             // Save the conversation data directly to storage before finalizing
             // This ensures we have a backup of the full conversation
             try {
                 const conversation = conversationHistory.getCurrentHistory();
                 if (conversation && conversation.length > 1 && currentJob?.currentJob?.title) {
                     await new Promise(resolve => {
-                        chrome.storage.local.get(['conversationData'], function(result) {
+                        chrome.storage.local.get(['conversationData'], function (result) {
                             let conversationData = result.conversationData || {};
                             const jobTitle = currentJob.currentJob.title;
-                            
+
                             if (!conversationData[jobTitle]) {
                                 conversationData[jobTitle] = [];
                             }
-                            
+
                             // Add the full conversation as a backup
                             conversationData[jobTitle].push(conversation);
-                            
+
                             chrome.storage.local.set({ conversationData }, resolve);
                         });
                     });
@@ -503,10 +504,10 @@ class LinkedInForm extends LinkedInBase {
             } catch (storageError) {
                 this.errorLog("Error saving conversation backup:", storageError);
             }
-            
+
             // Now finalize the conversation
             ai.finalizeConversation();
-            
+
             this.debugLog("Finalized conversation for current page");
         } catch (error) {
             this.errorLog("Error finalizing page conversation", error);
