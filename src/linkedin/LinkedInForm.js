@@ -167,139 +167,149 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
+    static async findReviewButton() {
+        try {
+            const reviewButton = document.querySelector('button[aria-label="Review your application"]');
+            return reviewButton;
+        } catch (error) {
+            this.errorLog("Error finding review button", error);
+            return null;
+        }
+    }
+
+    static async findNextButton() {
+        try {
+            const nextButton = document.querySelector('button[aria-label="Continue to next step"]');
+            return nextButton;
+        } catch (error) {
+            this.errorLog("Error finding next button", error);
+            return null;
+        }
+    }
+
+    static async findSubmitButton() {
+        try {
+            const submitButton = document.querySelector('button[aria-label="Submit application"]');
+            return submitButton;
+        } catch (error) {
+            this.errorLog("Error finding submit button", error);
+            return null;
+        }
+    }
+
     static async processForm(shouldStop) {
         try {
-            // Reset the AIQuestionAnswerer instance for a fresh form            
-            const startTime = Date.now();
-            const timeout = 3 * 60 * 1000; // 3 minutes
-            let isSubmitted = false;
+            this.debugLog("Starting form processing");
+            
+            // Set timeout for form processing (3 minutes)
+            const formTimeout = setTimeout(() => {
+                this.debugLog("Form processing timeout reached");
+                shouldStop.value = true;
+            }, 3 * 60 * 1000);
 
-            // Create a new instance of AIQuestionAnswerer
-            const ai = new AIQuestionAnswerer();
-
-            // Flag to track if we've processed the current page already
             let currentPageProcessed = false;
 
-            while (!isSubmitted && (Date.now() - startTime) < timeout) {
-                this.debugLog("Starting form processing iteration");
-
-                if (await shouldStop()) {
-                    this.debugLog("Stop requested during form processing");
-                    return false;
-                }
-
-                // Check if the current page has form questions that need processing
-                const formElements = document.querySelectorAll("div.fb-dash-form-element");
-                const hasFormQuestions = formElements.length > 0;
-
-                // Process the form questions only if we haven't processed this page yet and there are questions
-                if (!currentPageProcessed && hasFormQuestions) {
-                    this.debugLog(`Found ${formElements.length} form questions on current page`);
-                    await this.processFormQuestions();
-                    currentPageProcessed = true;
-                    this.debugLog("Current page form questions processed, will not reprocess");
-                } else if (!hasFormQuestions) {
-                    this.debugLog("No form questions found on current page");
-                } else {
-                    this.debugLog("Skipping redundant form processing for current page");
-                }
-
-                const reviewStartTime = Date.now();
-                const reviewTimeout = 60 * 1000; // 1 minute
-                let reviewFound = false;
-
-                while (!reviewFound && (Date.now() - reviewStartTime) < reviewTimeout) {
-                    if (await shouldStop()) {
-                        this.debugLog("Stop requested during review loop");
-                        return false;
-                    }
-
-                    const reviewButton = document.querySelector('button[aria-label="Review your application"]');
+            while (!shouldStop.value) {
+                try {
+                    // Check for review button first
+                    const reviewButton = await this.findReviewButton();
+                    
                     if (reviewButton) {
-                        // Click the review button
+                        this.debugLog("Found review button");
+                        
+                        // Set timeout for review processing (1 minute)
+                        const reviewTimeout = setTimeout(() => {
+                            this.debugLog("Review processing timeout reached");
+                            shouldStop.value = true;
+                        }, 1 * 60 * 1000);
+
+                        // Check if there are questions on the current page before clicking review
+                        const formElements = document.querySelectorAll("div.fb-dash-form-element");
+                        if (formElements.length > 0 && !currentPageProcessed) {
+                            this.debugLog("Found questions on current page, processing before review");
+                            await this.processFormQuestions();
+                            currentPageProcessed = true;
+                            this.debugLog("Current page form questions processed, will not reprocess");
+                        } else if (currentPageProcessed) {
+                            this.debugLog("Skipping redundant form processing for current page");
+                        } else {
+                            this.debugLog("No form questions found on current page");
+                        }
+
+                        // Flush any pending questions before moving to review
+                        await this.flushPendingQuestions();
+
                         await this.clickReviewApplication();
-                        this.debugLog("Found and clicked review button");
-                        reviewFound = true;
                         await this.wait(2000);
 
-                        // Reset the currentPageProcessed flag because we're now on a new page (the review page)
-                        // This allows us to check for and process any questions on the review page
-                        currentPageProcessed = false;
-
-                        // Check if we now have a submit button
-                        const submitButton = document.querySelector('button[aria-label="Submit application"]');
-                        if (submitButton) {
-                            // Check if there are any questions on the review page
-                            const reviewPageFormElements = document.querySelectorAll("div.fb-dash-form-element");
-                            if (reviewPageFormElements.length > 0) {
-                                this.debugLog(`Found ${reviewPageFormElements.length} form questions on review page`);
-                                await this.processFormQuestions();
-                            } else {
-                                this.debugLog("No questions found on review page");
-                            }
-
-                            // Finalize conversation before submitting
-                            await this.finalizePageConversation();
-                            await this.clickSubmitApplication();
-                            this.debugLog("Clicked submit button after review");
-                            isSubmitted = true;
-                            try {
-                                await this.clickDoneAfterSubmit();
-                                await this.clickDismissAfterSubmit();
-                            } catch (error) {
-                                this.errorLog("Error with post-submission actions", error);
-                            }
-                            break;
-                        }
-                    } else {
-                        const nextPageButton = document.querySelector('button[aria-label="Continue to next step"]');
-                        if (nextPageButton) {
-                            // Finalize conversation before moving to next page
-                            await this.finalizePageConversation();
-
-                            // Don't reprocess the form before clicking next
-                            await this.clickNextPage();
-                            this.debugLog("Clicked next page button");
-                            await this.wait(2000);
-
-                            // Reset the flag since we're on a new page
-                            currentPageProcessed = false;
+                        // Check for questions on the review page
+                        const reviewFormElements = document.querySelectorAll("div.fb-dash-form-element");
+                        if (reviewFormElements.length > 0) {
+                            this.debugLog("Found questions on review page");
+                            await this.processFormQuestions();
                         } else {
-                            const submitButton = document.querySelector('button[aria-label="Submit application"]');
-                            if (submitButton) {
-                                // Finalize conversation before submitting
-                                await this.finalizePageConversation();
-
-                                await this.clickSubmitApplication();
-                                this.debugLog("Found submit button without review");
-                                isSubmitted = true;
-                                try {
-                                    await this.clickDoneAfterSubmit();
-                                    await this.clickDismissAfterSubmit();
-                                } catch (error) {
-                                    this.errorLog("Error with post-submission actions", error);
-                                }
-                                break;
-                            }
+                            this.debugLog("No questions found on review page");
                         }
+
+                        // Flush questions after review page processing
+                        await this.flushPendingQuestions();
+
+                        await this.clickSubmitApplication();
+                        this.debugLog("Clicked submit button after review");
+
+                        clearTimeout(reviewTimeout);
+                        break;
                     }
 
+                    // Check for form questions if no review button
+                    const formElements = document.querySelectorAll("div.fb-dash-form-element");
+                    if (formElements.length > 0 && !currentPageProcessed) {
+                        this.debugLog("Found form questions, processing...");
+                        await this.processFormQuestions();
+                        currentPageProcessed = true;
+                        this.debugLog("Form questions processed");
+                    }
+
+                    // Check for next page button
+                    const nextButton = await this.findNextButton();
+                    if (nextButton) {
+                        this.debugLog("Found next button, moving to next page");
+                        
+                        // Flush pending questions before moving to next page
+                        await this.flushPendingQuestions();
+                        
+                        await this.clickNextPage();
+                        await this.wait(2000);
+                        
+                        // Reset the flag for the new page
+                        currentPageProcessed = false;
+                        continue;
+                    }
+
+                    // Check for submit button (final page without review)
+                    const submitButton = await this.findSubmitButton();
+                    if (submitButton) {
+                        this.debugLog("Found submit button, submitting application");
+                        
+                        // Flush any remaining questions before final submission
+                        await this.flushPendingQuestions();
+                        
+                        await this.clickSubmitApplication();
+                        break;
+                    }
+
+                    // If no buttons found, wait and try again
+                    this.debugLog("No navigation buttons found, waiting...");
+                    await this.wait(1000);
+
+                } catch (error) {
+                    this.errorLog("Error in form processing loop", error);
                     await this.wait(2000);
                 }
-
-                if (!reviewFound) {
-                    this.debugLog("Review button not found within 1 minute, continuing to next iteration");
-                }
-
-                await this.wait(2000);
             }
 
-            if (!isSubmitted) {
-                this.debugLog("Form processing timed out after 3 minutes");
-                return false;
-            }
-
-            this.debugLog("Form processed and submitted successfully");
+            clearTimeout(formTimeout);
+            this.debugLog("Form processing completed");
             return true;
         } catch (error) {
             this.errorLog("Error processing form", error);
@@ -462,53 +472,39 @@ class LinkedInForm extends LinkedInBase {
     }
 
     /**
-     * Finalize conversation for the current page before moving to next
-     * This ensures each page's conversation is saved properly
+     * Flush pending questions from the AI instance
+     * This ensures all questions are stored before page transitions
      */
-    static async finalizePageConversation() {
+    static async flushPendingQuestions() {
         try {
-            this.debugLog("Preparing to finalize conversation for current page");
-
-            // Add a delay to ensure all conversation updates have been processed
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Create a new instance of AIQuestionAnswerer
+            // Create a temporary AI instance to access the flush method
             const ai = new AIQuestionAnswerer();
-
+            
             // Load job info
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob);
+            
+            // Flush any pending questions
+            await ai.flushPendingQuestions();
+            
+            this.debugLog("Flushed pending questions");
+        } catch (error) {
+            this.errorLog("Error flushing pending questions", error);
+        }
+    }
 
-            // Save the conversation data directly to storage before finalizing
-            // This ensures we have a backup of the full conversation
-            try {
-                const conversation = conversationHistory.getCurrentHistory();
-                if (conversation && conversation.length > 1 && currentJob?.currentJob?.title) {
-                    await new Promise(resolve => {
-                        chrome.storage.local.get(['conversationData'], function (result) {
-                            let conversationData = result.conversationData || {};
-                            const jobTitle = currentJob.currentJob.title;
-
-                            if (!conversationData[jobTitle]) {
-                                conversationData[jobTitle] = [];
-                            }
-
-                            // Add the full conversation as a backup
-                            conversationData[jobTitle].push(conversation);
-
-                            chrome.storage.local.set({ conversationData }, resolve);
-                        });
-                    });
-                    this.debugLog("Saved full conversation backup to storage before finalizing");
-                }
-            } catch (storageError) {
-                this.errorLog("Error saving conversation backup:", storageError);
-            }
-
-            // Now finalize the conversation
-            ai.finalizeConversation();
-
-            this.debugLog("Finalized conversation for current page");
+    /**
+     * Finalize conversation for the current page before moving to next
+     * This method is now simplified since we use batching
+     */
+    static async finalizePageConversation() {
+        try {
+            this.debugLog("Finalizing page conversation");
+            
+            // Just flush pending questions - no need for complex conversation management
+            await this.flushPendingQuestions();
+            
+            this.debugLog("Page conversation finalized");
         } catch (error) {
             this.errorLog("Error finalizing page conversation", error);
         }
