@@ -67,12 +67,23 @@ class LinkedInJobInfo extends LinkedInBase {
 
     static async getJobType() {
         try {
-            const jobType = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill")[1].querySelectorAll("span")[0].querySelectorAll("span")[0].textContent.trim();
-            if (jobType) {
-                this.debugLog(`Found jobType type: ${jobType}`);
-                return jobType;
+            const pills = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill");
+            if (pills.length > 1) {
+                const jobTypePill = pills[1];
+                const spans = jobTypePill.querySelectorAll("span");
+                if (spans.length > 0) {
+                    const innerSpans = spans[0].querySelectorAll("span");
+                    if (innerSpans.length > 0) {
+                        const jobType = innerSpans[0].textContent.trim();
+                        if (jobType) {
+                            this.debugLog(`Found jobType type: ${jobType}`);
+                            return jobType;
+                        }
+                    }
+                }
             }
             this.debugLog("jobType type not found");
+            return null;
         } catch (error) {
             this.errorLog("Error getting jobType type", error);
             return null;
@@ -81,12 +92,23 @@ class LinkedInJobInfo extends LinkedInBase {
     
     static async getRemoteType() {
         try {
-            const remote = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill")[0].querySelectorAll("span")[0].querySelectorAll("span")[0].textContent.trim();
-            if (remote) {
-                this.debugLog(`Found remote type: ${remote}`);
-                return remote;
+            const pills = document.querySelectorAll("button.job-details-preferences-and-skills .job-details-preferences-and-skills__pill");
+            if (pills.length > 0) {
+                const remoteTypePill = pills[0];
+                const spans = remoteTypePill.querySelectorAll("span");
+                if (spans.length > 0) {
+                    const innerSpans = spans[0].querySelectorAll("span");
+                    if (innerSpans.length > 0) {
+                        const remote = innerSpans[0].textContent.trim();
+                        if (remote) {
+                            this.debugLog(`Found remote type: ${remote}`);
+                            return remote;
+                        }
+                    }
+                }
             }
             this.debugLog("Remote type not found");
+            return null;
         } catch (error) {
             this.errorLog("Error getting remote type", error);
             return null;
