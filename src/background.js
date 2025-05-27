@@ -634,34 +634,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 });
             }
             
-            // Save conversation data
+            // Save conversation data - store every conversation without checking for duplicates
             if (data.conversation && Array.isArray(data.conversation) && data.conversation.length > 0) {
                 if (!conversationData[data.title]) {
                     conversationData[data.title] = [];
                     console.log(`Background: Created new conversation array for ${data.title}`);
                 }
                 
-                // Find the user question message and assistant answer for comparison
-                const newUserMsg = data.conversation.find(msg => msg.role === 'user');
-                const newAssistantMsg = data.conversation.find(msg => msg.role === 'assistant');
+                // Find the user question message for logging
+                const userMsg = data.conversation.find(msg => msg.role === 'user');
+                const assistantMsg = data.conversation.find(msg => msg.role === 'assistant');
                 
-                if (!newUserMsg || !newAssistantMsg) {
+                if (userMsg && assistantMsg) {
+                    // Extract the question part for logging
+                    const questionText = extractQuestionPart(userMsg.content);
+                    const answer = assistantMsg.content;
+                    
+                    // Add timestamp metadata to the conversation array
+                    const enhancedConversation = [...data.conversation];
+                    enhancedConversation.timestamp = data.timestamp || Date.now();
+                    enhancedConversation.questionId = data.questionId || questionText;
+                    
+                    // Add the conversation to storage
+                    console.log(`Background: Adding conversation for "${questionText}" with answer "${answer}"`);
+                    conversationData[data.title].push(enhancedConversation);
+                } else {
                     console.log('Background: Incomplete conversation (missing user or assistant message)');
-                    return;
+                    conversationData[data.title].push(data.conversation);
                 }
-                
-                // Extract just the question part for better comparison
-                const questionText = extractQuestionPart(newUserMsg.content);
-                const answer = newAssistantMsg.content;
-                
-                // Use timestamp to differentiate between duplicate questions
-                const timestamp = data.timestamp || Date.now();
-                const questionWithTimestamp = `${questionText}_${timestamp}`;
-                
-                // Instead of looking for duplicates, just add the new conversation
-                // This allows multiple entries for the same question with different answers
-                console.log(`Background: Adding new conversation for "${questionText}" with timestamp ${timestamp}`);
-                conversationData[data.title].push(data.conversation);
                 
                 // Save all data to storage
                 chrome.storage.local.set({
@@ -669,6 +669,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     conversationData: conversationData
                 }, function() {
                     console.log(`Background: Saved conversation data. Total for ${data.title}: ${conversationData[data.title].length}`);
+                    
+                    // Notify any open popups that the UI should be refreshed
+                    chrome.runtime.sendMessage({
+                        action: 'REFRESH_CONVERSATION_UI',
+                        data: {
+                            company: data.company,
+                            title: data.title
+                        }
+                    });
                 });
             }
         });
@@ -677,15 +686,138 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (sendResponse) sendResponse({received: true});
         return false;
     }
+
+    // Handle batch conversation updates from content scripts
+    if (message.action === 'BATCH_CONVERSATIONS_UPDATED') {
+        console.log(`Background: Received batch conversation update at ${new Date().toISOString()} for ${message.data?.company} / ${message.data?.title} - ${message.data?.conversations?.length || 0} conversations`);
+        
+        // Store conversation data directly in Chrome storage
+        chrome.storage.local.get(['dropdownData', 'conversationData'], function(result) {
+            let dropdownData = result.dropdownData || { companies: [], jobs: [], companyJobMap: {} };
+            let conversationData = result.conversationData || {};
+            
+            const data = message.data;
+            
+            // Only proceed if we have the required data
+            if (!data || !data.company || !data.title || !data.conversations || !Array.isArray(data.conversations)) {
+                console.log('Background: Missing required data in batch conversation update');
+                return;
+            }
+            
+            // Check if company already exists
+            if (!dropdownData.companies.some(c => c.value === data.company)) {
+                dropdownData.companies.push({
+                    value: data.company,
+                    text: data.company
+                });
+                console.log(`Background: Added new company: ${data.company}`);
+            }
+            
+            // Check if job already exists
+            if (!dropdownData.jobs.some(j => j.value === data.title)) {
+                dropdownData.jobs.push({
+                    value: data.title,
+                    text: data.title,
+                    company: data.company
+                });
+                console.log(`Background: Added new job: ${data.title}`);
+            }
+            
+            // Update company-job mapping
+            if (!dropdownData.companyJobMap[data.company]) {
+                dropdownData.companyJobMap[data.company] = [];
+            }
+            
+            if (!dropdownData.companyJobMap[data.company].some(j => j.value === data.title)) {
+                dropdownData.companyJobMap[data.company].push({
+                    value: data.title,
+                    text: data.title
+                });
+            }
+            
+            // Initialize conversation array if it doesn't exist
+            if (!conversationData[data.title]) {
+                conversationData[data.title] = [];
+                console.log(`Background: Created new conversation array for ${data.title}`);
+            }
+            
+            // Process each conversation in the batch
+            let addedCount = 0;
+            data.conversations.forEach((conversation, index) => {
+                if (conversation && Array.isArray(conversation) && conversation.length > 0) {
+                    // Find the user question message for logging
+                    const userMsg = conversation.find(msg => msg.role === 'user');
+                    const assistantMsg = conversation.find(msg => msg.role === 'assistant');
+                    
+                    if (userMsg && assistantMsg) {
+                        // Extract the question part for logging
+                        const questionText = extractQuestionPart(userMsg.content);
+                        const answer = assistantMsg.content;
+                        
+                        // Add timestamp metadata to the conversation array
+                        const enhancedConversation = [...conversation];
+                        enhancedConversation.timestamp = data.timestamp || Date.now();
+                        enhancedConversation.questionId = data.questionIds?.[index] || questionText;
+                        
+                        // Add the conversation to storage
+                        console.log(`Background: Adding batch conversation ${index + 1} for "${questionText}" with answer "${answer}"`);
+                        conversationData[data.title].push(enhancedConversation);
+                        addedCount++;
+                    } else {
+                        console.log(`Background: Incomplete conversation ${index + 1} (missing user or assistant message)`);
+                        conversationData[data.title].push(conversation);
+                        addedCount++;
+                    }
+                }
+            });
+            
+            // Save all data to storage
+            chrome.storage.local.set({
+                dropdownData: dropdownData,
+                conversationData: conversationData
+            }, function() {
+                console.log(`Background: Saved batch conversation data. Added ${addedCount} conversations. Total for ${data.title}: ${conversationData[data.title].length}`);
+                
+                // Notify any open popups that the UI should be refreshed
+                chrome.runtime.sendMessage({
+                    action: 'REFRESH_CONVERSATION_UI',
+                    data: {
+                        company: data.company,
+                        title: data.title
+                    }
+                });
+            });
+        });
+        
+        // No need to wait for a response
+        if (sendResponse) sendResponse({received: true, processed: data.conversations?.length || 0});
+        return false;
+    }
     
     // Helper function to extract just the question part
     function extractQuestionPart(content) {
+        if (!content) return "Unknown question";
+        
         // Extract the form question if present
         const questionMatch = content.match(/Form Question:\s*([^?]+)\s*\?/);
         if (questionMatch && questionMatch[1]) {
             return questionMatch[1].trim();
         }
-        return content.substring(0, 50); // Fallback to first 50 chars
+        
+        // Try other question formats if the first pattern fails
+        const altQuestionMatch = content.match(/Question:\s*([^?]+)\s*\?/i);
+        if (altQuestionMatch && altQuestionMatch[1]) {
+            return altQuestionMatch[1].trim();
+        }
+        
+        // Look for any question-like text
+        const anyQuestionMatch = content.match(/([^.!?]+\?)/);
+        if (anyQuestionMatch && anyQuestionMatch[1]) {
+            return anyQuestionMatch[1].trim();
+        }
+        
+        // Fallback to first 50 chars
+        return content.substring(0, 50);
     }
     
     // Restore the getEmbeddings handler

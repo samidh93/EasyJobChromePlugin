@@ -9,6 +9,10 @@ class AIQuestionAnswerer {
         this.job = null;
         this.user_data = null;
         this.jobInfo = null;
+        // Add batching properties
+        this.pendingQuestions = [];
+        this.batchTimeout = null;
+        this.isProcessingBatch = false;
     }
 
     /**
@@ -135,11 +139,8 @@ class AIQuestionAnswerer {
                     if (matchedOption) {
                         console.log(`Found country match: ${matchedOption}`);
                         
-                        // Record this answer in the conversation history
-                        conversationHistory.addAssistantResponse(matchedOption);
-                        
-                        // Send the conversation update to the popup
-                        this.sendConversationUpdate();
+                        // Add to batch instead of immediate storage
+                        this.addToPendingBatch(question, matchedOption, options);
                         
                         return matchedOption;
                     } else {
@@ -153,11 +154,8 @@ class AIQuestionAnswerer {
                                     
                                     console.log(`Found German option: ${option}`);
                                     
-                                    // Record this answer in the conversation history
-                                    conversationHistory.addAssistantResponse(option);
-                                    
-                                    // Send the conversation update to the popup
-                                    this.sendConversationUpdate();
+                                    // Add to batch instead of immediate storage
+                                    this.addToPendingBatch(question, option, options);
                                     
                                     return option;
                                 }
@@ -214,8 +212,8 @@ class AIQuestionAnswerer {
                     console.log(`Found exact match in options: "${answerCandidate}"`);
                     conversationHistory.addAssistantResponse(answerCandidate);
                     
-                    // Send the conversation update to the popup
-                    this.sendConversationUpdate();
+                    // Add to batch instead of immediate storage
+                    this.addToPendingBatch(question, answerCandidate, options);
                     
                     return answerCandidate;
                 }
@@ -224,8 +222,8 @@ class AIQuestionAnswerer {
                 console.log(`Answer "${answerCandidate}" not found in options, attempting to refine`);
                 const refinedAnswer = await this.refineOptionSelection(answerCandidate, options);
                 
-                // Send the conversation update to the popup after refinement
-                this.sendConversationUpdate();
+                // Add to batch instead of immediate storage
+                this.addToPendingBatch(question, refinedAnswer, options);
                 
                 return refinedAnswer;
                 
@@ -245,8 +243,8 @@ class AIQuestionAnswerer {
                     // Try to find the best matching option based on the context
                     const bestMatch = await this.refineOptionSelection(contextValue, options);
                     
-                    // Send the conversation update to the popup
-                    this.sendConversationUpdate();
+                    // Add to batch instead of immediate storage
+                    this.addToPendingBatch(question, bestMatch, options);
                     
                     return bestMatch;
                 }
@@ -256,8 +254,8 @@ class AIQuestionAnswerer {
                 console.log("[Function] Selected fallback option:", fallbackOption);
                 conversationHistory.addAssistantResponse(fallbackOption);
                 
-                // Send the conversation update to the popup
-                this.sendConversationUpdate();
+                // Add to batch instead of immediate storage
+                this.addToPendingBatch(question, fallbackOption, options);
                 
                 return fallbackOption;
             }
@@ -267,8 +265,8 @@ class AIQuestionAnswerer {
             const fallbackOption = options.length > 1 ? options[1] : options[0];
             conversationHistory.addAssistantResponse(fallbackOption);
             
-            // Send the conversation update to the popup even when there's an error
-            this.sendConversationUpdate();
+            // Add to batch instead of immediate storage
+            this.addToPendingBatch(question, fallbackOption, options);
             
             return fallbackOption;
         }
@@ -284,82 +282,33 @@ class AIQuestionAnswerer {
         try {
             console.log(`Refining answer: "${initialAnswer}" to match available options`);
             
-            // Check if this is a country code question (Landesvorwahl)
-            const isCountryCodeQuestion = 
-                initialAnswer.toLowerCase().includes("germany") || 
-                initialAnswer.toLowerCase().includes("deutschland") ||
-                initialAnswer.includes("+49");
+            // Check if this is a German/country question for special handling
+            const isGermanQuestion = initialAnswer.toLowerCase().includes("germany") || 
+                                   initialAnswer.toLowerCase().includes("deutsch");
             
-            let refinementPrompt = `
-Original answer: ${initialAnswer}
-Available options: ${JSON.stringify(options)}
-
-Which option from the list above most closely matches "${initialAnswer}"?
-You MUST select EXACTLY one option from the list as written.
-Do not add any explanation. Return only the option text exactly as it appears in the list.
-`;
-
-            // Special handling for country/country code questions
-            if (isCountryCodeQuestion || options.some(opt => opt.includes("(+") && opt.includes(")"))) {
-                refinementPrompt = `
-I need to select a country code from a dropdown list.
-The user's country is: ${initialAnswer}
-
-Available options in the dropdown: ${JSON.stringify(options)}
-
-IMPORTANT: Please select the option that matches this country, noting that:
-1. Country names may be in German (e.g., "Deutschland" for Germany)
-2. Options include country codes (e.g., "Deutschland (+49)")
-3. For Germany, you should select "Deutschland (+49)"
-4. You MUST select EXACTLY one option from the list AS WRITTEN
-
-Which option should I select? Return ONLY the exact text of the option.`;
+            // First, try exact matching (case insensitive)
+            for (const option of options) {
+                if (option.toLowerCase() === initialAnswer.toLowerCase()) {
+                    console.log(`Successfully refined to "${option}"`);
+                    conversationHistory.addAssistantResponse(option);
+                    return option;
+                }
             }
             
-            // Call Ollama API for refinement
-            const response = await this.callOllamaAPI({
-                model: this.model,
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are a helpful assistant that selects the most appropriate option from a list."
-                    },
-                    {
-                        role: "user",
-                        content: refinementPrompt
-                    }
-                ],
-                options: { temperature: 0.0 },
-                stream: false
-            });
-            
-            let refinedAnswer = response?.message?.content?.trim() || "";
-            
-            // Check if the refined answer is in the options
-            if (options.includes(refinedAnswer)) {
-                console.log(`Successfully refined to "${refinedAnswer}"`);
-                conversationHistory.addAssistantResponse(refinedAnswer);
-                this.sendConversationUpdate();
-                return refinedAnswer;
-            }
-            
-            // Special handling for country codes
-            if (isCountryCodeQuestion || options.some(opt => opt.includes("(+") && opt.includes(")"))) {
-                // Directly look for Deutschland or Germany options
+            // Special handling for German/country questions
+            if (isGermanQuestion || options.some(opt => opt.includes("(+") && opt.includes(")"))) {
                 for (const option of options) {
                     if (option.toLowerCase().includes("deutsch")) {
                         console.log(`Found German option: "${option}"`);
                         conversationHistory.addAssistantResponse(option);
-                        this.sendConversationUpdate();
                         return option;
                     }
                 }
             }
             
-            // If still not in options, do a basic match
-            console.log(`Refined answer "${refinedAnswer}" still not in options, using basic matching`);
+            // If exact match fails, try partial matching
+            console.log(`Refined answer "${initialAnswer}" still not in options, using basic matching`);
             
-            // Find best match
             let bestMatch = null;
             let bestScore = -1;
             
@@ -367,11 +316,9 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 const optionLower = option.toLowerCase();
                 const answerLower = initialAnswer.toLowerCase();
                 
-                // Simple contains matching
                 if (optionLower.includes(answerLower) || answerLower.includes(optionLower)) {
-                    const score = Math.min(optionLower.length, answerLower.length) / 
-                                Math.max(optionLower.length, answerLower.length);
-                    
+                    const score = Math.max(optionLower.length, answerLower.length) - 
+                                Math.abs(optionLower.length - answerLower.length);
                     if (score > bestScore) {
                         bestScore = score;
                         bestMatch = option;
@@ -379,28 +326,23 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 }
             }
             
-            // If we found a decent match, use it
-            if (bestMatch && bestScore > 0.2) {
-                console.log(`Basic matching found: "${bestMatch}" with score ${bestScore}`);
+            if (bestMatch) {
+                console.log(`Found best match: "${bestMatch}" with score ${bestScore}`);
                 conversationHistory.addAssistantResponse(bestMatch);
-                this.sendConversationUpdate();
                 return bestMatch;
             }
             
-            // Last resort, return the second option or first if there's only one
-            const fallback = options.length > 1 ? options[1] : options[0];
-            console.log(`No match found, using fallback: "${fallback}"`);
-            conversationHistory.addAssistantResponse(fallback);
-            this.sendConversationUpdate();
-            return fallback;
+            // Final fallback - use second option if available, otherwise first
+            const fallbackOption = options.length > 1 ? options[1] : options[0];
+            console.log(`No match found, using fallback: "${fallbackOption}"`);
+            conversationHistory.addAssistantResponse(fallbackOption);
+            return fallbackOption;
             
         } catch (error) {
-            console.error('Error in refineOptionSelection:', error);
-            // Fallback to second option or first if there's only one
-            const fallback = options.length > 1 ? options[1] : options[0];
-            conversationHistory.addAssistantResponse(fallback);
-            this.sendConversationUpdate();
-            return fallback;
+            console.error("Error in refineOptionSelection:", error);
+            const fallbackOption = options.length > 1 ? options[1] : options[0];
+            conversationHistory.addAssistantResponse(fallbackOption);
+            return fallbackOption;
         }
     }
 
@@ -413,74 +355,57 @@ Which option should I select? Return ONLY the exact text of the option.`;
         try {
             console.log(`Answering question without options: "${question}"`);
             
-            // Special handling for super common questions without using embeddings
-            // Check if this is a direct contact information question
+            // Check if we have user data for direct answers
             if (this.user_data?.personal_information) {
-                const personalInfo = this.user_data.personal_information;
+                const contactInfo = this.user_data.personal_information;
                 
-                // Direct matching for common fields
-                if (question.toLowerCase().includes("email")) {
-                    const email = personalInfo.email || "";
+                // Direct email matching
+                if (question.toLowerCase().includes("email") || question.toLowerCase().includes("e-mail")) {
+                    console.log("Found direct match for email query");
+                    const email = contactInfo.email || "";
                     if (email) {
-                        console.log("Found direct match for email query");
-                        conversationHistory.addAssistantResponse(email);
-                        
-                        // Send the conversation update to the popup
-                        this.sendConversationUpdate();
-                        
+                        this.addToPendingBatch(question, email);
                         return email;
                     }
                 }
                 
+                // Direct phone matching
                 if (question.toLowerCase().includes("phone") || 
                     question.toLowerCase().includes("mobile") || 
                     question.toLowerCase().includes("telephone") ||
                     question.toLowerCase().includes("telefon")) {
-                    
-                    console.log("Found direct match for contact query");
-                    // Check international prefix is included
-                    const phone = personalInfo.phone_prefix 
-                        ? personalInfo.phone_prefix.replace('+', '') + personalInfo.phone 
-                        : personalInfo.phone || "";
-                        
+                    console.log("Found direct match for phone query");
+                    const phone = contactInfo.country_code ? 
+                        contactInfo.country_code + contactInfo.phone : 
+                        contactInfo.phone || "";
                     if (phone) {
-                        conversationHistory.addAssistantResponse(phone);
-                        
-                        // Send the conversation update to the popup
-                        this.sendConversationUpdate();
-                        
+                        this.addToPendingBatch(question, phone);
                         return phone;
                     }
                 }
                 
+                // Direct first name matching
                 if (question.toLowerCase().includes("name") && question.toLowerCase().includes("first")) {
                     console.log("Found direct match for first name query");
-                    const firstName = personalInfo.name || "";
+                    const firstName = contactInfo.name || "";
                     if (firstName) {
-                        conversationHistory.addAssistantResponse(firstName);
-                        
-                        // Send the conversation update to the popup
-                        this.sendConversationUpdate();
-                        
+                        this.addToPendingBatch(question, firstName);
                         return firstName;
                     }
                 }
                 
+                // Direct last name matching
                 if (question.toLowerCase().includes("name") && question.toLowerCase().includes("last")) {
                     console.log("Found direct match for last name query");
-                    const lastName = personalInfo.surname || "";
+                    const lastName = contactInfo.surname || "";
                     if (lastName) {
-                        conversationHistory.addAssistantResponse(lastName);
-                        
-                        // Send the conversation update to the popup
-                        this.sendConversationUpdate();
-                        
+                        this.addToPendingBatch(question, lastName);
                         return lastName;
                     }
                 }
             }
             
-            // Get relevant context - use top 3 results like Python
+            // Get relevant context like in Python
             console.log("Starting semantic search for relevant information...");
             const relevantKeys = await memoryStore.search(question, 3);
             
@@ -503,13 +428,7 @@ Which option should I select? Return ONLY the exact text of the option.`;
             
             try {
                 // Build prompt using ConversationHistory
-                const prompt = conversationHistory.buildNoOptionsPrompt(
-                    question, 
-                    relevantContext, 
-                    phone, 
-                    desiredSalary,
-                    this.user_data
-                );
+                const prompt = conversationHistory.buildNoOptionsPrompt(question, relevantContext, phone, desiredSalary, this.user_data);
                 
                 // Add to conversation history
                 conversationHistory.addUserMessage(prompt);
@@ -524,44 +443,22 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 
                 let rawAnswer = response?.message?.content?.trim() || "";
                 
-                // Remove thinking sections like in Python
+                // Remove thinking sections
                 let answerCandidate = rawAnswer.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
                 
-                // Handle numeric answers like in Python
-                const numberKeywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
-                const isNumericQuestion = numberKeywords.some(keyword => question.toLowerCase().includes(keyword));
-                
-                if (isNumericQuestion) {
-                    const numberMatch = answerCandidate.match(/\d+(?:\.\d+)?/);
-                    if (numberMatch) {
-                        // Handle experience questions
-                        const isExperienceQuestion = ["experience", "erfahrung", "jahre", "years"].some(
-                            keyword => question.toLowerCase().includes(keyword)
-                        );
-                        
-                        if (isExperienceQuestion) {
-                            const extractedNum = parseFloat(numberMatch[0]);
-                            answerCandidate = extractedNum < 1 ? "1" : numberMatch[0];
-                        } else {
-                            answerCandidate = numberMatch[0];
-                        }
-                    }
-                }
-                
-                if (answerCandidate) {
-                    // Add response to history and reset
+                if (answerCandidate && answerCandidate !== "Information not available") {
+                    console.log(`AI generated answer: "${answerCandidate}"`);
                     conversationHistory.addAssistantResponse(answerCandidate);
                     
-                    // Send the conversation update to the popup
-                    this.sendConversationUpdate();
+                    this.addToPendingBatch(question, answerCandidate);
                     
                     return answerCandidate;
                 }
                 
-                // Fallback response if no candidate is found
+                // Fallback response
                 const fallbackResponse = "Information not available";
-                conversationHistory.addAssistantResponse(fallbackResponse);
-                this.sendConversationUpdate();
+                this.addToPendingBatch(question, fallbackResponse);
+                
                 return fallbackResponse;
                 
             } catch (ollamaError) {
@@ -570,61 +467,56 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 // Smart fallback based on context when Ollama fails
                 console.log("[Function] Falling back to direct context match due to API error");
                 
-                // If we found relevant information, use the text from the most relevant match
+                // Simple fallback - if we found a relevant key, use its value
                 if (relevantKeys.length > 0) {
                     const directValue = memoryStore.data[relevantKeys[0]]?.text || "";
-                    console.log("[Function] AI Answer:", directValue);
                     
-                    // For numeric questions, try to extract a number
-                    const numberKeywords = ["number", "how many", "zahl", "jahre", "years", "salary", "gehalt", "euro", "eur"];
-                    const isNumericQuestion = numberKeywords.some(keyword => question.toLowerCase().includes(keyword));
-                    
-                    if (isNumericQuestion) {
-                        const numberMatch = directValue.match(/\d+(?:\.\d+)?/);
-                        if (numberMatch) {
-                            console.log("[Function] Extracted number:", numberMatch[0]);
-                            conversationHistory.addAssistantResponse(numberMatch[0]);
-                            this.sendConversationUpdate();
-                            return numberMatch[0];
-                        }
+                    // Extract numbers if the question seems to ask for a number
+                    const numberMatch = directValue.match(/\d+/);
+                    if (numberMatch && (question.toLowerCase().includes("year") || 
+                                     question.toLowerCase().includes("experience") ||
+                                     question.toLowerCase().includes("salary"))) {
+                        console.log("[Function] Extracted number:", numberMatch[0]);
+                        this.addToPendingBatch(question, numberMatch[0]);
+                        return numberMatch[0];
                     }
                     
-                    // Return the direct value if it's not empty
                     if (directValue && directValue.trim()) {
-                        conversationHistory.addAssistantResponse(directValue);
-                        this.sendConversationUpdate();
+                        this.addToPendingBatch(question, directValue);
                         return directValue;
                     }
                 }
                 
-                // Special case for phone or salary questions
-                const phoneSalaryKeywords = ["phone", "telefon", "salary", "gehalt", "compensation", "vergütung"];
-                const isPhoneSalaryQuestion = phoneSalaryKeywords.some(keyword => question.toLowerCase().includes(keyword));
-                
-                if (isPhoneSalaryQuestion) {
+                // Specific fallbacks for common question types
+                if (["phone", "telefon", "salary", "gehalt", "compensation", "vergütung"].some(keyword => 
+                    question.toLowerCase().includes(keyword))) {
+                    
                     if (question.toLowerCase().includes("phone") || question.toLowerCase().includes("telefon")) {
-                        conversationHistory.addAssistantResponse(phone || "Not provided");
-                        this.sendConversationUpdate();
-                        return phone || "Not provided";
+                        const fallback = phone || "Not provided";
+                        this.addToPendingBatch(question, fallback);
+                        return fallback;
                     }
-                    if (question.toLowerCase().includes("salary") || question.toLowerCase().includes("gehalt") || 
-                        question.toLowerCase().includes("compensation") || question.toLowerCase().includes("vergütung")) {
-                        conversationHistory.addAssistantResponse(desiredSalary || "Negotiable");
-                        this.sendConversationUpdate();
-                        return desiredSalary || "Negotiable";
+                    
+                    if (question.toLowerCase().includes("salary") || 
+                        question.toLowerCase().includes("gehalt") || 
+                        question.toLowerCase().includes("compensation") ||
+                        question.toLowerCase().includes("vergütung")) {
+                        const fallback = desiredSalary || "Negotiable";
+                        this.addToPendingBatch(question, fallback);
+                        return fallback;
                     }
                 }
                 
                 const fallbackResponse = "Information not available";
-                conversationHistory.addAssistantResponse(fallbackResponse);
-                this.sendConversationUpdate();
+                this.addToPendingBatch(question, fallbackResponse);
+                
                 return fallbackResponse;
             }
         } catch (error) {
             console.error('Error in answerWithNoOptions:', error);
             const fallbackResponse = "Error generating response";
-            conversationHistory.addAssistantResponse(fallbackResponse);
-            this.sendConversationUpdate();
+            this.addToPendingBatch(question, fallbackResponse);
+            
             return fallbackResponse;
         }
     }
@@ -709,7 +601,7 @@ Which option should I select? Return ONLY the exact text of the option.`;
                 return;
             }
             
-            // Find the latest question for identification - improved to get the full question
+            // Find the latest question for identification
             const latestUserMsg = conversation.find(msg => msg.role === 'user');
             if (!latestUserMsg) {
                 console.log("No user message found in conversation");
@@ -720,13 +612,9 @@ Which option should I select? Return ONLY the exact text of the option.`;
             const questionMatch = latestUserMsg.content.match(/Form Question:\s*([^?]+)\s*\?/);
             const questionId = questionMatch ? questionMatch[1].trim() : latestUserMsg.content.substring(0, 30);
             
-            // Add timestamp to questionId to ensure uniqueness
-            const uniqueQuestionId = `${questionId}_${Date.now()}`;
-            
             console.log(`Sending conversation update to background for question: "${questionId}"`);
             
-            // Send the current conversation but don't expect a response
-            // Include a timestamp and question ID for better tracking
+            // Send the current conversation to be stored immediately
             chrome.runtime.sendMessage({
                 action: 'CONVERSATION_UPDATED',
                 data: {
@@ -737,9 +625,6 @@ Which option should I select? Return ONLY the exact text of the option.`;
                     questionId: questionId
                 }
             });
-            
-            // We don't need to send saved conversations here - they'll be handled
-            // during finalizeConversation
         } catch (error) {
             console.error("Error sending conversation update:", error);
         }
@@ -748,10 +633,177 @@ Which option should I select? Return ONLY the exact text of the option.`;
     /**
      * Finalize the current conversation
      * This should be called when moving to a new form or page
+     * Note: Since we're now storing each question immediately, 
+     * this method is retained for compatibility but doesn't need to do anything
      */
     finalizeConversation() {
-        if (this.jobInfo) {
-            conversationHistory.finalizeAndSaveConversation(this.jobInfo);
+        console.log("finalizeConversation called but not needed - conversations are stored immediately");
+    }
+
+    /**
+     * Add a question-answer pair to the pending batch
+     * @param {string} question - The question text
+     * @param {string} answer - The answer text
+     * @param {Array} options - Available options (if any)
+     */
+    addToPendingBatch(question, answer, options = []) {
+        const questionData = {
+            question: question,
+            answer: answer,
+            options: options,
+            timestamp: Date.now(),
+            questionId: this.extractQuestionId(question)
+        };
+        
+        this.pendingQuestions.push(questionData);
+        console.log(`Added question to batch: "${questionData.questionId}" (Total pending: ${this.pendingQuestions.length})`);
+        
+        // Schedule batch processing with debouncing
+        this.scheduleBatchStorage();
+    }
+    
+    /**
+     * Extract a clean question ID from the question text
+     * @param {string} question - The question text
+     * @returns {string} - Clean question identifier
+     */
+    extractQuestionId(question) {
+        // Remove common prefixes and clean up
+        let cleanQuestion = question
+            .replace(/^(Form Question:|Question:)\s*/i, '')
+            .replace(/\s*\?\s*$/, '')
+            .trim();
+            
+        // Take first 50 characters for ID
+        return cleanQuestion.substring(0, 50);
+    }
+    
+    /**
+     * Schedule batch storage with debouncing to avoid multiple rapid calls
+     */
+    scheduleBatchStorage() {
+        // Clear existing timeout
+        if (this.batchTimeout) {
+            clearTimeout(this.batchTimeout);
+        }
+        
+        // Schedule new batch processing after 2 seconds of inactivity
+        this.batchTimeout = setTimeout(() => {
+            this.processPendingBatch();
+        }, 2000);
+    }
+    
+    /**
+     * Process and store all pending questions as individual conversations
+     */
+    async processPendingBatch() {
+        if (this.isProcessingBatch || this.pendingQuestions.length === 0) {
+            return;
+        }
+        
+        if (!this.jobInfo) {
+            console.log("No job info available, clearing pending questions");
+            this.pendingQuestions = [];
+            return;
+        }
+        
+        this.isProcessingBatch = true;
+        console.log(`Processing batch of ${this.pendingQuestions.length} questions for ${this.jobInfo.title}`);
+        
+        try {
+            // Process each question as a separate conversation
+            for (const questionData of this.pendingQuestions) {
+                await this.storeIndividualConversation(questionData);
+                // Small delay between storage operations
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            console.log(`Successfully stored ${this.pendingQuestions.length} conversations`);
+            
+            // Clear the batch
+            this.pendingQuestions = [];
+            
+        } catch (error) {
+            console.error("Error processing question batch:", error);
+        } finally {
+            this.isProcessingBatch = false;
+        }
+    }
+    
+    /**
+     * Store an individual question-answer pair as a complete conversation
+     * @param {Object} questionData - Question data object
+     */
+    async storeIndividualConversation(questionData) {
+        try {
+            // Create a complete conversation for this question
+            const conversation = [
+                {
+                    role: "system",
+                    content: "You are a helpful assistant that answers job application questions accurately and professionally."
+                },
+                {
+                    role: "user", 
+                    content: this.buildUserMessage(questionData.question, questionData.options)
+                },
+                {
+                    role: "assistant",
+                    content: questionData.answer
+                }
+            ];
+            
+            // Send to background for storage
+            return new Promise((resolve) => {
+                chrome.runtime.sendMessage({
+                    action: 'CONVERSATION_UPDATED',
+                    data: {
+                        company: this.jobInfo.company,
+                        title: this.jobInfo.title,
+                        conversation: conversation,
+                        timestamp: questionData.timestamp,
+                        questionId: questionData.questionId
+                    }
+                }, (response) => {
+                    console.log(`Stored conversation for: "${questionData.questionId}"`);
+                    resolve(response);
+                });
+            });
+            
+        } catch (error) {
+            console.error(`Error storing conversation for "${questionData.questionId}":`, error);
+        }
+    }
+    
+    /**
+     * Build a properly formatted user message
+     * @param {string} question - The question text
+     * @param {Array} options - Available options
+     * @returns {string} - Formatted user message
+     */
+    buildUserMessage(question, options = []) {
+        let message = `Form Question: ${question}?`;
+        
+        if (options && options.length > 0) {
+            const optionsStr = options.map(opt => `"${opt}"`).join(", ");
+            message += `\nAvailable Options: [${optionsStr}]`;
+        }
+        
+        return message;
+    }
+    
+    /**
+     * Force immediate processing of pending batch
+     * Call this when moving to next page or finishing form
+     */
+    async flushPendingQuestions() {
+        if (this.batchTimeout) {
+            clearTimeout(this.batchTimeout);
+            this.batchTimeout = null;
+        }
+        
+        if (this.pendingQuestions.length > 0) {
+            console.log("Flushing pending questions before page change");
+            await this.processPendingBatch();
         }
     }
 }

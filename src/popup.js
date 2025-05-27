@@ -233,6 +233,33 @@ document.addEventListener('DOMContentLoaded', () => {
             updateConversationDropdowns(message.data);
             handled = true;
         }
+        if (message.action === 'REFRESH_CONVERSATION_UI') {
+            console.log('Received refresh UI signal:', message.data);
+            
+            // Get the currently selected tab
+            const conversationsTab = document.getElementById('conversations-tab');
+            const isConversationTabActive = conversationsTab && conversationsTab.classList.contains('active');
+            
+            // Only reload if conversations tab is active
+            if (isConversationTabActive) {
+                // If current selection matches the updated company/job, update the question dropdown
+                const companyDropdown = document.getElementById('company-filter');
+                const jobDropdown = document.getElementById('job-filter');
+                
+                if (companyDropdown && jobDropdown && 
+                    message.data.company === companyDropdown.value && 
+                    message.data.title === jobDropdown.value) {
+                    console.log('Refreshing question dropdown for current selection');
+                    updateQuestionDropdown();
+                } else {
+                    // If we're not currently viewing the job that was updated,
+                    // just load the dropdown options in case it's a new company/job
+                    loadDropdownOptions();
+                }
+            }
+            
+            handled = true;
+        }
         if (message.type === 'EMBEDDING_PROGRESS') {
             // Handle embedding progress updates
             const { progress, total, percent, status } = message.data;
@@ -277,6 +304,85 @@ document.addEventListener('DOMContentLoaded', () => {
         // Return undefined so other listeners can handle the message
         return undefined;
     };
+
+    // Function to de-duplicate conversation data
+    function deduplicateConversations() {
+      console.log('Checking for duplicate conversations...');
+      
+      chrome.storage.local.get('conversationData', function(result) {
+        if (!result.conversationData) return;
+        
+        // Track if we need to save changes
+        let hasChanges = false;
+        const conversationData = result.conversationData;
+        
+        // For each job
+        Object.keys(conversationData).forEach(jobTitle => {
+          const jobConversations = conversationData[jobTitle];
+          if (!Array.isArray(jobConversations) || jobConversations.length <= 1) return;
+          
+          console.log(`Checking ${jobConversations.length} conversations for job: ${jobTitle}`);
+          
+          // Track unique questions using a map
+          const uniqueQuestions = new Map();
+          const uniqueConversations = [];
+          
+          // Process each conversation
+          jobConversations.forEach(conversation => {
+            if (!Array.isArray(conversation)) {
+              uniqueConversations.push(conversation);
+              return;
+            }
+            
+            const userMsg = conversation.find(msg => msg.role === 'user');
+            if (!userMsg) {
+              uniqueConversations.push(conversation);
+              return;
+            }
+            
+            // Extract question text
+            const questionText = extractQuestionText(userMsg.content);
+            const existingIndex = uniqueQuestions.get(questionText);
+            
+            if (existingIndex !== undefined) {
+              // This is a duplicate question
+              const timestamp = conversation.timestamp || 0;
+              const existingTimestamp = uniqueConversations[existingIndex].timestamp || 0;
+              
+              // Only replace if this is newer
+              if (timestamp > existingTimestamp) {
+                console.log(`Replacing duplicate question: "${questionText}" with newer version`);
+                uniqueConversations[existingIndex] = conversation;
+                hasChanges = true;
+              } else {
+                console.log(`Skipping older duplicate question: "${questionText}"`);
+              }
+            } else {
+              // This is a new question
+              uniqueQuestions.set(questionText, uniqueConversations.length);
+              uniqueConversations.push(conversation);
+            }
+          });
+          
+          // If we found duplicates, update the array
+          if (uniqueConversations.length < jobConversations.length) {
+            console.log(`Reduced conversations from ${jobConversations.length} to ${uniqueConversations.length} for job: ${jobTitle}`);
+            conversationData[jobTitle] = uniqueConversations;
+            hasChanges = true;
+          }
+        });
+        
+        // Save if we made changes
+        if (hasChanges) {
+          console.log('Saving de-duplicated conversations...');
+          chrome.storage.local.set({ conversationData }, function() {
+            console.log('De-duplication complete');
+          });
+        } else {
+          console.log('No duplicates found');
+        }
+      });
+    }
 
     // Add message listener
     chrome.runtime.onMessage.addListener(messageListener);
@@ -532,6 +638,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Run deduplication to clean up existing data
+    deduplicateConversations();
+
 });
 
 // Function to save dropdown options to Chrome storage with company-job mapping
@@ -776,10 +885,7 @@ function updateQuestionDropdown() {
         // Enable the question dropdown
         questionDropdown.disabled = false;
         
-        // Track questions already added to avoid duplicates in the dropdown
-        const addedQuestions = new Set();
-        
-        // Add each question to the dropdown
+        // Add each question to the dropdown (no duplicate checking)
         jobConversations.forEach((conversation, index) => {
           if (!Array.isArray(conversation)) {
             console.error('Invalid conversation format:', conversation);
@@ -791,23 +897,44 @@ function updateQuestionDropdown() {
           const assistantMsg = conversation.find(msg => msg.role === 'assistant');
           
           if (userMsg && assistantMsg) {
+            // Extract the actual question text
             const questionText = extractQuestionText(userMsg.content);
+            const answer = assistantMsg.content || '';
             
-            // Create a unique identifier for the option value (index in array)
-            // and add the question text as the display text
+            // Create option for dropdown
             const option = document.createElement('option');
             option.value = index;
             
-            // If we have seen this question before, add the answer as a suffix to differentiate
-            if (addedQuestions.has(questionText)) {
-              const shortAnswer = assistantMsg.content.substring(0, 10);
-              option.textContent = `${questionText} (${shortAnswer}...)`;
-            } else {
-              option.textContent = questionText;
-              addedQuestions.add(questionText);
+            // Format display text with question text
+            let displayText = questionText || "Unknown question";
+            
+            // For very short questions (like "Ja"), add context if available
+            if (displayText.length < 8) {
+              // Try to extract options if available
+              const optionsMatch = userMsg.content.match(/Available Options:\s*\[(.*?)\]/);
+              if (optionsMatch && optionsMatch[1]) {
+                // Show a preview of options to give context
+                const optionsStr = optionsMatch[1].replace(/"/g, '').trim();
+                displayText += ` (Options: ${optionsStr.substring(0, 20)}...)`;
+              }
             }
             
-            console.log('Adding question to dropdown:', option.textContent);
+            // Add answer preview (shortened)
+            if (answer.length > 0) {
+              const shortAnswer = answer.length > 10 ? answer.substring(0, 10) + '...' : answer;
+              option.textContent = `${displayText} → ${shortAnswer}`;
+            } else {
+              option.textContent = displayText;
+            }
+            
+            // Add timestamp if available
+            if (conversation.timestamp) {
+              const date = new Date(conversation.timestamp);
+              const time = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+              option.textContent += ` [${time}]`;
+            }
+            
+            console.log(`Adding question to dropdown: "${option.textContent}"`);
             questionDropdown.appendChild(option);
           } else {
             console.error('Missing user or assistant message in conversation:', conversation);
@@ -839,28 +966,41 @@ function updateQuestionDropdown() {
 
 // Function to extract a short question title from the full question content
 function extractQuestionText(content) {
+  if (!content) return "Unknown question";
+
   // Clean up the content first
   const cleanContent = content
     .replace(/User Context Data Hint:.+/s, '') // Remove context data
     .replace(/IMPORTANT:.+/s, '') // Remove IMPORTANT section
-    .replace(/Available Options:.+/s, '') // Remove options
+    .replace(/ADDITIONAL GUIDANCE:.+/s, '') // Remove additional guidance
     .trim();
     
-  // Check for "Form Question: " format
-  const questionMatch = cleanContent.match(/Form Question:\s*([^?]+)\s*\?/);
-  if (questionMatch && questionMatch[1]) {
-    // Return just the question part, nicely formatted
-    return questionMatch[1].trim();
+  // Check for "Form Question: " format (this is the most common format)
+  const formQuestionMatch = cleanContent.match(/Form Question:\s*([^?]+)\s*\?/);
+  if (formQuestionMatch && formQuestionMatch[1]) {
+    // Return just the question part
+    return formQuestionMatch[1].trim();
   }
   
   // Try to find a question in the content with alternative formats
-  const altQuestionMatch = content.match(/Question:\s*([^?]+)\s*\?/i) || 
-                          content.match(/([^.]+\?)/);
+  const altQuestionMatch = cleanContent.match(/Question:\s*([^?]+)\s*\?/i);
   if (altQuestionMatch && altQuestionMatch[1]) {
     return altQuestionMatch[1].trim();
   }
   
-  // If that fails, just take the first 50 characters
+  // Look for any question-like text
+  const anyQuestionMatch = cleanContent.match(/([^.!?]+\?)/);
+  if (anyQuestionMatch && anyQuestionMatch[1]) {
+    return anyQuestionMatch[1].trim();
+  }
+  
+  // If we get here, try to extract any meaningful text from the beginning
+  const firstLine = cleanContent.split('\n')[0].trim();
+  if (firstLine && firstLine.length > 5) {
+    return firstLine.substring(0, 50) + (firstLine.length > 50 ? '...' : '');
+  }
+  
+  // Last resort: take the first 50 characters of the original content
   return content.substring(0, 50) + (content.length > 50 ? '...' : '');
 }
 
@@ -1008,39 +1148,21 @@ function updateConversationDropdowns(data) {
       });
     }
     
-    // Save conversation data
+    // Save conversation data - no duplicate checking
     if (data.conversation && Array.isArray(data.conversation) && data.conversation.length > 0) {
       if (!conversationData[data.title]) {
         conversationData[data.title] = [];
       }
       
-      // Find the user question message and assistant answer for comparison
-      const newUserMsg = data.conversation.find(msg => msg.role === 'user');
-      const newAssistantMsg = data.conversation.find(msg => msg.role === 'assistant');
+      // Add metadata to the conversation
+      const enrichedConversation = [...data.conversation];
+      enrichedConversation.timestamp = data.timestamp || Date.now();
+      enrichedConversation.questionId = data.questionId || '';
       
-      // Better duplicate detection by comparing both question and answer
-      let isExisting = false;
-      if (newUserMsg && newAssistantMsg) {
-        isExisting = conversationData[data.title].some(existingConv => {
-          const existingUserMsg = existingConv.find(msg => msg.role === 'user');
-          return existingUserMsg && existingUserMsg.content === newUserMsg.content;
-        });
-      } else {
-        // Fallback to old method if we can't find user/assistant messages
-        isExisting = conversationData[data.title].some(existingConv => {
-          return existingConv[0]?.content === data.conversation[0]?.content;
-        });
-      }
-      
-      if (!isExisting) {
-        console.log('Adding new conversation:', {
-          question: newUserMsg?.content,
-          answer: newAssistantMsg?.content
-        });
-        conversationData[data.title].push(data.conversation);
-      } else {
-        console.log('Skipping duplicate conversation');
-      }
+      // Add the conversation to storage
+      console.log('Adding new conversation without duplicate checking');
+      conversationData[data.title].push(enrichedConversation);
+      dataChanged = true;
     }
     
     // Save all data to storage
@@ -1048,10 +1170,21 @@ function updateConversationDropdowns(data) {
       dropdownData: dropdownData,
       conversationData: conversationData
     }, function() {
-      console.log('Data saved to storage:', { dropdownData, conversationData });
+      console.log('Data saved to storage:', { 
+        companies: dropdownData.companies.length,
+        jobs: dropdownData.jobs.length, 
+        conversations: Object.keys(conversationData).map(k => 
+          `${k}: ${conversationData[k]?.length || 0}`)
+      });
       
-      // Reload dropdowns to show new data
+      // Always reload dropdowns to show new data
       loadDropdownOptions();
+      
+      // If we're already viewing this job, update the question dropdown
+      const selectedJob = jobDropdown.value;
+      if (selectedJob === data.title) {
+        updateQuestionDropdown();
+      }
     });
   });
 }
