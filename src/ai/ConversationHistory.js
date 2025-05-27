@@ -23,13 +23,9 @@ class ConversationHistory {
 Your goal is to make the user stand out in a positive and professional way.
 *****************STRICT RULES***************:
 - ALWAYS return an answer that BENEFITS the user. If information is missing, MAKE AN EDUCATED GUESS in their favor.
-- Return ONLY the answer as a plain string. DO NOT add explanations or additional text.
-- If the question requires a number (e.g., 'Zahl angeben' or 'give number'), return ONLY a number.
-- If the question provides options, return ONLY one option from the given options EXACTLY as written.
 - If insufficient data is found, assume the user has solid experience and provide a reasonable answer.
 - If asked about how many years of experience, do NOT return 0. Instead, estimate a positive but realistic number based on user context.
 - If asked about legal status or certifications, assume the best reasonable scenario for the user.
-- If asked about salary, use the user's expected salary or provide a reasonable estimate based on job market data.
 - Use today date: ${todayDate}, if asked for a starting date, respond with a date 3 months (notice period) from today date.`;
     }
     
@@ -169,7 +165,7 @@ IMPORTANT:
 - Return ONLY the answer as a plain string
 - If the question requires a number, return ONLY a number
 - If the question requires a phone number, return the user's phone ${phone}
-- If the question asks for a salary, use the user's expected salary ${desiredSalary} or provide a reasonable estimate based on job market data
+- If the question asks for a salary, return ONLY the numeric amount without currency symbols (no EUR, USD, $, €, etc.)
 - DO NOT add any explanation or additional text
 - Make sure the answer is professional and benefits the user`;
   }
