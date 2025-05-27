@@ -197,6 +197,30 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
+    static async findDoneButton() {
+        try {
+            // Try the aria-label approach first
+            let doneButton = document.querySelector('button[aria-label="Done"]');
+
+            // If not found, try finding by class and text content
+            if (!doneButton) {
+                const buttons = document.querySelectorAll('button.artdeco-button');
+                for (const button of buttons) {
+                    const spanText = button.querySelector('span.artdeco-button__text');
+                    if (spanText && spanText.textContent.trim() === 'Done') {
+                        doneButton = button;
+                        break;
+                    }
+                }
+            }
+
+            return doneButton;
+        } catch (error) {
+            this.errorLog("Error finding done button", error);
+            return null;
+        }
+    }
+
     static async processForm(shouldStop) {
         try {
             this.debugLog("Starting form processing");
@@ -255,8 +279,16 @@ class LinkedInForm extends LinkedInBase {
                         await this.flushPendingQuestions();
 
                         await this.clickSubmitApplication();
+                        
+                        // Wait for potential Done button popup and handle it
+                        await this.wait(2000);
+                        const doneButton = await this.findDoneButton();
+                        if (doneButton) {
+                            this.debugLog("Found Done button after submission");
+                            await this.clickDoneAfterSubmit();
+                        }
+                        
                         this.debugLog("Clicked submit button after review");
-
                         clearTimeout(reviewTimeout);
                         break;
                     }
@@ -295,6 +327,15 @@ class LinkedInForm extends LinkedInBase {
                         await this.flushPendingQuestions();
                         
                         await this.clickSubmitApplication();
+                        
+                        // Wait for potential Done button popup and handle it
+                        await this.wait(2000);
+                        const doneButton = await this.findDoneButton();
+                        if (doneButton) {
+                            this.debugLog("Found Done button after submission");
+                            await this.clickDoneAfterSubmit();
+                        }
+                        
                         break;
                     }
 
