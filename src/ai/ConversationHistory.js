@@ -169,7 +169,7 @@ IMPORTANT:
 - DO NOT add any explanation or additional text
 - Make sure the answer is professional and benefits the user
 - If asked about years of experience, NEVER return 0
-- If insufficient data is found, estimate a positive but realistic number (2-5 years minimum)
+- If insufficient data is found, estimate a positive but realistic number (5-7 years minimum)
 - Assume the user has solid experience and provide a reasonable answer that benefits them`;
   }
 }
