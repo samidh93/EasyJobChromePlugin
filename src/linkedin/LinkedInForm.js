@@ -107,20 +107,15 @@ class LinkedInForm extends LinkedInBase {
     }
     static async clickDoneAfterSubmit() {
         try {
-            await this.wait();
             // Try the aria-label approach first
             let doneButton = document.querySelector('button[aria-label="Done"]');
 
             // If not found, try finding by class and text content
             if (!doneButton) {
-                const buttons = document.querySelectorAll('button.artdeco-button');
-                for (const button of buttons) {
-                    const spanText = button.querySelector('span.artdeco-button__text');
-                    if (spanText && spanText.textContent.trim() === 'Done') {
-                        doneButton = button;
-                        break;
-                    }
-                }
+                // use the span and class to find the button
+                //<span class="artdeco-button__text">Done</span>
+                doneButton = document.querySelector('button.artdeco-button span.artdeco-button__text');
+                this.debugLog("Found done button", doneButton);
             }
 
             if (doneButton) {
@@ -136,7 +131,6 @@ class LinkedInForm extends LinkedInBase {
 
     static async clickDismissAfterSubmit() {
         try {
-            await this.wait();
             // Try the aria-label approach first
             let dismissButton = document.querySelector('button[aria-label="Dismiss"]');
 
@@ -224,7 +218,7 @@ class LinkedInForm extends LinkedInBase {
     static async processForm(shouldStop) {
         try {
             this.debugLog("Starting form processing");
-            
+
             // Set timeout for form processing (3 minutes)
             const formTimeout = setTimeout(() => {
                 this.debugLog("Form processing timeout reached");
@@ -237,10 +231,10 @@ class LinkedInForm extends LinkedInBase {
                 try {
                     // Check for review button first
                     const reviewButton = await this.findReviewButton();
-                    
+
                     if (reviewButton) {
                         this.debugLog("Found review button");
-                        
+
                         // Set timeout for review processing (1 minute)
                         const reviewTimeout = setTimeout(() => {
                             this.debugLog("Review processing timeout reached");
@@ -279,15 +273,12 @@ class LinkedInForm extends LinkedInBase {
                         await this.flushPendingQuestions();
 
                         await this.clickSubmitApplication();
-                        
+
                         // Wait for potential Done button popup and handle it
                         await this.wait(2000);
-                        const doneButton = await this.findDoneButton();
-                        if (doneButton) {
-                            this.debugLog("Found Done button after submission");
-                            await this.clickDoneAfterSubmit();
-                        }
-                        
+
+                        await this.clickDismissAfterSubmit();
+
                         this.debugLog("Clicked submit button after review");
                         clearTimeout(reviewTimeout);
                         break;
@@ -306,13 +297,13 @@ class LinkedInForm extends LinkedInBase {
                     const nextButton = await this.findNextButton();
                     if (nextButton) {
                         this.debugLog("Found next button, moving to next page");
-                        
+
                         // Flush pending questions before moving to next page
                         await this.flushPendingQuestions();
-                        
+
                         await this.clickNextPage();
                         await this.wait(2000);
-                        
+
                         // Reset the flag for the new page
                         currentPageProcessed = false;
                         continue;
@@ -322,20 +313,18 @@ class LinkedInForm extends LinkedInBase {
                     const submitButton = await this.findSubmitButton();
                     if (submitButton) {
                         this.debugLog("Found submit button, submitting application");
-                        
+
                         // Flush any remaining questions before final submission
                         await this.flushPendingQuestions();
-                        
+
                         await this.clickSubmitApplication();
-                        
+
                         // Wait for potential Done button popup and handle it
                         await this.wait(2000);
-                        const doneButton = await this.findDoneButton();
-                        if (doneButton) {
-                            this.debugLog("Found Done button after submission");
-                            await this.clickDoneAfterSubmit();
-                        }
-                        
+
+                        await this.clickDismissAfterSubmit();
+
+
                         break;
                     }
 
@@ -520,14 +509,14 @@ class LinkedInForm extends LinkedInBase {
         try {
             // Create a temporary AI instance to access the flush method
             const ai = new AIQuestionAnswerer();
-            
+
             // Load job info
             const currentJob = await chrome.storage.local.get('currentJob');
             ai.setJob(currentJob);
-            
+
             // Flush any pending questions
             await ai.flushPendingQuestions();
-            
+
             this.debugLog("Flushed pending questions");
         } catch (error) {
             this.errorLog("Error flushing pending questions", error);
@@ -541,10 +530,10 @@ class LinkedInForm extends LinkedInBase {
     static async finalizePageConversation() {
         try {
             this.debugLog("Finalizing page conversation");
-            
+
             // Just flush pending questions - no need for complex conversation management
             await this.flushPendingQuestions();
-            
+
             this.debugLog("Page conversation finalized");
         } catch (error) {
             this.errorLog("Error finalizing page conversation", error);
