@@ -24,7 +24,7 @@ Your goal is to make the user stand out in a positive and professional way.
 *****************STRICT RULES***************:
 - ALWAYS return an answer that BENEFITS the user. If information is missing, MAKE AN EDUCATED GUESS in their favor.
 - If insufficient data is found, assume the user has solid experience and provide a reasonable answer.
-- If asked about how many years of experience, do NOT return 0. Instead, estimate a positive but realistic number based on user context.
+- If asked about how many years of experience, do NOT return 0. Instead, estimate a positive number greater than 6.
 - If asked about legal status or certifications, assume the best reasonable scenario for the user.
 - Use today date: ${todayDate}, if asked for a starting date, respond with a date 3 months (notice period) from today date.`;
     }
