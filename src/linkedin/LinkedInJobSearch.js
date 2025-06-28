@@ -69,6 +69,57 @@ class LinkedInJobSearch extends LinkedInBase {
             return [];
         }
     }
+
+    static async goToNextPage() {
+        try {
+            await this.wait();
+            
+            // Look for the next page button using the specific selector from LinkedIn
+            const nextButton = document.querySelector('button[aria-label="View next page"]') ||
+                              document.querySelector('button.jobs-search-pagination__button--next') ||
+                              document.querySelector('button[aria-label="Next"]');
+            
+            if (nextButton && !nextButton.disabled) {
+                this.debugLog("Found next page button, clicking...");
+                nextButton.click();
+                this.debugLog("Clicked next page button");
+                
+                // Wait for the page to load
+                await this.wait(3000);
+                
+                // Wait for jobs to load
+                const jobsLoaded = true; //await this.waitForJobsToLoad();
+                
+                if (jobsLoaded) {
+                    this.debugLog("Successfully navigated to next page");
+                    return true;
+                } else {
+                    this.debugLog("Jobs failed to load on next page");
+                    return false;
+                }
+            } else {
+                this.debugLog("Next page button not found or disabled - likely on last page");
+                return false;
+            }
+        } catch (error) {
+            this.errorLog("Error navigating to next page", error);
+            return false;
+        }
+    }
+
+ 
+
+    static async isOnLastPage() {
+        try {
+            const nextButton = document.querySelector('button[aria-label="View next page"]') ||
+                              document.querySelector('button.jobs-search-pagination__button--next');
+            
+            return !nextButton || nextButton.disabled;
+        } catch (error) {
+            this.errorLog("Error checking if on last page", error);
+            return true; // Assume last page if error
+        }
+    }
 }
 
 export default LinkedInJobSearch; 
