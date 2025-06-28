@@ -461,7 +461,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 
                 // First store the raw YAML content for quick access
                 chrome.storage.local.set({ 
-                    'userProfile': yamlContent, 
+                    'userProfileYaml': yamlContent, 
                     'profileHash': contentHash,
                     'yamlLastUploaded': Date.now(),
                     'yamlFileName': message.fileName || 'profile.yaml'
