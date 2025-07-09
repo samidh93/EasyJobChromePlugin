@@ -58,18 +58,11 @@ try {
         external: ['js-yaml'], // Exclude js-yaml from the bundle
     });
     
-    // ✅ Copy static files
-    await esbuild.build({
-        entryPoints: ['./src/popup.html', './src/popup.js', './src/styles.css'],
-        loader: {
-            '.html': 'copy',
-            '.js': 'copy',
-            '.css': 'copy',
-        },
-        outdir: './dist',
-    });
-
+    // ✅ Copy static files (excluding popup files - now handled by React webpack build)
+    // Note: popup.html, popup.js are now built by webpack with React
+    
     console.log('Build completed successfully');
+    console.log('Note: Run "npm run build:react" to build the React popup');
 } catch (error) {
     console.error('Build failed:', error);
     process.exit(1);
