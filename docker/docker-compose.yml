@@ -1,0 +1,15 @@
+services:
+  ollama:
+    build: .
+    container_name: ollama-easyjob
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=chrome-extension://*
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
+    driver: local 
