@@ -7,13 +7,30 @@
   "scripts": {
     "dev": "NODE_ENV=development node build.js",
     "build": "NODE_ENV=production node build.js",
-    "test": "node test/AIQuestionAnswerer.test.js"
+    "build:all": "npm run build && npm run build:react",
+    "build:dev": "NODE_ENV=development node build.js && npm run build:react:dev",
+    "test": "node test/AIQuestionAnswerer.test.js",
+    "build:react": "webpack --config webpack.config.cjs --mode=production",
+    "build:react:dev": "webpack --config webpack.config.cjs --mode=development",
+    "watch:react": "webpack --config webpack.config.cjs --mode=development --watch"
   },
   "dependencies": {
     "jest": "^29.7.0",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lucide-react": "^0.263.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.1"
+    "esbuild": "^0.25.1",
+    "@babel/core": "^7.22.0",
+    "@babel/preset-env": "^7.22.0",
+    "@babel/preset-react": "^7.22.0",
+    "babel-loader": "^9.1.0",
+    "css-loader": "^6.8.0",
+    "html-webpack-plugin": "^5.5.0",
+    "style-loader": "^3.3.0",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.0"
   }
 }
