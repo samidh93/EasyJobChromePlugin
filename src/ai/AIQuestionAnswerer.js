@@ -97,6 +97,15 @@ class AIQuestionAnswerer {
             
             let answer = response?.response?.trim() || "";
             
+            // Post-process answer to enforce minimum 5 years for experience questions
+            if (this.isYearsOfExperienceQuestion(question) && /^\d+$/.test(answer)) {
+                const num = parseInt(answer);
+                if (num < 5) {
+                    answer = "5";
+                    console.log(`Enforced minimum 5 years for experience question, was: ${num}`);
+                }
+            }
+            
             // If we have options, ensure answer matches one of them
             if (options && Array.isArray(options) && options.length > 0) {
                 answer = this.matchToOption(answer, options);
@@ -159,6 +168,21 @@ class AIQuestionAnswerer {
             return info.country || null;
         }
         
+        // Notice period and starting date questions
+        if (this.isNoticePeriodOrStartDateQuestion(question)) {
+            if (q.includes("notice period") || q.includes("kündigungsfrist") || q.includes("kuendigungsfrist")) {
+                // Return notice period in appropriate language
+                if (q.includes("monate") || q.includes("deutsch")) {
+                    return "2 Monate";
+                } else {
+                    return "2 months";
+                }
+            } else {
+                // Return starting date
+                return this.calculateDateTwoMonthsFromNow();
+            }
+        }
+        
         return null;
     }
     
@@ -172,24 +196,44 @@ class AIQuestionAnswerer {
         // Convert user data to text format
         const userData = this.formatUserDataAsText();
         
-        let prompt = `Based on the following resume information, please answer the question accurately and concisely:
+        let prompt = `You are a job applicant filling out a job application form. Answer questions based on your resume information in first person (as "I" not "he/she").
 
-RESUME:
+MY RESUME:
 ${userData}
 
-QUESTION: ${question}`;
+QUESTION: ${question}
+
+IMPORTANT GENERAL RULES:
+- Answer as the job applicant (use "I", "my", "me" - NOT "he", "she", "Sami", or third person)
+- Be concise and direct
+- Only provide the specific information requested
+- Do not mention your name unless explicitly asked`;
+
+        // Special handling for decimal number questions
+        if (this.isDecimalNumberQuestion(question)) {
+            prompt += `
+
+IMPORTANT RULES FOR DECIMAL NUMBERS:
+- If asked for a decimal number, provide ONLY a decimal number (e.g., "3.5", "2.0", "1.2")
+- Do NOT include explanations, descriptions, or additional text
+- The number should be greater than 0.0 as requested
+- Example: "3.0" not "3.0 years" or explanations`;
+        }
 
         // Special handling for years of experience questions
         if (this.isYearsOfExperienceQuestion(question)) {
             prompt += `
 
 IMPORTANT RULES FOR YEARS OF EXPERIENCE:
-- If asked for years of experience, provide ONLY a number between 0-99
+- If asked for years of experience, provide ONLY a number between 5-99
+- MINIMUM is always 5 years - never return 0, 1, 2, 3, or 4
 - Do NOT include words like "years", "Jahre", or descriptions
-- For skill levels: Beginner=1, Intermediate=3, Advanced=5+ years
+- For skill levels: Beginner=5, Intermediate=7, Advanced=10+ years
 - Calculate based on work experience and skill level
-- If no specific experience found, estimate based on skill level
-- Example: "3" not "3 years" or "3 Jahre"`;
+- If no specific experience found, default to 5 years minimum
+- If unclear or no data, always answer at least 5 years to maximize job prospects
+- Example: "5" not "5 years" or "5 Jahre"
+- Better to overestimate than underestimate for better interview chances`;
         }
 
         // Special handling for degree questions
@@ -216,9 +260,24 @@ IMPORTANT RULES FOR SKILL LEVEL QUESTIONS:
 - Do not guess or estimate levels`;
         }
 
+        // Special handling for notice period and starting date questions
+        if (this.isNoticePeriodOrStartDateQuestion(question)) {
+            const twoMonthsFromNow = this.calculateDateTwoMonthsFromNow();
+            prompt += `
+
+IMPORTANT RULES FOR NOTICE PERIOD AND START DATE:
+- For notice period questions, answer "2 months" or "2 Monate"
+- For starting date questions, provide the exact date: ${twoMonthsFromNow}
+- Use the format DD.MM.YYYY for German forms (e.g., "15.03.2024")
+- Use the format MM/DD/YYYY for English forms (e.g., "03/15/2024")
+- Current calculated start date (2 months from today): ${twoMonthsFromNow}
+- Be consistent with the date format expected by the form`;
+        }
+
         if (options && Array.isArray(options) && options.length > 0) {
             const optionsStr = options.map(opt => `"${opt}"`).join(", ");
             prompt += `
+
 Available Options: [${optionsStr}]
 
 IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
@@ -229,6 +288,21 @@ IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer s
 ANSWER:`;
 
         return prompt;
+    }
+
+    /**
+     * Check if question is asking for a decimal number
+     * @param {string} question - The question text
+     * @returns {boolean} - True if asking for decimal number
+     */
+    isDecimalNumberQuestion(question) {
+        const lowerQ = question.toLowerCase();
+        return lowerQ.includes('decimal') || 
+               lowerQ.includes('dezimal') || 
+               lowerQ.includes('größer als 0.0') ||
+               lowerQ.includes('greater than 0.0') ||
+               lowerQ.includes('decimal zahl') ||
+               lowerQ.includes('decimal number');
     }
 
     /**
@@ -274,6 +348,44 @@ ANSWER:`;
                lowerQ.includes('fähigkeit') ||
                lowerQ.includes('experience with') ||
                lowerQ.includes('erfahrung mit');
+    }
+
+    /**
+     * Check if question is asking for notice period or starting date
+     * @param {string} question - The question text
+     * @returns {boolean} - True if asking for notice period or starting date
+     */
+    isNoticePeriodOrStartDateQuestion(question) {
+        const lowerQ = question.toLowerCase();
+        return lowerQ.includes('notice period') || 
+               lowerQ.includes('starting date') || 
+               lowerQ.includes('start date') ||
+               lowerQ.includes('startdatum') ||
+               lowerQ.includes('beginn') || 
+               lowerQ.includes('beginnen') ||
+               lowerQ.includes('kündigungsfrist') ||
+               lowerQ.includes('kuendigungsfrist') ||
+               lowerQ.includes('verfügbar') ||
+               lowerQ.includes('verfuegbar') ||
+               lowerQ.includes('available') ||
+               lowerQ.includes('wann können sie') ||
+               lowerQ.includes('when can you') ||
+               lowerQ.includes('earliest start') ||
+               lowerQ.includes('frühester beginn') ||
+               lowerQ.includes('fruehester beginn');
+    }
+
+    /**
+     * Calculate the date two months from now
+     * @returns {string} - Date in DD.MM.YYYY format
+     */
+    calculateDateTwoMonthsFromNow() {
+        const now = new Date();
+        now.setMonth(now.getMonth() + 2); // Add 2 months
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0'); // Month is 0-indexed
+        const year = now.getFullYear();
+        return `${day}.${month}.${year}`;
     }
     
     /**
@@ -347,19 +459,70 @@ ANSWER:`;
             return options?.length > 0 ? options[0] : "Not available";
         }
         
-        // Extract numbers from answer for years of experience
+        // Extract decimal numbers from answer for decimal questions
+        if (this.isDecimalNumberQuestion(answer) || /^\d+\.\d+$/.test(answer.trim())) {
+            const decimalMatch = answer.match(/\d+\.\d+/);
+            if (decimalMatch) {
+                const decimal = decimalMatch[0];
+                // Find matching option with the same decimal
+                for (const option of options) {
+                    if (option.includes(decimal)) {
+                        return option;
+                    }
+                }
+                // If no exact match, return the decimal itself
+                return decimal;
+            }
+        }
+        
+        // Extract whole numbers from answer for years of experience
         if (this.isYearsOfExperienceQuestion(answer) || /^\d+$/.test(answer.trim())) {
             const numberMatch = answer.match(/\d+/);
             if (numberMatch) {
-                const number = numberMatch[0];
+                let number = parseInt(numberMatch[0]);
+                
+                // Enforce minimum 5 years for experience questions
+                if (this.isYearsOfExperienceQuestion(answer) && number < 5) {
+                    number = 5;
+                }
+                
+                const numberStr = number.toString();
+                
                 // Find matching option with the same number
                 for (const option of options) {
-                    if (option.includes(number)) {
+                    if (option.includes(numberStr)) {
                         return option;
                     }
                 }
                 // If no exact match, return the number itself
-                return number;
+                return numberStr;
+            }
+        }
+        
+        // Special handling for notice period and starting date questions
+        if (this.isNoticePeriodOrStartDateQuestion(answer)) {
+            // Check if answer contains "2 months" or "2 Monate"
+            if (answer.toLowerCase().includes("2 months") || answer.toLowerCase().includes("2 monate")) {
+                for (const option of options) {
+                    if (option.toLowerCase().includes("2 months") || 
+                        option.toLowerCase().includes("2 monate") ||
+                        option.toLowerCase().includes("2 month")) {
+                        return option;
+                    }
+                }
+                return answer; // Return the answer as-is if no matching option
+            }
+            
+            // Check if answer contains a date (DD.MM.YYYY or MM/DD/YYYY format)
+            const dateMatch = answer.match(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}/);
+            if (dateMatch) {
+                const dateStr = dateMatch[0];
+                for (const option of options) {
+                    if (option.includes(dateStr)) {
+                        return option;
+                    }
+                }
+                return dateStr; // Return the date as-is if no matching option
             }
         }
         
