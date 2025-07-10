@@ -259,9 +259,13 @@ class LinkedInForm extends LinkedInBase {
                         if (formElements.length > 0 && !currentPageProcessed) {
                             this.debugLog("Found questions on current page, processing before review");
                             const result = await this.processFormQuestions(shouldStop);
-                            if (!result) {
+                            if (result.stopped) {
                                 this.debugLog("Form questions processing stopped by user");
                                 break;
+                            }
+                            if (!result.success) {
+                                this.debugLog("Form questions processing failed");
+                                // Continue with review anyway
                             }
                             currentPageProcessed = true;
                             this.debugLog("Current page form questions processed, will not reprocess");
@@ -293,9 +297,13 @@ class LinkedInForm extends LinkedInBase {
                         if (reviewFormElements.length > 0) {
                             this.debugLog("Found questions on review page");
                             const result = await this.processFormQuestions(shouldStop);
-                            if (!result) {
+                            if (result.stopped) {
                                 this.debugLog("Review questions processing stopped by user");
                                 break;
+                            }
+                            if (!result.success) {
+                                this.debugLog("Review questions processing failed");
+                                // Continue with submit anyway
                             }
                         } else {
                             this.debugLog("No questions found on review page");
@@ -318,9 +326,13 @@ class LinkedInForm extends LinkedInBase {
                     if (formElements.length > 0 && !currentPageProcessed) {
                         this.debugLog("Found form questions, processing...");
                         const result = await this.processFormQuestions(shouldStop);
-                        if (!result) {
+                        if (result.stopped) {
                             this.debugLog("Form questions processing stopped by user");
                             break;
+                        }
+                        if (!result.success) {
+                            this.debugLog("Form questions processing failed");
+                            // Continue to next step anyway
                         }
                         currentPageProcessed = true;
                         this.debugLog("Form questions processed");
@@ -402,6 +414,121 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
+    /**
+     * Check if a question should be skipped because it's already prefilled in LinkedIn
+     * @param {string} questionText - The question text to check
+     * @returns {Promise<boolean>} - True if the question should be skipped
+     */
+    static async shouldSkipQuestion(questionText) {
+        const lowerQuestion = questionText.toLowerCase();
+        
+        // First check with direct keyword matching (fast path)
+        if (this.shouldSkipQuestionDirect(lowerQuestion)) {
+            return true;
+        }
+        
+        // If no direct match, try translation-based checking
+        try {
+            return await this.shouldSkipQuestionWithTranslation(questionText);
+        } catch (error) {
+            this.debugLog(`Translation check failed for "${questionText}": ${error.message}`);
+            // Fall back to direct matching only
+            return false;
+        }
+    }
+
+    /**
+     * Direct keyword matching for common languages (fast path)
+     * @param {string} lowerQuestion - Lowercase question text
+     * @returns {boolean} - True if should skip
+     */
+    static shouldSkipQuestionDirect(lowerQuestion) {
+        // Skip email-related questions
+        if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail')) {
+            return true;
+        }
+        
+        // Skip phone number questions (English, German, Spanish, French, Italian)
+        const phoneTerms = [
+            'phone', 'mobile', 'cell', 'telephone',  // English
+            'telefon', 'handynummer', 'mobilnummer', // German
+            'teléfono', 'móvil', 'celular',          // Spanish
+            'téléphone', 'portable', 'mobile',       // French
+            'telefono', 'cellulare', 'mobile'        // Italian
+        ];
+        
+        if (phoneTerms.some(term => lowerQuestion.includes(term))) {
+            return true;
+        }
+        
+        // Skip country code / area code questions
+        const codeTerms = [
+            'country code', 'area code', 'phone prefix', 'calling code', // English
+            'landsvorwahl', 'vorwahl', 'ländercode',                     // German
+            'código de país', 'código de área', 'prefijo',               // Spanish
+            'indicatif pays', 'indicatif', 'préfixe',                   // French
+            'prefisso', 'codice paese'                                   // Italian
+        ];
+        
+        if (codeTerms.some(term => lowerQuestion.includes(term))) {
+            return true;
+        }
+        
+        // Skip general contact information
+        const contactTerms = [
+            'contact information', 'contact details',        // English
+            'kontaktinformation', 'kontaktdaten',           // German
+            'información de contacto', 'datos de contacto', // Spanish
+            'coordonnées', 'informations de contact',       // French
+            'informazioni di contatto', 'dati di contatto'  // Italian
+        ];
+        
+        if (contactTerms.some(term => lowerQuestion.includes(term))) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Translation-based question checking for other languages
+     * @param {string} questionText - The question text to translate and check
+     * @returns {Promise<boolean>} - True if should skip
+     */
+    static async shouldSkipQuestionWithTranslation(questionText) {
+        try {
+            // Create AI instance for translation
+            const ai = new AIQuestionAnswerer();
+            
+            // Simple translation prompt
+            const translationPrompt = `Translate this text to English. Only return the English translation, nothing else:
+
+"${questionText}"
+
+English translation:`;
+
+            const response = await ai.callOllamaAPI({
+                model: 'qwen2.5:3b',
+                prompt: translationPrompt,
+                stream: false
+            });
+
+            if (!response || !response.response) {
+                return false;
+            }
+
+            const translatedText = response.response.trim().toLowerCase();
+            this.debugLog(`Translated "${questionText}" to: "${translatedText}"`);
+            
+            // Check if the translated text contains skip keywords
+            return this.shouldSkipQuestionDirect(translatedText);
+            
+        } catch (error) {
+            this.debugLog(`Translation failed: ${error.message}`);
+            return false;
+        }
+    }
+
     static async processFormQuestions(shouldStop = null) {
         try {
             this.debugLog("Processing form questions");
@@ -422,7 +549,7 @@ class LinkedInForm extends LinkedInBase {
                     
                     if (stopRequested) {
                         this.debugLog("Stop requested during form questions processing");
-                        return false;
+                        return { stopped: true };
                     }
                 }
                 
@@ -437,6 +564,12 @@ class LinkedInForm extends LinkedInBase {
                     let questionText = labelElement.textContent.trim();
                     questionText = questionText.replace(/(.+?)\1/, '$1');
                     this.debugLog(`Processing question: ${questionText}`);
+
+                    // Check if this question should be skipped (already prefilled in LinkedIn)
+                    if (await this.shouldSkipQuestion(questionText)) {
+                        this.debugLog(`Skipping prefilled question: ${questionText}`);
+                        continue;
+                    }
 
                     const inputField = element.querySelector("input, textarea, select");
                     if (!inputField) {
@@ -467,21 +600,32 @@ class LinkedInForm extends LinkedInBase {
                     }
 
                     // Pass the inputField directly to avoid redundant search
-                    await this.answerQuestion(questionText, options, inputField, element);
+                    const questionResult = await this.answerQuestion(questionText, options, inputField, element, shouldStop);
+                    
+                    // Check if the process was stopped
+                    if (questionResult.stopped) {
+                        this.debugLog("Form questions processing stopped by user");
+                        return { stopped: true };
+                    }
+                    
+                    if (!questionResult.success) {
+                        this.debugLog(`Failed to answer question: ${questionText}`);
+                        // Continue to next question on failure
+                    }
                 } catch (error) {
                     this.errorLog(`Error processing form element: ${error.message}`, error);
                 }
             }
 
             this.debugLog("Completed processing form questions");
-            return true;
+            return { success: true };
         } catch (error) {
             this.errorLog("Error in processFormQuestions", error);
-            return false;
+            return { success: false };
         }
     }
 
-    static async answerQuestion(question, options = [], inputField, element) {
+    static async answerQuestion(question, options = [], inputField, element, shouldStop = null) {
         try {
             // Create a new instance of AIQuestionAnswerer for each question
             const ai = new AIQuestionAnswerer();
@@ -491,12 +635,17 @@ class LinkedInForm extends LinkedInBase {
 
             // Load user resume data from Chrome storage
             try {
-                const result = await chrome.storage.local.get('userResumeText');
-                if (result && result.userResumeText) {
-                    this.debugLog('Found user resume text in storage');
-                    // Set the user context in the AI instance
-                    await ai.setUserContext(result.userResumeText);
-                    this.debugLog('Set user context in AI instance');
+                const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
+                if (result && (result.userResumeData || result.userResumeText)) {
+                    this.debugLog('Found user resume data in storage');
+                    // Set the user context in the AI instance with structured data if available
+                    if (result.userResumeData) {
+                        await ai.setUserContext(result.userResumeData, result.userResumeText);
+                        this.debugLog('Set structured user context in AI instance');
+                    } else {
+                        await ai.setUserContext(result.userResumeText);
+                        this.debugLog('Set text user context in AI instance');
+                    }
                 } else {
                     this.debugLog('No user resume found in storage');
                 }
@@ -504,14 +653,21 @@ class LinkedInForm extends LinkedInBase {
                 this.errorLog('Error loading user resume from storage:', error);
             }
 
-            // Get the answer directly using our simplified approach
-            let answer = await ai.answerQuestion(question, options);
+            // Get the answer using our simplified approach with stop callback
+            const result = await ai.answerQuestion(question, options, shouldStop);
 
-            if (!answer) {
-                this.debugLog("No answer generated for question");
-                return false;
+            // Check if the process was stopped
+            if (result.stopped) {
+                this.debugLog("Question answering stopped by user");
+                return { stopped: true };
             }
 
+            if (!result.success || !result.answer) {
+                this.debugLog("No answer generated for question");
+                return { success: false };
+            }
+
+            const answer = result.answer;
             this.debugLog(`AI Answer: ${answer}`);
 
             // Fill in the answer using the provided inputField
@@ -562,10 +718,10 @@ class LinkedInForm extends LinkedInBase {
             }
 
             await this.wait(500);
-            return true;
+            return { success: true };
         } catch (error) {
             this.errorLog(`Error answering question "${question}"`, error);
-            return false;
+            return { success: false };
         }
     }
 

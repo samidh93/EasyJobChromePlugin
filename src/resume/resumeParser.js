@@ -20,9 +20,9 @@ class ResumeParser {
     }
 
     /**
-     * Parse resume from different formats and return as text
-     * @param {File} file - File object from input element
-     * @returns {Promise<string>} - Parsed resume text
+     * Parse resume and return structured data with formatted text
+     * @param {File} file - Resume file to parse
+     * @returns {Promise<Object>} - Parsed resume data with both structured and formatted text
      */
     async parseResume(file) {
         if (!file) {
@@ -62,7 +62,7 @@ class ResumeParser {
     /**
      * Parse YAML resume
      * @param {File} file - YAML file object
-     * @returns {Promise<string>} - Formatted text
+     * @returns {Promise<Object>} - Parsed data with structured and formatted text
      */
     async _parseYaml(file) {
         try {
@@ -72,8 +72,14 @@ class ResumeParser {
             if (!yamlParser) {
                 throw new Error('YAML parser not available. Please include js-yaml library.');
             }
-            const data = yamlParser.load(fileContents);
-            return this._formatStructuredData(data);
+            const structuredData = yamlParser.load(fileContents);
+            const formattedText = this._formatStructuredData(structuredData);
+            
+            return {
+                structured: structuredData,
+                formatted: formattedText,
+                type: 'yaml'
+            };
         } catch (error) {
             throw new Error(`Error parsing YAML: ${error.message}`);
         }
@@ -82,13 +88,19 @@ class ResumeParser {
     /**
      * Parse JSON resume
      * @param {File} file - JSON file object
-     * @returns {Promise<string>} - Formatted text
+     * @returns {Promise<Object>} - Parsed data with structured and formatted text
      */
     async _parseJson(file) {
         try {
             const fileContents = await this._readFileAsText(file);
-            const data = JSON.parse(fileContents);
-            return this._formatStructuredData(data);
+            const structuredData = JSON.parse(fileContents);
+            const formattedText = this._formatStructuredData(structuredData);
+            
+            return {
+                structured: structuredData,
+                formatted: formattedText,
+                type: 'json'
+            };
         } catch (error) {
             throw new Error(`Error parsing JSON: ${error.message}`);
         }
@@ -97,7 +109,7 @@ class ResumeParser {
     /**
      * Parse PDF resume
      * @param {File} file - PDF file object
-     * @returns {Promise<string>} - Extracted text
+     * @returns {Promise<Object>} - Extracted text with type info
      */
     async _parsePdf(file) {
         try {
@@ -117,7 +129,13 @@ class ResumeParser {
                 fullText += pageText + '\n';
             }
             
-            return fullText.trim();
+            const extractedText = fullText.trim();
+            
+            return {
+                structured: null, // PDF doesn't provide structured data
+                formatted: extractedText,
+                type: 'pdf'
+            };
         } catch (error) {
             throw new Error(`Error parsing PDF: ${error.message}`);
         }
@@ -126,11 +144,17 @@ class ResumeParser {
     /**
      * Parse plain text resume
      * @param {File} file - Text file object
-     * @returns {Promise<string>} - File contents
+     * @returns {Promise<Object>} - File contents with type info
      */
     async _parseText(file) {
         try {
-            return await this._readFileAsText(file);
+            const textContent = await this._readFileAsText(file);
+            
+            return {
+                structured: null, // Plain text doesn't provide structured data
+                formatted: textContent,
+                type: 'text'
+            };
         } catch (error) {
             throw new Error(`Error parsing text file: ${error.message}`);
         }
