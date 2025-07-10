@@ -25,12 +25,31 @@ export function sendStatusUpdate(text, status = 'info') {
 
 // Function to check if the process should stop
 export async function shouldStop(isAutoApplyRunning) {
+    // First check the local variable
     if (!isAutoApplyRunning) {
-        debugLog('Auto-apply process stopped by user');
+        debugLog('Auto-apply process stopped by user (local check)');
         sendStatusUpdate('Auto-apply process stopped', 'info');
         chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
         return true;
     }
+    
+    // Also check with background script for real-time state
+    try {
+        const response = await chrome.runtime.sendMessage({
+            action: 'getAutoApplyState'
+        });
+        
+        if (response && response.success && !response.isRunning) {
+            debugLog('Auto-apply process stopped by user (background check)');
+            sendStatusUpdate('Auto-apply process stopped', 'info');
+            chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
+            return true;
+        }
+    } catch (error) {
+        // If we can't communicate with background, fall back to local check
+        debugLog('Failed to check background state, using local state', error);
+    }
+    
     return false;
 }
 
@@ -46,7 +65,3 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Indicate that you will send a response asynchronously
     }
 });
-
-async function startAutoApplyProcess() {
-    // Your async logic here
-} 

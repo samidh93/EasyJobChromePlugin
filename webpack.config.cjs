@@ -32,7 +32,9 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/popup/popup.html',
       filename: 'popup.html',
-      chunks: ['popup']
+      chunks: ['popup'],
+      inject: 'body', // Inject script at the end of body, not in head
+      scriptLoading: 'defer' // Use defer for proper loading order
     })
   ],
   resolve: {

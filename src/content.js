@@ -1,7 +1,5 @@
-import { LinkedInJobSearch, LinkedInJobInteraction, LinkedInJobInfo, LinkedInForm, LinkedInJobPage } from './linkedin/index.js';
-import { debugLog, sendStatusUpdate, shouldStop, DEBUG } from './utils.js';
-import memoryStore from './ai/MemoryStore.js';
-import AIQuestionAnswerer from './ai/AIQuestionAnswerer.js';
+import { LinkedInJobSearch,LinkedInForm, LinkedInJobPage } from './linkedin/index.js';
+import { debugLog, sendStatusUpdate, shouldStop } from './utils.js';
 
 let isAutoApplyRunning = false;
 
@@ -60,97 +58,57 @@ async function startAutoApply() {
     console.error('Error in auto-apply process:', error);
     debugLog('Fatal error in auto-apply process:', { error: error.message, stack: error.stack });
     sendStatusUpdate('Error in auto-apply process', 'error');
-    await LinkedInForm.closeForm(false);
+    // Keep forms open as requested by user
   }
 }
 
-// Listen for messages from popup
+// Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   debugLog('Received message in content script:', message);
-  if (message.action === 'START_AUTO_APPLY') {
+  
+  if (message.action === 'startAutoApply') {
     if (!isAutoApplyRunning) {
       isAutoApplyRunning = true;
-      debugLog('Starting auto-apply process');
+      debugLog('Starting auto-apply process with user data:', message.userData);
+      debugLog('AI settings:', message.aiSettings);
+      
+      // Store user data and AI settings for use in auto-apply process
+      window.currentUserData = message.userData;
+      window.currentAiSettings = message.aiSettings;
+      
       startAutoApply();
+      sendResponse({ success: true, message: 'Auto apply started' });
+    } else {
+      sendResponse({ success: false, message: 'Auto apply already running' });
     }
-  } else if (message.action === 'STOP_AUTO_APPLY') {
+  } else if (message.action === 'stopAutoApply') {
     debugLog('Stopping auto-apply process');
     isAutoApplyRunning = false;
+    sendResponse({ success: true, message: 'Auto apply stopped' });
   } else if (message.action === 'GET_STATE') {
     debugLog('Getting current state');
     sendResponse({ isRunning: isAutoApplyRunning });
+  } else {
+    // Handle legacy message format for backward compatibility
+    if (message.action === 'START_AUTO_APPLY') {
+      if (!isAutoApplyRunning) {
+        isAutoApplyRunning = true;
+        debugLog('Starting auto-apply process (legacy format)');
+        startAutoApply();
+        sendResponse({ success: true, message: 'Auto apply started' });
+      } else {
+        sendResponse({ success: false, message: 'Auto apply already running' });
+      }
+    } else if (message.action === 'STOP_AUTO_APPLY') {
+      debugLog('Stopping auto-apply process (legacy format)');
+      isAutoApplyRunning = false;
+      sendResponse({ success: true, message: 'Auto apply stopped' });
+    } else {
+      sendResponse({ success: false, message: 'Unknown action' });
+    }
   }
+  
   // Return true to indicate we will send a response asynchronously
   return true;
 });
 
-// Initialize AI systems
-console.log('Initializing EasyJob AI systems...');
-
-// Load stored embeddings on page load
-async function initializeAI() {
-  try {
-    console.log('-----------------------------------');
-    console.log('🔄 EasyJob AI System Initialization');
-    console.log('-----------------------------------');
-
-    // Preload embeddings first (added optimization)
-    console.log('Preloading embeddings into memory...');
-    await memoryStore.preloadEmbeddings();
-
-    // Get memory store size
-    const memoryStoreSize = Object.keys(memoryStore.data).length;
-
-    // Get storage size
-    const storageCount = await memoryStore.getStoredEmbeddingsCount();
-
-    console.log('Memory status:', {
-      memoryStoreSize: memoryStoreSize,
-      storageCount: storageCount,
-      hasLoadedFromStorage: memoryStore.hasTriedLoading
-    });
-
-    if (memoryStoreSize > 0) {
-      console.log('✅ Embeddings successfully loaded into memory');
-
-      // Initialize AI Question Answerer for form filling
-      const ai = new AIQuestionAnswerer();
-      console.log('✅ AI question answerer initialized and ready');
-    } else {
-      console.log('⚠️ No embeddings found in memory. Checking storage and profile status...');
-
-      // Check if user profile exists
-      const profileExists = await new Promise(resolve => {
-        chrome.storage.local.get('userProfile', result => {
-          resolve(!!result.userProfile);
-        });
-      });
-
-      if (profileExists) {
-        console.log('🔍 User profile exists but embeddings are not generated or failed to load.');
-        console.log('💡 Please open the extension popup and reload the profile to generate embeddings.');
-
-        // Try one more direct storage check
-        chrome.storage.local.get(null, function (items) {
-          console.log('📊 Storage overview:', {
-            totalItems: Object.keys(items).length,
-            hasProfile: !!items.userProfile,
-            hasEmbeddings: !!items.storedEmbeddings,
-            profileSize: items.userProfile ? JSON.stringify(items.userProfile).length : 0,
-            embeddingsSize: items.storedEmbeddings ? JSON.stringify(items.storedEmbeddings).length : 0
-          });
-        });
-      } else {
-        console.log('❌ No user profile found in storage.');
-        console.log('💡 Please upload a profile through the extension popup.');
-      }
-    }
-
-    console.log('-----------------------------------');
-  } catch (error) {
-    console.error('❌ Error initializing AI:', error);
-  }
-}
-
-// Run initialization
-initializeAI(); 
