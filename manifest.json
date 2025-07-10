@@ -24,7 +24,13 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["input/example_profile.yaml"],
+      "resources": [
+        "input/example_profile.yaml",
+        "resume/resumeParser.js",
+        "libs/js-yaml.min.js",
+        "libs/pdf.min.js",
+        "libs/pdf.worker.min.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ],

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Parser Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .file-input {
+            margin: 10px 0;
+        }
+        .supported-formats {
+            margin-top: 10px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .results-section {
+            margin-top: 30px;
+        }
+        .result-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+            color: #721c24;
+        }
+        .success {
+            border-left-color: #28a745;
+            background: #f8fff8;
+            color: #155724;
+        }
+        pre {
+            background: #f1f1f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        .info-section {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info-section h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        .info-section ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .info-section li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📄 Resume Parser Demo</h1>
+        
+        <div class="info-section">
+            <h3>🚀 Chrome Extension Resume Parser</h3>
+            <p>This demo shows how to use the resume parser in a Chrome extension context.</p>
+            <p><strong>Supported formats:</strong></p>
+            <ul>
+                <li>YAML (.yaml, .yml) - Structured resume data</li>
+                <li>JSON (.json) - Structured resume data</li>
+                <li>PDF (.pdf) - Portable Document Format</li>
+                <li>Text (.txt) - Plain text resumes</li>
+            </ul>
+        </div>
+        
+        <div class="upload-section">
+            <h3>📤 Upload Resume</h3>
+            <input type="file" id="resumeFile" class="file-input" accept=".yaml,.yml,.json,.pdf,.txt">
+            <div class="supported-formats">
+                Supported formats: YAML, JSON, PDF, TXT
+            </div>
+        </div>
+        
+        <div class="results-section">
+            <h3>📊 Results</h3>
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <!-- Include required libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <!-- Include our resume parser -->
+    <script src="resumeParser.js"></script>
+    
+    <script>
+        // Initialize the parser
+        const parser = new ResumeParser();
+        const resultsDiv = document.getElementById('results');
+        
+        // Handle file input
+        document.getElementById('resumeFile').addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                // Show loading state
+                resultsDiv.innerHTML = '<div class="result-box loading">🔄 Parsing resume...</div>';
+                
+                try {
+                    // Parse the resume
+                    const resumeText = await parser.parseResume(file);
+                    
+                    // Show success result
+                    resultsDiv.innerHTML = `
+                        <div class="result-box success">
+                            <h4>✅ Successfully parsed resume!</h4>
+                            <p><strong>File:</strong> ${file.name}</p>
+                            <p><strong>Size:</strong> ${(file.size / 1024).toFixed(2)} KB</p>
+                            <p><strong>Parsed text length:</strong> ${resumeText.length} characters</p>
+                        </div>
+                        <div class="result-box">
+                            <h4>📝 Parsed Content:</h4>
+                            <pre>${resumeText}</pre>
+                        </div>
+                        <div class="result-box">
+                            <h4>🔍 Extracted Information:</h4>
+                            <div id="extractedInfo"></div>
+                        </div>
+                    `;
+                    
+                    // Extract and display specific information
+                    const extractedInfo = extractResumeInfo(resumeText);
+                    const extractedInfoDiv = document.getElementById('extractedInfo');
+                    extractedInfoDiv.innerHTML = `
+                        <ul>
+                            <li><strong>Email:</strong> ${extractedInfo.email || 'Not found'}</li>
+                            <li><strong>Phone:</strong> ${extractedInfo.phone || 'Not found'}</li>
+                            <li><strong>Text Preview:</strong> ${resumeText.substring(0, 200)}...</li>
+                        </ul>
+                    `;
+                    
+                    console.log('Resume parsed successfully:', resumeText);
+                    
+                } catch (error) {
+                    console.error('Error parsing resume:', error);
+                    
+                    // Show error result
+                    resultsDiv.innerHTML = `
+                        <div class="result-box error">
+                            <h4>❌ Error parsing resume</h4>
+                            <p><strong>Error:</strong> ${error.message}</p>
+                            <p><strong>File:</strong> ${file.name}</p>
+                            <p><strong>Type:</strong> ${file.type}</p>
+                        </div>
+                    `;
+                }
+            }
+        });
+        
+        // Helper function to extract specific information from parsed resume
+        function extractResumeInfo(resumeText) {
+            return {
+                email: extractEmail(resumeText),
+                phone: extractPhone(resumeText),
+                preview: resumeText.substring(0, 200)
+            };
+        }
+        
+        function extractEmail(text) {
+            const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+            const match = text.match(emailRegex);
+            return match ? match[0] : '';
+        }
+        
+        function extractPhone(text) {
+            const phoneRegex = /[\+]?[1-9]?[\d\s\-\(\)]{7,20}/;
+            const match = text.match(phoneRegex);
+            return match ? match[0].trim() : '';
+        }
+        
+        // Display library status
+        console.log('📚 Libraries loaded:');
+        console.log('- js-yaml:', typeof jsyaml !== 'undefined' ? '✅' : '❌');
+        console.log('- PDF.js:', typeof pdfjsLib !== 'undefined' ? '✅' : '❌');
+        console.log('- ResumeParser:', typeof ResumeParser !== 'undefined' ? '✅' : '❌');
+    </script>
+</body>
+</html> 

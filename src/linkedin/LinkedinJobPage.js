@@ -16,9 +16,18 @@ class LinkedInJobPage extends LinkedInBase {
         
         // Process each job
         for (const job of jobs) {
-            if (await shouldStop(isAutoApplyRunning)) return;
+            if (await shouldStop(isAutoApplyRunning)) {
+                this.debugLog("Stop requested during job processing - breaking job loop");
+                return false; // Exit immediately
+            }
             // Wait between applications to avoid rate limiting
             await LinkedInJob.processJob(job, isAutoApplyRunning);
+            
+            // Check again after each job
+            if (await shouldStop(isAutoApplyRunning)) {
+                this.debugLog("Stop requested after job processing - breaking job loop");
+                return false; // Exit immediately
+            }
         }
         
         // After processing all jobs on current page, navigate to next page if not on last page
@@ -82,12 +91,15 @@ class LinkedInJob extends LinkedInBase {
             await new Promise(resolve => setTimeout(resolve, 2000));
             
             if (await shouldStop(isAutoApplyRunning)) {
-                await LinkedInForm.closeForm(false);
+                this.debugLog("Stop requested before form processing");
                 return;
             }
             
-            // process form
-            await LinkedInForm.processForm(() => shouldStop(isAutoApplyRunning));
+            // process form with a callback that checks the actual stop state
+            const shouldStopCallback = async () => {
+                return await shouldStop(isAutoApplyRunning);
+            };
+            await LinkedInForm.processForm(shouldStopCallback);
             debugLog('Processed application form');
             await chrome.storage.local.remove('currentJob');
             debugLog('Removed current job from storage');
@@ -95,8 +107,7 @@ class LinkedInJob extends LinkedInBase {
             console.error('Error processing job:', error);
             debugLog('Error processing job:', { error: error.message, stack: error.stack });
             sendStatusUpdate('Error processing job. Continuing to next one...', 'error');
-            // Try to close any open forms when there's an error
-            await LinkedInForm.closeForm(false);
+            // Keep forms open as requested by user
         }
     }
 }

@@ -31,10 +31,30 @@ try {
     if (!fs.existsSync('dist/input')) {
         fs.mkdirSync('dist/input');
     }
+    if (!fs.existsSync('dist/resume')) {
+        fs.mkdirSync('dist/resume');
+    }
+    if (!fs.existsSync('dist/libs')) {
+        fs.mkdirSync('dist/libs');
+    }
     
     // ✅ Copy example profile to dist folder
     fs.copyFileSync('input/example_profile.yaml', 'dist/input/example_profile.yaml');
     console.log('Example profile copied to dist/input/');
+    
+    // ✅ Copy resumeParser to dist folder
+    fs.copyFileSync('src/resume/resumeParser.js', 'dist/resume/resumeParser.js');
+    console.log('ResumeParser copied to dist/resume/');
+    
+    // ✅ Copy library files to dist folder
+    fs.copyFileSync('src/libs/js-yaml.min.js', 'dist/libs/js-yaml.min.js');
+    fs.copyFileSync('src/libs/pdf.min.js', 'dist/libs/pdf.min.js');
+    fs.copyFileSync('src/libs/pdf.worker.min.js', 'dist/libs/pdf.worker.min.js');
+    console.log('Libraries copied to dist/libs/');
+    
+    // ✅ Copy popup initialization script to dist folder
+    fs.copyFileSync('src/popup/popup-init.js', 'dist/popup-init.js');
+    console.log('Popup initialization script copied to dist/');
     
     // ✅ Build Content Script
     await esbuild.build({

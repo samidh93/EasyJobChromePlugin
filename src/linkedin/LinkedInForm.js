@@ -1,6 +1,5 @@
 import LinkedInBase from './LinkedInBase.js';
 import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
-import conversationHistory from '../ai/ConversationHistory.js';
 
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
@@ -220,14 +219,28 @@ class LinkedInForm extends LinkedInBase {
             this.debugLog("Starting form processing");
 
             // Set timeout for form processing (3 minutes)
-            const formTimeout = setTimeout(() => {
+            const formTimeout = setTimeout(async () => {
                 this.debugLog("Form processing timeout reached");
-                shouldStop.value = true;
+                // For async callbacks, we can't set .value, so we'll let the while loop handle it
             }, 3 * 60 * 1000);
 
             let currentPageProcessed = false;
+            let stopRequested = false;
 
-            while (!shouldStop.value) {
+            while (!stopRequested) {
+                // Check stop condition - handle both function and object with value
+                if (typeof shouldStop === 'function') {
+                    stopRequested = await shouldStop();
+                } else if (shouldStop && shouldStop.value !== undefined) {
+                    stopRequested = shouldStop.value;
+                } else {
+                    stopRequested = !!shouldStop;
+                }
+                
+                if (stopRequested) {
+                    this.debugLog("Stop requested during form processing");
+                    break;
+                }
                 try {
                     // Check for review button first
                     const reviewButton = await this.findReviewButton();
@@ -245,7 +258,11 @@ class LinkedInForm extends LinkedInBase {
                         const formElements = document.querySelectorAll("div.fb-dash-form-element");
                         if (formElements.length > 0 && !currentPageProcessed) {
                             this.debugLog("Found questions on current page, processing before review");
-                            await this.processFormQuestions();
+                            const result = await this.processFormQuestions(shouldStop);
+                            if (!result) {
+                                this.debugLog("Form questions processing stopped by user");
+                                break;
+                            }
                             currentPageProcessed = true;
                             this.debugLog("Current page form questions processed, will not reprocess");
                         } else if (currentPageProcessed) {
@@ -254,23 +271,35 @@ class LinkedInForm extends LinkedInBase {
                             this.debugLog("No form questions found on current page");
                         }
 
-                        // Flush any pending questions before moving to review
-                        await this.flushPendingQuestions();
-
                         await this.clickReviewApplication();
                         await this.wait(2000);
+
+                        // Check if we should stop after clicking review
+                        if (typeof shouldStop === 'function') {
+                            stopRequested = await shouldStop();
+                        } else if (shouldStop && shouldStop.value !== undefined) {
+                            stopRequested = shouldStop.value;
+                        } else {
+                            stopRequested = !!shouldStop;
+                        }
+                        
+                        if (stopRequested) {
+                            this.debugLog("Stop requested after clicking review");
+                            break;
+                        }
 
                         // Check for questions on the review page
                         const reviewFormElements = document.querySelectorAll("div.fb-dash-form-element");
                         if (reviewFormElements.length > 0) {
                             this.debugLog("Found questions on review page");
-                            await this.processFormQuestions();
+                            const result = await this.processFormQuestions(shouldStop);
+                            if (!result) {
+                                this.debugLog("Review questions processing stopped by user");
+                                break;
+                            }
                         } else {
                             this.debugLog("No questions found on review page");
                         }
-
-                        // Flush questions after review page processing
-                        await this.flushPendingQuestions();
 
                         await this.clickSubmitApplication();
 
@@ -288,7 +317,11 @@ class LinkedInForm extends LinkedInBase {
                     const formElements = document.querySelectorAll("div.fb-dash-form-element");
                     if (formElements.length > 0 && !currentPageProcessed) {
                         this.debugLog("Found form questions, processing...");
-                        await this.processFormQuestions();
+                        const result = await this.processFormQuestions(shouldStop);
+                        if (!result) {
+                            this.debugLog("Form questions processing stopped by user");
+                            break;
+                        }
                         currentPageProcessed = true;
                         this.debugLog("Form questions processed");
                     }
@@ -298,11 +331,22 @@ class LinkedInForm extends LinkedInBase {
                     if (nextButton) {
                         this.debugLog("Found next button, moving to next page");
 
-                        // Flush pending questions before moving to next page
-                        await this.flushPendingQuestions();
-
                         await this.clickNextPage();
                         await this.wait(2000);
+
+                        // Check if we should stop after navigation
+                        if (typeof shouldStop === 'function') {
+                            stopRequested = await shouldStop();
+                        } else if (shouldStop && shouldStop.value !== undefined) {
+                            stopRequested = shouldStop.value;
+                        } else {
+                            stopRequested = !!shouldStop;
+                        }
+                        
+                        if (stopRequested) {
+                            this.debugLog("Stop requested after navigation");
+                            break;
+                        }
 
                         // Reset the flag for the new page
                         currentPageProcessed = false;
@@ -314,8 +358,19 @@ class LinkedInForm extends LinkedInBase {
                     if (submitButton) {
                         this.debugLog("Found submit button, submitting application");
 
-                        // Flush any remaining questions before final submission
-                        await this.flushPendingQuestions();
+                        // Check if we should stop before final submit
+                        if (typeof shouldStop === 'function') {
+                            stopRequested = await shouldStop();
+                        } else if (shouldStop && shouldStop.value !== undefined) {
+                            stopRequested = shouldStop.value;
+                        } else {
+                            stopRequested = !!shouldStop;
+                        }
+                        
+                        if (stopRequested) {
+                            this.debugLog("Stop requested before final submit");
+                            break;
+                        }
 
                         await this.clickSubmitApplication();
 
@@ -347,13 +402,30 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
-    static async processFormQuestions() {
+    static async processFormQuestions(shouldStop = null) {
         try {
             this.debugLog("Processing form questions");
             const formElements = document.querySelectorAll("div.fb-dash-form-element");
             this.debugLog(`Found ${formElements.length} form elements`);
 
             for (const element of formElements) {
+                // Check if we should stop before processing each question
+                if (shouldStop) {
+                    let stopRequested = false;
+                    if (typeof shouldStop === 'function') {
+                        stopRequested = await shouldStop();
+                    } else if (shouldStop && shouldStop.value !== undefined) {
+                        stopRequested = shouldStop.value;
+                    } else {
+                        stopRequested = !!shouldStop;
+                    }
+                    
+                    if (stopRequested) {
+                        this.debugLog("Stop requested during form questions processing");
+                        return false;
+                    }
+                }
+                
                 try {
                     const labelElement = element.querySelector("legend span.fb-dash-form-element__label span")
                         || element.querySelector("label");
@@ -411,32 +483,28 @@ class LinkedInForm extends LinkedInBase {
 
     static async answerQuestion(question, options = [], inputField, element) {
         try {
-            // Create a new instance of AIQuestionAnswerer instead of using singleton
+            // Create a new instance of AIQuestionAnswerer for each question
             const ai = new AIQuestionAnswerer();
 
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
 
-            // Load user profile data from Chrome storage
+            // Load user resume data from Chrome storage
             try {
-                const result = await chrome.storage.local.get('userProfileYaml');
-                if (result && result.userProfileYaml) {
-                    this.debugLog('Found user profile YAML in storage');
+                const result = await chrome.storage.local.get('userResumeText');
+                if (result && result.userResumeText) {
+                    this.debugLog('Found user resume text in storage');
                     // Set the user context in the AI instance
-                    await ai.setUserContext(result.userProfileYaml);
+                    await ai.setUserContext(result.userResumeText);
                     this.debugLog('Set user context in AI instance');
                 } else {
-                    this.debugLog('No user profile found in storage');
+                    this.debugLog('No user resume found in storage');
                 }
             } catch (error) {
-                this.errorLog('Error loading user profile from storage:', error);
+                this.errorLog('Error loading user resume from storage:', error);
             }
 
-            // Save to chrome.storage for persistence
-            const currentJob = await chrome.storage.local.get('currentJob');
-            ai.setJob(currentJob);
-
-            // Get the answer directly without re-searching for form elements
+            // Get the answer directly using our simplified approach
             let answer = await ai.answerQuestion(question, options);
 
             if (!answer) {
@@ -501,44 +569,7 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
-    /**
-     * Flush pending questions from the AI instance
-     * This ensures all questions are stored before page transitions
-     */
-    static async flushPendingQuestions() {
-        try {
-            // Create a temporary AI instance to access the flush method
-            const ai = new AIQuestionAnswerer();
 
-            // Load job info
-            const currentJob = await chrome.storage.local.get('currentJob');
-            ai.setJob(currentJob);
-
-            // Flush any pending questions
-            await ai.flushPendingQuestions();
-
-            this.debugLog("Flushed pending questions");
-        } catch (error) {
-            this.errorLog("Error flushing pending questions", error);
-        }
-    }
-
-    /**
-     * Finalize conversation for the current page before moving to next
-     * This method is now simplified since we use batching
-     */
-    static async finalizePageConversation() {
-        try {
-            this.debugLog("Finalizing page conversation");
-
-            // Just flush pending questions - no need for complex conversation management
-            await this.flushPendingQuestions();
-
-            this.debugLog("Page conversation finalized");
-        } catch (error) {
-            this.errorLog("Error finalizing page conversation", error);
-        }
-    }
 }
 
 export default LinkedInForm; 

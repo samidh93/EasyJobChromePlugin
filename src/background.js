@@ -1,12 +1,183 @@
 // background.js
 
-import memoryStore from './ai/MemoryStore.js';
-import { MemoryStore } from './ai/MemoryStore.js';
-import profileLoader from './ai/profileLoader.js';
 
 chrome.runtime.onInstalled.addListener(() => {
     console.log('Job Tracker Extension Installed');
 });
+
+// Global variables to track auto apply state
+let isAutoApplyRunning = false;
+let currentUserData = null;
+let currentAiSettings = null;
+
+// Message handler for popup communication
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log('Background received message:', request);
+    
+    if (request.action === 'startAutoApply') {
+        handleStartAutoApply(request, sendResponse);
+        return true; // Keep the message channel open for async response
+    } else if (request.action === 'stopAutoApply') {
+        handleStopAutoApply(request, sendResponse);
+        return true;
+    } else if (request.action === 'testOllamaConnection') {
+        testOllamaConnection().then(result => {
+            sendResponse(result);
+        }).catch(error => {
+            sendResponse({ success: false, error: error.message });
+        });
+        return true;
+    } else if (request.action === 'callOllama') {
+        // Handle AI question answering calls
+        const endpoint = request.endpoint || 'generate';
+        const data = request.data || {};
+        
+        callOllamaAPI(endpoint, data).then(result => {
+            sendResponse(result);
+        }).catch(error => {
+            sendResponse({ success: false, error: error.message });
+        });
+        return true;
+    } else if (request.action === 'testOllama') {
+        // Handle simple test calls (for compatibility)
+        testOllamaConnection().then(result => {
+            sendResponse(result);
+        }).catch(error => {
+            sendResponse({ success: false, error: error.message });
+        });
+        return true;
+    } else if (request.action === 'getAutoApplyState') {
+        // Return current auto apply state
+        sendResponse({ 
+            success: true, 
+            isRunning: isAutoApplyRunning 
+        });
+        return true;
+    }
+    
+    // For other actions, respond immediately
+    sendResponse({ success: false, error: 'Unknown action' });
+});
+
+// Handle start auto apply
+async function handleStartAutoApply(request, sendResponse) {
+    try {
+        console.log('Starting auto apply with data:', request);
+        
+        // Validate required data
+        if (!request.loginData || !request.loginData.username) {
+            throw new Error('Login data required');
+        }
+        
+        if (!request.aiSettings || !request.aiSettings.provider || !request.aiSettings.model) {
+            throw new Error('AI settings required');
+        }
+        
+        // Store the current session data
+        currentUserData = request.loginData;
+        currentAiSettings = request.aiSettings;
+        isAutoApplyRunning = true;
+        
+        // Test AI connection first
+        await testAiConnection(request.aiSettings);
+        
+        // Send message to content script to start auto apply
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs.length > 0) {
+            const tabId = tabs[0].id;
+            
+            // Check if we're on LinkedIn
+            if (!tabs[0].url.includes('linkedin.com')) {
+                throw new Error('Please navigate to LinkedIn jobs page first');
+            }
+            
+            // Send message to content script
+            chrome.tabs.sendMessage(tabId, {
+                action: 'startAutoApply',
+                userData: currentUserData,
+                aiSettings: currentAiSettings
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error sending message to content script:', chrome.runtime.lastError);
+                    sendResponse({ 
+                        success: false, 
+                        error: 'Failed to communicate with LinkedIn page. Please refresh the page and try again.' 
+                    });
+                } else {
+                    console.log('Content script response:', response);
+                    sendResponse({ success: true, message: 'Auto apply started successfully' });
+                }
+            });
+        } else {
+            throw new Error('No active tab found');
+        }
+    } catch (error) {
+        console.error('Error starting auto apply:', error);
+        isAutoApplyRunning = false;
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+// Handle stop auto apply
+async function handleStopAutoApply(request, sendResponse) {
+    try {
+        console.log('Stopping auto apply');
+        
+        // Send message to content script to stop auto apply
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs.length > 0) {
+            const tabId = tabs[0].id;
+            
+            chrome.tabs.sendMessage(tabId, {
+                action: 'stopAutoApply'
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error sending stop message to content script:', chrome.runtime.lastError);
+                    // Still update state even if there's an error communicating with content script
+                    isAutoApplyRunning = false;
+                    sendResponse({ success: true, message: 'Auto apply stopped (content script communication error)' });
+                } else if (response && response.success) {
+                    console.log('Auto apply stopped successfully');
+                    isAutoApplyRunning = false;
+                    sendResponse({ success: true, message: 'Auto apply stopped' });
+                } else {
+                    console.error('Content script failed to stop auto apply:', response?.error);
+                    // Still update state if content script reports an error
+                    isAutoApplyRunning = false;
+                    sendResponse({ success: true, message: 'Auto apply stopped (with content script error)' });
+                }
+            });
+        } else {
+            // No active tab, but still update state
+            isAutoApplyRunning = false;
+            sendResponse({ success: true, message: 'Auto apply stopped (no active tab)' });
+        }
+    } catch (error) {
+        console.error('Error stopping auto apply:', error);
+        // Update state even if there's an error
+        isAutoApplyRunning = false;
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+// Test AI connection based on provider
+async function testAiConnection(aiSettings) {
+    console.log('Testing AI connection:', aiSettings);
+    
+    if (aiSettings.provider === 'ollama') {
+        const result = await testOllamaConnection();
+        if (!result.success) {
+            throw new Error(`Ollama connection failed: ${result.error}`);
+        }
+        console.log('Ollama connection successful');
+    } else {
+        // For external providers, just check if API key is present
+        if (!aiSettings.apiKey) {
+            throw new Error(`API key required for ${aiSettings.provider}`);
+        }
+        console.log(`AI settings validated for ${aiSettings.provider}`);
+    }
+}
 
 // Function to test Ollama connection
 async function testOllamaConnection() {
@@ -145,6 +316,27 @@ async function callOllamaAPI(endpoint, data) {
                     throw new Error('Invalid chat response format from Ollama');
                 }
             }
+        } else if (endpoint === 'generate') {
+            // Generate endpoint should have a response field
+            if (!result || typeof result.response !== 'string') {
+                console.error(`Unexpected generate response structure from Ollama:`, result);
+                
+                // Try to construct a valid response if we have partial data
+                if (result && typeof result === 'object') {
+                    // If we have any text property, use that as response
+                    const possibleResponse = result.response || result.content || result.text || result.message?.content || "";
+                    
+                    // Construct a minimal valid response
+                    result = {
+                        response: possibleResponse || "No response found in result",
+                        model: result.model || "unknown"
+                    };
+                    
+                    console.log("Constructed fallback generate response:", result);
+                } else {
+                    throw new Error('Invalid generate response format from Ollama');
+                }
+            }
         } else if (endpoint === 'embeddings') {
             // Embeddings endpoint should have an embedding array
             if (!result || !result.embedding || !Array.isArray(result.embedding)) {
@@ -182,666 +374,3 @@ async function callOllamaAPI(endpoint, data) {
         };
     }
 }
-
-// Function to send progress updates to popup
-function sendProgressUpdate(progress, total, status) {
-  chrome.runtime.sendMessage({
-    type: 'EMBEDDING_PROGRESS',
-    data: {
-      progress,
-      total,
-      percent: Math.round((progress / total) * 100),
-      status
-    }
-  });
-}
-
-// Function to get embeddings from Ollama API
-export async function getEmbeddings(text) {
-    try {
-        // Trim text and limit length
-        const maxLength = 1500;
-        const trimmedText = text.substring(0, maxLength);
-        
-        console.log(`Getting embeddings in background script (${trimmedText.length} chars): ${trimmedText.substring(0, 50)}${trimmedText.length > 50 ? '...' : ''}`);
-        
-        const port = 11434;
-        const data = {
-            model: "nomic-embed-text",
-            prompt: trimmedText,
-            stream: false
-        };
-        
-        // Log the request details
-        console.log('Ollama embedding request:', {
-            url: `http://localhost:${port}/api/embeddings`,
-            model: data.model,
-            textLength: trimmedText.length,
-            timestamp: new Date().toISOString()
-        });
-        
-        const requestStartTime = performance.now();
-        
-        // Create a more robust fetch with retry capability
-        const fetchWithRetry = async (url, options, maxRetries = 2, retryDelay = 2000) => {
-            let lastError;
-            
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                try {
-                    console.log(`Embedding API attempt ${attempt + 1}/${maxRetries + 1}`);
-                    
-                    // Add increasing timeout for each retry
-                    const timeout = 10000 + (attempt * 5000); // 10s, 15s, 20s
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), timeout);
-                    
-                    console.log(`Request timeout set to ${timeout}ms`);
-                    const fetchStartTime = performance.now();
-                    
-                    const response = await fetch(url, {
-                        ...options,
-                        signal: controller.signal
-                    });
-                    
-                    const fetchEndTime = performance.now();
-                    console.log(`Fetch completed in ${(fetchEndTime - fetchStartTime).toFixed(2)}ms with status ${response.status}`);
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP error! status: ${response.status}, details: ${errorText}`);
-                    }
-                    
-                    const jsonStartTime = performance.now();
-                    const result = await response.json();
-                    const jsonEndTime = performance.now();
-                    
-                    console.log(`JSON parsing completed in ${(jsonEndTime - jsonStartTime).toFixed(2)}ms`);
-                    
-                    return result;
-                } catch (error) {
-                    lastError = error;
-                    console.warn(`Embedding fetch attempt ${attempt + 1}/${maxRetries + 1} failed:`, error.message);
-                    
-                    if (attempt < maxRetries) {
-                        console.log(`Retrying in ${retryDelay}ms...`);
-                        await new Promise(resolve => setTimeout(resolve, retryDelay));
-                    }
-                }
-            }
-            
-            throw lastError;
-        };
-        
-        // Execute the fetch with retry
-        const result = await fetchWithRetry(
-            `http://localhost:${port}/api/embeddings`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(data)
-            }
-        );
-        
-        const requestEndTime = performance.now();
-        const totalTime = requestEndTime - requestStartTime;
-        
-        // Check if we have valid embeddings in the response
-        if (!result.embedding || !Array.isArray(result.embedding)) {
-            console.error('Invalid embedding format in API response:', result);
-            throw new Error('Invalid embedding format returned from API');
-        }
-        
-        // Log detailed response info
-        console.log(`Embeddings generated successfully in ${totalTime.toFixed(2)}ms`);
-        console.log(`Embedding dimensions: ${result.embedding.length}`);
-        console.log(`Embedding sample: [${result.embedding.slice(0, 3).map(v => v.toFixed(5)).join(', ')}...]`);
-        
-        // Convert embeddings to lower precision to save storage space
-        const optimizedEmbedding = result.embedding.map(val => parseFloat(val.toFixed(5)));
-        
-        // Compare size before and after optimization
-        const originalSize = JSON.stringify(result.embedding).length;
-        const optimizedSize = JSON.stringify(optimizedEmbedding).length;
-        const reduction = (100 - (optimizedSize / originalSize * 100)).toFixed(2);
-        
-        console.log(`Embedding size reduction: ${originalSize} → ${optimizedSize} bytes (${reduction}% reduction)`);
-        
-        // Return optimized embeddings
-        return { 
-            success: true, 
-            data: {
-                ...result,
-                embedding: optimizedEmbedding
-            },
-            timing: {
-                totalMs: totalTime,
-                timestamp: new Date().toISOString()
-            }
-        };
-    } catch (error) {
-        console.error(`Embeddings API call failed:`, error);
-        
-        // Provide helpful troubleshooting info
-        let troubleshooting = "Please make sure Ollama is running on your computer. Try running 'ollama serve' in your terminal.";
-        
-        if (error.name === 'AbortError') {
-            troubleshooting += " The request timed out - your model might be too large or your computer too slow.";
-        } else if (error.message && error.message.includes('Failed to fetch')) {
-            troubleshooting += " Your computer cannot connect to Ollama. Make sure it's running and not blocked by a firewall.";
-        } else if (error.message && error.message.includes('invalid format')) {
-            troubleshooting += " The embedding model returned data in an unexpected format. You may need to update Ollama or try a different embedding model.";
-        }
-        
-        return { 
-            success: false, 
-            error: error.message,
-            details: error.stack,
-            troubleshooting: troubleshooting,
-            timestamp: new Date().toISOString()
-        };
-    }
-}
-
-// Initialize memory store with the direct embedding function
-const directMemoryStore = new MemoryStore(getEmbeddings);
-// Replace the imported singleton with our direct-access version
-Object.assign(memoryStore, directMemoryStore);
-
-// Helper functions for hash-based embedding caching
-async function calculateHash(content) {
-  // Create a simple hash from content
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    hash = ((hash << 5) - hash) + content.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
-  }
-  return hash.toString();
-}
-
-async function getStoredEmbeddingHash() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('embeddingHash', result => {
-      resolve(result.embeddingHash || '');
-    });
-  });
-}
-
-async function storeEmbeddingHash(hash) {
-  return new Promise(resolve => {
-    chrome.storage.local.set({ 'embeddingHash': hash }, () => {
-      resolve();
-    });
-  });
-}
-
-async function storeEmbeddings(data) {
-  return new Promise((resolve, reject) => {
-    if (!data || Object.keys(data).length === 0) {
-      console.warn('No embeddings to save to storage');
-      resolve(false);
-      return;
-    }
-    
-    console.log(`Saving ${Object.keys(data).length} embeddings to Chrome storage`);
-    
-    // Flatten the data to reduce storage size
-    const flattened = {};
-    
-    for (const [key, entry] of Object.entries(data)) {
-      // Ensure embedding is an array and convert to shorter precision format
-      if (entry.embedding && Array.isArray(entry.embedding)) {
-        // Convert to lower precision (5 decimal places) to save space
-        const preciseEmbedding = entry.embedding.map(val => 
-          parseFloat(val.toFixed(5))
-        );
-        
-        flattened[key] = {
-          text: entry.text,
-          embedding: preciseEmbedding
-        };
-      } else {
-        // Keep as is if there's no valid embedding
-        flattened[key] = entry;
-      }
-    }
-    
-    // Log size reduction
-    const originalSize = JSON.stringify(data).length;
-    const newSize = JSON.stringify(flattened).length;
-    const reduction = (100 - (newSize / originalSize * 100)).toFixed(2);
-    
-    console.log(`Flattened embeddings for storage: ${originalSize} bytes → ${newSize} bytes (${reduction}% reduction)`);
-    console.log(`Storage payload size: ${newSize} bytes (${(newSize / (1024 * 1024)).toFixed(2)} MB)`);
-    
-    chrome.storage.local.set({ 'storedEmbeddings': flattened }, () => {
-      if (chrome.runtime.lastError) {
-        const error = chrome.runtime.lastError;
-        console.error('Error saving embeddings to storage:', error);
-        
-        // Check for specific quota error messages
-        if (error.message && (
-          error.message.includes('quota') || 
-          error.message.includes('QUOTA') || 
-          error.message.includes('limit') ||
-          error.message.includes('space')
-        )) {
-          console.error(`Storage quota exceeded. Data size: ${newSize} bytes.`);
-          console.error('Consider reducing the amount of data or implementing chunking.');
-        }
-        
-        reject(error);
-      } else {
-        console.log(`Successfully saved ${Object.keys(flattened).length} embeddings to storage`);
-        resolve(true);
-      }
-    });
-  });
-}
-
-// Listen for messages from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Received message in background script:', message);
-    
-    // Handle YAML upload and immediate embedding generation
-    if (message.action === 'setUserData') {
-        console.log('Processing uploaded YAML data and generating embeddings immediately');
-        
-        // Handle asynchronously via an immediately-invoked async function
-        (async () => {
-            try {
-                const yamlContent = message.yamlContent;
-                
-                // Calculate hash for content
-                const contentHash = await calculateHash(yamlContent);
-                
-                // First store the raw YAML content for quick access
-                chrome.storage.local.set({ 
-                    'userProfileYaml': yamlContent, 
-                    'profileHash': contentHash,
-                    'yamlLastUploaded': Date.now(),
-                    'yamlFileName': message.fileName || 'profile.yaml'
-                }, () => {
-                    // Let the user know we've saved their profile
-                    sendResponse({ 
-                        success: true, 
-                        message: "Profile saved, generating embeddings in background..." 
-                    });
-                    
-                    console.log('Profile saved, starting embedding generation');
-                });
-                
-                // Check if we already have embeddings for this hash
-                const storedHash = await getStoredEmbeddingHash();
-                
-                if (contentHash === storedHash) {
-                    // Embeddings already exist, no need to regenerate
-                    console.log('Embeddings already exist for this profile, skipping generation');
-                    sendProgressUpdate(100, 100, 'Embeddings already up to date');
-                    return;
-                }
-                
-                // Create a progress adapter for the profileLoader
-                const progressAdapter = (data) => {
-                    if (data && typeof data.progress !== 'undefined') {
-                        // Convert from profileLoader progress format to the format used by sendProgressUpdate
-                        const progress = data.progress;
-                        const total = 100; // profileLoader uses percentage internally
-                        const status = data.message || 'Processing...';
-                        
-                        // Send progress update to popup
-                        sendProgressUpdate(progress, total, status);
-                    }
-                };
-                
-                // Start embedding generation immediately
-                try {
-                    // Show initial progress in the popup
-                    sendProgressUpdate(0, 100, 'Starting embedding generation...');
-                    
-                    const result = await profileLoader.processUserContext(yamlContent, progressAdapter);
-                    console.log('Embedding generation complete:', result);
-                    
-                    if (result.success) {
-                        // Store the hash of this YAML content
-                        await storeEmbeddingHash(contentHash);
-                        
-                        // Store the embeddings data for future use
-                        await storeEmbeddings(memoryStore.data);
-                        
-                        // Send final success notification
-                        sendProgressUpdate(100, 100, 'Embeddings generated successfully!');
-                        chrome.runtime.sendMessage({
-                            type: 'EMBEDDING_COMPLETE',
-                            success: true,
-                            message: 'Embeddings generated successfully!'
-                        });
-                        
-                        console.log('Stored embeddings and hash for future use');
-                    } else {
-                        // Send error notification
-                        sendProgressUpdate(0, 100, `Error: ${result.error || 'Unknown error'}`);
-                        chrome.runtime.sendMessage({
-                            type: 'EMBEDDING_COMPLETE',
-                            success: false,
-                            error: result.error || 'Unknown error'
-                        });
-                    }
-                } catch (processError) {
-                    console.error('Error generating embeddings:', processError);
-                    sendProgressUpdate(0, 100, `Error: ${processError.message}`);
-                }
-            } catch (error) {
-                console.error('Error in YAML processing:', error);
-                sendResponse({
-                    success: false,
-                    error: 'Error processing YAML: ' + error.message
-                });
-            }
-        })();
-        
-        // Return true to indicate we'll respond asynchronously
-        return true;
-    }
-    
-    if (message.action === 'testOllama') {
-        // Properly handle the Promise chain with explicit send of response
-        testOllamaConnection()
-            .then(result => {
-                console.log('Sending test Ollama response:', result);
-                sendResponse(result);
-            })
-            .catch(error => {
-                console.error('Error in test Ollama:', error);
-                sendResponse({ 
-                    success: false, 
-                    error: error.message || 'Unknown error',
-                    troubleshooting: "Error in background script" 
-                });
-            });
-        return true; // Will respond asynchronously
-    }
-
-    if (message.action === 'callOllama') {
-        const { endpoint, data } = message;
-        
-        // Properly handle the Promise chain with explicit send of response
-        callOllamaAPI(endpoint, data)
-            .then(result => {
-                console.log('Sending Ollama API response:', result);
-                sendResponse(result);
-            })
-            .catch(error => {
-                console.error('Error in call Ollama API:', error);
-                sendResponse({ 
-                    success: false, 
-                    error: error.message || 'Unknown error',
-                    troubleshooting: "Error in background script"
-                });
-            });
-        return true; // Will respond asynchronously
-    }
-
-    // Handle conversation updates from content scripts
-    if (message.action === 'CONVERSATION_UPDATED') {
-        console.log(`Background: Received conversation update at ${new Date().toISOString()} for ${message.data?.company} / ${message.data?.title} - Question: "${message.data?.questionId || 'unknown'}"`);
-        
-        // Store conversation data directly in Chrome storage
-        chrome.storage.local.get(['dropdownData', 'conversationData'], function(result) {
-            let dropdownData = result.dropdownData || { companies: [], jobs: [], companyJobMap: {} };
-            let conversationData = result.conversationData || {};
-            
-            const data = message.data;
-            
-            // Only proceed if we have the required data
-            if (!data || !data.company || !data.title || !data.conversation) {
-                console.log('Background: Missing required data in conversation update');
-                return;
-            }
-            
-            // Check if company already exists
-            if (!dropdownData.companies.some(c => c.value === data.company)) {
-                dropdownData.companies.push({
-                    value: data.company,
-                    text: data.company
-                });
-                console.log(`Background: Added new company: ${data.company}`);
-            }
-            
-            // Check if job already exists
-            if (!dropdownData.jobs.some(j => j.value === data.title)) {
-                dropdownData.jobs.push({
-                    value: data.title,
-                    text: data.title,
-                    company: data.company
-                });
-                console.log(`Background: Added new job: ${data.title}`);
-            }
-            
-            // Update company-job mapping
-            if (!dropdownData.companyJobMap[data.company]) {
-                dropdownData.companyJobMap[data.company] = [];
-            }
-            
-            if (!dropdownData.companyJobMap[data.company].some(j => j.value === data.title)) {
-                dropdownData.companyJobMap[data.company].push({
-                    value: data.title,
-                    text: data.title
-                });
-            }
-            
-            // Save conversation data - store every conversation without checking for duplicates
-            if (data.conversation && Array.isArray(data.conversation) && data.conversation.length > 0) {
-                if (!conversationData[data.title]) {
-                    conversationData[data.title] = [];
-                    console.log(`Background: Created new conversation array for ${data.title}`);
-                }
-                
-                // Find the user question message for logging
-                const userMsg = data.conversation.find(msg => msg.role === 'user');
-                const assistantMsg = data.conversation.find(msg => msg.role === 'assistant');
-                
-                if (userMsg && assistantMsg) {
-                    // Extract the question part for logging
-                    const questionText = extractQuestionPart(userMsg.content);
-                    const answer = assistantMsg.content;
-                    
-                    // Add timestamp metadata to the conversation array
-                    const enhancedConversation = [...data.conversation];
-                    enhancedConversation.timestamp = data.timestamp || Date.now();
-                    enhancedConversation.questionId = data.questionId || questionText;
-                    
-                    // Add the conversation to storage
-                    console.log(`Background: Adding conversation for "${questionText}" with answer "${answer}"`);
-                    conversationData[data.title].push(enhancedConversation);
-                } else {
-                    console.log('Background: Incomplete conversation (missing user or assistant message)');
-                    conversationData[data.title].push(data.conversation);
-                }
-                
-                // Save all data to storage
-                chrome.storage.local.set({
-                    dropdownData: dropdownData,
-                    conversationData: conversationData
-                }, function() {
-                    console.log(`Background: Saved conversation data. Total for ${data.title}: ${conversationData[data.title].length}`);
-                    
-                    // Notify any open popups that the UI should be refreshed
-                    chrome.runtime.sendMessage({
-                        action: 'REFRESH_CONVERSATION_UI',
-                        data: {
-                            company: data.company,
-                            title: data.title
-                        }
-                    });
-                });
-            }
-        });
-        
-        // No need to wait for a response
-        if (sendResponse) sendResponse({received: true});
-        return false;
-    }
-
-    // Handle batch conversation updates from content scripts
-    if (message.action === 'BATCH_CONVERSATIONS_UPDATED') {
-        console.log(`Background: Received batch conversation update at ${new Date().toISOString()} for ${message.data?.company} / ${message.data?.title} - ${message.data?.conversations?.length || 0} conversations`);
-        
-        // Store conversation data directly in Chrome storage
-        chrome.storage.local.get(['dropdownData', 'conversationData'], function(result) {
-            let dropdownData = result.dropdownData || { companies: [], jobs: [], companyJobMap: {} };
-            let conversationData = result.conversationData || {};
-            
-            const data = message.data;
-            
-            // Only proceed if we have the required data
-            if (!data || !data.company || !data.title || !data.conversations || !Array.isArray(data.conversations)) {
-                console.log('Background: Missing required data in batch conversation update');
-                return;
-            }
-            
-            // Check if company already exists
-            if (!dropdownData.companies.some(c => c.value === data.company)) {
-                dropdownData.companies.push({
-                    value: data.company,
-                    text: data.company
-                });
-                console.log(`Background: Added new company: ${data.company}`);
-            }
-            
-            // Check if job already exists
-            if (!dropdownData.jobs.some(j => j.value === data.title)) {
-                dropdownData.jobs.push({
-                    value: data.title,
-                    text: data.title,
-                    company: data.company
-                });
-                console.log(`Background: Added new job: ${data.title}`);
-            }
-            
-            // Update company-job mapping
-            if (!dropdownData.companyJobMap[data.company]) {
-                dropdownData.companyJobMap[data.company] = [];
-            }
-            
-            if (!dropdownData.companyJobMap[data.company].some(j => j.value === data.title)) {
-                dropdownData.companyJobMap[data.company].push({
-                    value: data.title,
-                    text: data.title
-                });
-            }
-            
-            // Initialize conversation array if it doesn't exist
-            if (!conversationData[data.title]) {
-                conversationData[data.title] = [];
-                console.log(`Background: Created new conversation array for ${data.title}`);
-            }
-            
-            // Process each conversation in the batch
-            let addedCount = 0;
-            data.conversations.forEach((conversation, index) => {
-                if (conversation && Array.isArray(conversation) && conversation.length > 0) {
-                    // Find the user question message for logging
-                    const userMsg = conversation.find(msg => msg.role === 'user');
-                    const assistantMsg = conversation.find(msg => msg.role === 'assistant');
-                    
-                    if (userMsg && assistantMsg) {
-                        // Extract the question part for logging
-                        const questionText = extractQuestionPart(userMsg.content);
-                        const answer = assistantMsg.content;
-                        
-                        // Add timestamp metadata to the conversation array
-                        const enhancedConversation = [...conversation];
-                        enhancedConversation.timestamp = data.timestamp || Date.now();
-                        enhancedConversation.questionId = data.questionIds?.[index] || questionText;
-                        
-                        // Add the conversation to storage
-                        console.log(`Background: Adding batch conversation ${index + 1} for "${questionText}" with answer "${answer}"`);
-                        conversationData[data.title].push(enhancedConversation);
-                        addedCount++;
-                    } else {
-                        console.log(`Background: Incomplete conversation ${index + 1} (missing user or assistant message)`);
-                        conversationData[data.title].push(conversation);
-                        addedCount++;
-                    }
-                }
-            });
-            
-            // Save all data to storage
-            chrome.storage.local.set({
-                dropdownData: dropdownData,
-                conversationData: conversationData
-            }, function() {
-                console.log(`Background: Saved batch conversation data. Added ${addedCount} conversations. Total for ${data.title}: ${conversationData[data.title].length}`);
-                
-                // Notify any open popups that the UI should be refreshed
-                chrome.runtime.sendMessage({
-                    action: 'REFRESH_CONVERSATION_UI',
-                    data: {
-                        company: data.company,
-                        title: data.title
-                    }
-                });
-            });
-        });
-        
-        // No need to wait for a response
-        if (sendResponse) sendResponse({received: true, processed: data.conversations?.length || 0});
-        return false;
-    }
-    
-    // Helper function to extract just the question part
-    function extractQuestionPart(content) {
-        if (!content) return "Unknown question";
-        
-        // Extract the form question if present
-        const questionMatch = content.match(/Form Question:\s*([^?]+)\s*\?/);
-        if (questionMatch && questionMatch[1]) {
-            return questionMatch[1].trim();
-        }
-        
-        // Try other question formats if the first pattern fails
-        const altQuestionMatch = content.match(/Question:\s*([^?]+)\s*\?/i);
-        if (altQuestionMatch && altQuestionMatch[1]) {
-            return altQuestionMatch[1].trim();
-        }
-        
-        // Look for any question-like text
-        const anyQuestionMatch = content.match(/([^.!?]+\?)/);
-        if (anyQuestionMatch && anyQuestionMatch[1]) {
-            return anyQuestionMatch[1].trim();
-        }
-        
-        // Fallback to first 50 chars
-        return content.substring(0, 50);
-    }
-    
-    // Restore the getEmbeddings handler
-    if (message.action === 'getEmbeddings') {
-        const { text } = message;
-        console.log('Getting embeddings for text');
-        
-        getEmbeddings(text)
-            .then(result => {
-                console.log('Sending embeddings response from background script');
-                sendResponse(result);
-            })
-            .catch(error => {
-                console.error('Error getting embeddings:', error);
-                sendResponse({ 
-                    success: false, 
-                    error: error.message || 'Unknown error',
-                    troubleshooting: "Error generating embeddings"
-                });
-            });
-        return true; // Will respond asynchronously
-    }
-});
-
-
-
-  
