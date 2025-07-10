@@ -7,20 +7,25 @@ class AIQuestionAnswerer {
     }
 
     /**
-     * Set user data directly from parsed YAML/JSON
-     * @param {string} yamlContent - YAML content to process
+     * Set user data from structured data and formatted text
+     * @param {Object|string} userData - Structured user data or formatted text
+     * @param {string} formattedText - Optional formatted text for AI prompts
      * @returns {Promise<Object>} - Success status
      */
-    async setUserContext(yamlContent) {
+    async setUserContext(userData, formattedText = null) {
         try {
-            // Parse YAML content directly (assuming it's already parsed or we have a parser)
-            if (typeof yamlContent === 'string') {
-                // If it's a string, we'd need to parse it
-                console.log('User context set as string - should be parsed object');
-                this.user_data = yamlContent;
+            if (typeof userData === 'object' && userData !== null) {
+                // We have structured data - use it for direct answers
+                this.user_data = userData;
+                this.formatted_text = formattedText || this.formatUserDataAsText();
+                console.log('User context set with structured data');
+            } else if (typeof userData === 'string') {
+                // We only have formatted text - use it for both
+                this.user_data = null;
+                this.formatted_text = userData;
+                console.log('User context set with formatted text only');
             } else {
-                // It's already a parsed object
-                this.user_data = yamlContent;
+                throw new Error('Invalid user data format');
             }
             
             console.log('User context set successfully');
@@ -35,9 +40,10 @@ class AIQuestionAnswerer {
      * Answer a question with or without options using AI
      * @param {string} question - The question to answer
      * @param {Array} options - Optional list of choices
-     * @returns {Promise<string>} - The answer
+     * @param {Function} shouldStop - Optional function to check if should stop
+     * @returns {Promise<Object>} - Result object with status and answer
      */
-    async answerQuestion(question, options = null) {
+    async answerQuestion(question, options = null, shouldStop = null) {
         try {
             console.log("Answering question:", question);
             console.log("Options:", options);
@@ -51,21 +57,43 @@ class AIQuestionAnswerer {
                 if (options && Array.isArray(options) && options.length > 0) {
                     const matchedOption = this.matchToOption(directAnswer, options);
                     console.log("Matched direct answer to option:", matchedOption);
-                    return matchedOption;
+                    return { success: true, answer: matchedOption };
                 }
                 
-                return directAnswer;
+                return { success: true, answer: directAnswer };
             }
             
-            // Build simple prompt with user data (like in Python test)
-            const prompt = this.buildSimplePrompt(question, options);
+            // Check if we should stop before AI processing
+            if (shouldStop) {
+                let stopRequested = false;
+                if (typeof shouldStop === 'function') {
+                    stopRequested = await shouldStop();
+                } else if (shouldStop && shouldStop.value !== undefined) {
+                    stopRequested = shouldStop.value;
+                } else {
+                    stopRequested = !!shouldStop;
+                }
+                
+                if (stopRequested) {
+                    console.log("Stop requested before AI processing");
+                    return { success: false, stopped: true };
+                }
+            }
             
-            // Get AI response
-            const response = await this.callOllamaAPI({
+            // Build enhanced prompt with user data
+            const prompt = this.buildEnhancedPrompt(question, options);
+            
+            // Get AI response with timeout and stop checking
+            const response = await this.callOllamaAPIWithStop({
                 model: this.model,
                 prompt: prompt,
                 stream: false
-            });
+            }, shouldStop);
+            
+            // Check if the response indicates stopping
+            if (response && response.stopped) {
+                return { success: false, stopped: true };
+            }
             
             let answer = response?.response?.trim() || "";
             
@@ -75,16 +103,20 @@ class AIQuestionAnswerer {
             }
             
             console.log("Final answer:", answer);
-            return answer || "Information not available";
+            return { 
+                success: true, 
+                answer: answer || "Information not available" 
+            };
             
         } catch (error) {
             console.error('Error in answerQuestion:', error);
             
             // Smart fallback
-            if (options && Array.isArray(options) && options.length > 0) {
-                return options.length > 1 ? options[1] : options[0];
-            }
-            return "Information not available";
+            const fallbackAnswer = options && Array.isArray(options) && options.length > 0 
+                ? (options.length > 1 ? options[1] : options[0])
+                : "Information not available";
+                
+            return { success: true, answer: fallbackAnswer };
         }
     }
 
@@ -131,13 +163,13 @@ class AIQuestionAnswerer {
     }
     
     /**
-     * Build simple prompt with user data (like Python test)
+     * Build enhanced prompt with special handling for different question types
      * @param {string} question - The question
      * @param {Array} options - Available options (if any)
      * @returns {string} - Formatted prompt
      */
-    buildSimplePrompt(question, options) {
-        // Convert user data to text format (like in Python test)
+    buildEnhancedPrompt(question, options) {
+        // Convert user data to text format
         const userData = this.formatUserDataAsText();
         
         let prompt = `Based on the following resume information, please answer the question accurately and concisely:
@@ -146,6 +178,43 @@ RESUME:
 ${userData}
 
 QUESTION: ${question}`;
+
+        // Special handling for years of experience questions
+        if (this.isYearsOfExperienceQuestion(question)) {
+            prompt += `
+
+IMPORTANT RULES FOR YEARS OF EXPERIENCE:
+- If asked for years of experience, provide ONLY a number between 0-99
+- Do NOT include words like "years", "Jahre", or descriptions
+- For skill levels: Beginner=1, Intermediate=3, Advanced=5+ years
+- Calculate based on work experience and skill level
+- If no specific experience found, estimate based on skill level
+- Example: "3" not "3 years" or "3 Jahre"`;
+        }
+
+        // Special handling for degree questions
+        if (this.isDegreeQuestion(question)) {
+            prompt += `
+
+IMPORTANT RULES FOR DEGREE QUESTIONS:
+- Check education section carefully for exact degree matches
+- "Bachelor" = "Bachelor of Engineering" or "Bachelor of Science"
+- "Master" = "Master of Engineering" or "Master of Science"
+- Answer "Ja" for German forms, "Yes" for English forms
+- If degree is found, answer positively
+- Look for exact degree names in education section`;
+        }
+
+        // Special handling for skill level questions
+        if (this.isSkillLevelQuestion(question)) {
+            prompt += `
+
+IMPORTANT RULES FOR SKILL LEVEL QUESTIONS:
+- Check the skills section for exact skill matches
+- Look for the skill name and its level (Beginner/Intermediate/Advanced)
+- Be precise about the level mentioned in the resume
+- Do not guess or estimate levels`;
+        }
 
         if (options && Array.isArray(options) && options.length > 0) {
             const optionsStr = options.map(opt => `"${opt}"`).join(", ");
@@ -161,12 +230,62 @@ ANSWER:`;
 
         return prompt;
     }
+
+    /**
+     * Check if question is asking for years of experience
+     * @param {string} question - The question text
+     * @returns {boolean} - True if asking for years
+     */
+    isYearsOfExperienceQuestion(question) {
+        const lowerQ = question.toLowerCase();
+        return lowerQ.includes('jahre') || 
+               lowerQ.includes('years') || 
+               lowerQ.includes('experience') || 
+               lowerQ.includes('erfahrung') ||
+               lowerQ.includes('how many') ||
+               lowerQ.includes('wie viele');
+    }
+
+    /**
+     * Check if question is asking about degrees/education
+     * @param {string} question - The question text
+     * @returns {boolean} - True if asking about degrees
+     */
+    isDegreeQuestion(question) {
+        const lowerQ = question.toLowerCase();
+        return lowerQ.includes('bachelor') || 
+               lowerQ.includes('master') || 
+               lowerQ.includes('degree') || 
+               lowerQ.includes('abschluss') ||
+               lowerQ.includes('bildung') ||
+               lowerQ.includes('education');
+    }
+
+    /**
+     * Check if question is asking about skill levels
+     * @param {string} question - The question text
+     * @returns {boolean} - True if asking about skill levels
+     */
+    isSkillLevelQuestion(question) {
+        const lowerQ = question.toLowerCase();
+        return lowerQ.includes('level') || 
+               lowerQ.includes('niveau') || 
+               lowerQ.includes('skill') || 
+               lowerQ.includes('fähigkeit') ||
+               lowerQ.includes('experience with') ||
+               lowerQ.includes('erfahrung mit');
+    }
     
     /**
      * Format user data as readable text (like YAML formatting in Python)
      * @returns {string} - Formatted user data
      */
     formatUserDataAsText() {
+        // Use pre-formatted text if available
+        if (this.formatted_text) {
+            return this.formatted_text;
+        }
+        
         if (!this.user_data) {
             return "No user data available.";
         }
@@ -228,6 +347,22 @@ ANSWER:`;
             return options?.length > 0 ? options[0] : "Not available";
         }
         
+        // Extract numbers from answer for years of experience
+        if (this.isYearsOfExperienceQuestion(answer) || /^\d+$/.test(answer.trim())) {
+            const numberMatch = answer.match(/\d+/);
+            if (numberMatch) {
+                const number = numberMatch[0];
+                // Find matching option with the same number
+                for (const option of options) {
+                    if (option.includes(number)) {
+                        return option;
+                    }
+                }
+                // If no exact match, return the number itself
+                return number;
+            }
+        }
+        
         // Exact match (case insensitive)
         for (const option of options) {
             if (option.toLowerCase() === answer.toLowerCase()) {
@@ -274,6 +409,72 @@ ANSWER:`;
                         data: requestBody
                     },
                     response => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else if (response.success === false) {
+                            reject(new Error(response.error || 'Unknown error from Ollama API'));
+                        } else {
+                            resolve(response.data);
+                        }
+                    }
+                );
+            });
+        } catch (error) {
+            console.error('Error calling Ollama API:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Call the Ollama API with stop checking during the request
+     * @param {Object} requestBody - Request body
+     * @param {Function} shouldStop - Function to check if should stop
+     * @returns {Promise<Object>} - API response or stop status
+     */
+    async callOllamaAPIWithStop(requestBody, shouldStop = null) {
+        try {
+            // Call via background script to avoid CORS issues
+            return new Promise((resolve, reject) => {
+                // Set up periodic stop checking during the API call
+                let stopCheckInterval = null;
+                
+                if (shouldStop) {
+                    stopCheckInterval = setInterval(async () => {
+                        try {
+                            let stopRequested = false;
+                            if (typeof shouldStop === 'function') {
+                                stopRequested = await shouldStop();
+                            } else if (shouldStop && shouldStop.value !== undefined) {
+                                stopRequested = shouldStop.value;
+                            } else {
+                                stopRequested = !!shouldStop;
+                            }
+                            
+                            if (stopRequested) {
+                                console.log("Stop requested during AI API call");
+                                if (stopCheckInterval) {
+                                    clearInterval(stopCheckInterval);
+                                }
+                                resolve({ stopped: true });
+                            }
+                        } catch (error) {
+                            console.error('Error in stop check:', error);
+                        }
+                    }, 500); // Check every 500ms
+                }
+                
+                chrome.runtime.sendMessage(
+                    {
+                        action: 'callOllama',
+                        endpoint: 'generate',
+                        data: requestBody
+                    },
+                    response => {
+                        // Clear the stop check interval
+                        if (stopCheckInterval) {
+                            clearInterval(stopCheckInterval);
+                        }
+                        
                         if (chrome.runtime.lastError) {
                             reject(new Error(chrome.runtime.lastError.message));
                         } else if (response.success === false) {

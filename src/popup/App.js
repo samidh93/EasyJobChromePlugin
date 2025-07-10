@@ -140,8 +140,9 @@ const App = () => {
 
   const loadResumeData = async () => {
     try {
-      const result = await chrome.storage.local.get(['userResumeText']);
-      if (result.userResumeText) {
+      const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
+      if (result && (result.userResumeData || result.userResumeText)) {
+        // Use formatted text for display
         setResumeData(result.userResumeText);
         setIsResumeLoaded(true);
       }
@@ -235,15 +236,17 @@ const App = () => {
       // Initialize ResumeParser
       const parser = new window.ResumeParser();
       
-      // Parse the resume
-      const parsedText = await parser.parseResume(file);
+      // Parse the resume (returns object with structured and formatted data)
+      const parsedData = await parser.parseResume(file);
       
-      // Store the parsed resume text
+      // Store both structured and formatted resume data
       await chrome.storage.local.set({
-        userResumeText: parsedText
+        userResumeData: parsedData.structured,
+        userResumeText: parsedData.formatted,
+        userResumeType: parsedData.type
       });
       
-      setResumeData(parsedText);
+      setResumeData(parsedData.formatted);
       setIsResumeLoaded(true);
       setStatusMessage('Resume uploaded and parsed successfully!');
       setTimeout(() => setStatusMessage(''), 3000);
