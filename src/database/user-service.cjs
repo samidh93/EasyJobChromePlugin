@@ -1,4 +1,5 @@
 const { User } = require('./models/index.cjs');
+const bcrypt = require('bcrypt');
 
 class UserService {
     /**
@@ -277,28 +278,23 @@ class UserService {
     }
 
     /**
-     * Hash password using a simple method (TODO: implement bcrypt for production)
+     * Hash password using bcrypt
      * @param {string} password - Plain text password
      * @returns {Promise<string>} Hashed password
      */
     static async hashPassword(password) {
-        // TODO: Implement proper password hashing with bcrypt
-        // For now, return a simple hash (NOT for production!)
-        const timestamp = Date.now();
-        const randomSalt = Math.random().toString(36).substring(2);
-        return `hashed_${password}_${timestamp}_${randomSalt}`;
+        const saltRounds = 10;
+        return await bcrypt.hash(password, saltRounds);
     }
 
     /**
-     * Verify password against hash (TODO: implement bcrypt verification)
+     * Verify password against hash using bcrypt
      * @param {string} password - Plain text password
      * @param {string} hash - Hashed password
      * @returns {Promise<boolean>} True if password matches
      */
     static async verifyPassword(password, hash) {
-        // TODO: Implement proper password verification with bcrypt
-        // For now, do simple comparison (NOT for production!)
-        return hash.includes(`hashed_${password}_`);
+        return await bcrypt.compare(password, hash);
     }
 
     /**
@@ -367,6 +363,21 @@ class UserService {
             return await user.getStats();
         } catch (error) {
             console.error('Error getting user stats:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Find user by ID
+     * @param {string} userId - User ID
+     * @returns {Promise<User|null>} User object or null
+     */
+    static async findById(userId) {
+        try {
+            const user = await User.findById(userId);
+            return user ? user.toJSON() : null;
+        } catch (error) {
+            console.error('Error finding user by ID:', error);
             throw error;
         }
     }
