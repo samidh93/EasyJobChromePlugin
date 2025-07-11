@@ -224,6 +224,21 @@ class Resume {
             throw new Error(`Failed to find resumes by extension: ${error.message}`);
         }
     }
+
+    // Convert to JSON (for consistent serialization)
+    toJSON() {
+        return {
+            id: this.id,
+            name: this.name,
+            extension: this.extension,
+            path: this.path,
+            short_description: this.short_description,
+            creation_date: this.creation_date,
+            updated_date: this.updated_date,
+            user_id: this.user_id,
+            is_default: this.is_default
+        };
+    }
 }
 
 module.exports = Resume; 

@@ -720,191 +720,221 @@ const App = () => {
     </div>
   );
 
-  const renderAiSettingsTab = () => (
-    <div className="tab-content">
-      <div className="ai-settings-section">
-        <h2>AI Configuration</h2>
-        
-        <div className="form-group">
-          <label htmlFor="ai-provider">AI Provider</label>
-          <select 
-            id="ai-provider"
-            value={aiProvider} 
-            onChange={(e) => handleAiProviderChange(e.target.value)}
-          >
-            <option value="ollama">Ollama (Local)</option>
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="gemini">Gemini (Google)</option>
-          </select>
-        </div>
-
-        {aiProvider !== 'ollama' && (
-          <div className="form-group">
-            <label htmlFor="api-key">API Key</label>
-            <div className="api-key-container">
-              <input
-                id="api-key"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={`Enter your ${aiProvider} API key`}
-              />
-              <button onClick={handleApiKeySubmit} className="utility-button">
-                <Key size={16} />
-                Save
-              </button>
+  const renderAiSettingsTab = () => {
+    if (!currentUser) {
+      return (
+        <div className="tab-content">
+          <div className="ai-settings-section">
+            <div className="no-user">
+              <Settings size={48} />
+              <p>Please log in to configure AI settings</p>
+              <p>AI settings are saved per user account</p>
             </div>
           </div>
-        )}
-
-        <div className="form-group">
-          <label htmlFor="ai-model">AI Model</label>
-          <select 
-            id="ai-model"
-            value={aiModel} 
-            onChange={(e) => handleModelChange(e.target.value)}
-            disabled={availableModels.length === 0}
-          >
-            <option value="">
-              {isLoadingModels ? 'Loading models...' : 'Select a model'}
-            </option>
-            {availableModels.map(model => (
-              <option key={model} value={model}>{model}</option>
-            ))}
-          </select>
         </div>
+      );
+    }
 
-        {aiProvider === 'ollama' && (
-          <button onClick={loadOllamaModels} className="utility-button" disabled={isLoadingModels}>
-            <Server size={16} />
-            {isLoadingModels ? 'Loading...' : 'Refresh Models'}
-          </button>
-        )}
+    return (
+      <div className="tab-content">
+        <div className="ai-settings-section">
+          <h2>AI Configuration</h2>
+          
+          <div className="form-group">
+            <label htmlFor="ai-provider">AI Provider</label>
+            <select 
+              id="ai-provider"
+              value={aiProvider} 
+              onChange={(e) => handleAiProviderChange(e.target.value)}
+            >
+              <option value="ollama">Ollama (Local)</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="gemini">Gemini (Google)</option>
+            </select>
+          </div>
 
-        <div className="ai-status">
-          <div className="status-item">
-            <span>Provider: </span>
-            <strong>{aiProvider}</strong>
-          </div>
-          <div className="status-item">
-            <span>Model: </span>
-            <strong>{aiModel || 'Not selected'}</strong>
-          </div>
           {aiProvider !== 'ollama' && (
-            <div className="status-item">
-              <span>API Key: </span>
-              <strong>{apiKey ? '••••••••' : 'Not set'}</strong>
+            <div className="form-group">
+              <label htmlFor="api-key">API Key</label>
+              <div className="api-key-container">
+                <input
+                  id="api-key"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={`Enter your ${aiProvider} API key`}
+                />
+                <button onClick={handleApiKeySubmit} className="utility-button">
+                  <Key size={16} />
+                  Save
+                </button>
+              </div>
             </div>
           )}
+
+          <div className="form-group">
+            <label htmlFor="ai-model">AI Model</label>
+            <select 
+              id="ai-model"
+              value={aiModel} 
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={availableModels.length === 0}
+            >
+              <option value="">
+                {isLoadingModels ? 'Loading models...' : 'Select a model'}
+              </option>
+              {availableModels.map(model => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+          </div>
+
+          {aiProvider === 'ollama' && (
+            <button onClick={loadOllamaModels} className="utility-button" disabled={isLoadingModels}>
+              <Server size={16} />
+              {isLoadingModels ? 'Loading...' : 'Refresh Models'}
+            </button>
+          )}
+
+          <div className="ai-status">
+            <div className="status-item">
+              <span>Provider: </span>
+              <strong>{aiProvider}</strong>
+            </div>
+            <div className="status-item">
+              <span>Model: </span>
+              <strong>{aiModel || 'Not selected'}</strong>
+            </div>
+            {aiProvider !== 'ollama' && (
+              <div className="status-item">
+                <span>API Key: </span>
+                <strong>{apiKey ? '••••••••' : 'Not set'}</strong>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const renderApplicationHistoryTab = () => (
-    <div className="tab-content">
-      <div className="application-history-section">
-        <h2>Application History</h2>
-        
-        <div className="history-filters">
-          <select 
-            value={selectedCompany} 
-            onChange={(e) => {
-              setSelectedCompany(e.target.value);
-              setSelectedJob('');
-              setSelectedApplication(null);
-            }}
-          >
-            <option value="">All Companies</option>
-            {getUniqueCompanies().map(company => (
-              <option key={company} value={company}>{company}</option>
-            ))}
-          </select>
+  const renderApplicationHistoryTab = () => {
+    if (!currentUser) {
+      return (
+        <div className="tab-content">
+          <div className="no-user">
+            <History size={48} />
+            <p>Please log in to view your application history</p>
+            <p>Application history is saved per user account</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="tab-content">
+        <div className="application-history-section">
+          <h2>Application History</h2>
           
-          {selectedCompany && (
+          <div className="history-filters">
             <select 
-              value={selectedJob} 
+              value={selectedCompany} 
               onChange={(e) => {
-                setSelectedJob(e.target.value);
+                setSelectedCompany(e.target.value);
+                setSelectedJob('');
                 setSelectedApplication(null);
               }}
             >
-              <option value="">All Jobs</option>
-              {getJobsForCompany(selectedCompany).map(job => (
-                <option key={job} value={job}>{job}</option>
+              <option value="">All Companies</option>
+              {getUniqueCompanies().map(company => (
+                <option key={company} value={company}>{company}</option>
               ))}
             </select>
-          )}
-        </div>
-
-        <div className="application-list">
-          {applicationHistory.length === 0 ? (
-            <div className="empty-state">
-              <History size={48} />
-              <p>No applications yet</p>
-              <p>Start applying to jobs to see your history here</p>
-            </div>
-          ) : (
-            <div className="applications-grid">
-              {getApplicationsForJob(selectedCompany, selectedJob).map(application => (
-                <div 
-                  key={application.id}
-                  className={`application-item ${selectedApplication?.id === application.id ? 'selected' : ''}`}
-                  onClick={() => handleApplicationSelect(application.id)}
-                >
-                  <div className="application-header">
-                    <h4>{application.jobTitle}</h4>
-                    <span className="company">{application.company}</span>
-                  </div>
-                  <div className="application-meta">
-                    <span className="date">{new Date(application.appliedAt).toLocaleDateString()}</span>
-                    <span className={`status ${application.status}`}>{application.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {selectedApplication && (
-          <div className="application-details">
-            <h3>Application Details</h3>
-            <div className="details-content">
-              <div className="detail-item">
-                <strong>Job Title:</strong> {selectedApplication.jobTitle}
-              </div>
-              <div className="detail-item">
-                <strong>Company:</strong> {selectedApplication.company}
-              </div>
-              <div className="detail-item">
-                <strong>Applied:</strong> {new Date(selectedApplication.appliedAt).toLocaleString()}
-              </div>
-              <div className="detail-item">
-                <strong>Status:</strong> {selectedApplication.status}
-              </div>
-              
-              {selectedApplication.questionsAnswers && selectedApplication.questionsAnswers.length > 0 && (
-                <div className="questions-section">
-                  <h4>Questions & Answers</h4>
-                  {selectedApplication.questionsAnswers.map((qa, index) => (
-                    <div key={index} className="qa-item">
-                      <div className="question">
-                        <strong>Q:</strong> {qa.question}
-                      </div>
-                      <div className="answer">
-                        <strong>A:</strong> {qa.answer}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            
+            {selectedCompany && (
+              <select 
+                value={selectedJob} 
+                onChange={(e) => {
+                  setSelectedJob(e.target.value);
+                  setSelectedApplication(null);
+                }}
+              >
+                <option value="">All Jobs</option>
+                {getJobsForCompany(selectedCompany).map(job => (
+                  <option key={job} value={job}>{job}</option>
+                ))}
+              </select>
+            )}
           </div>
-        )}
+
+          <div className="application-list">
+            {applicationHistory.length === 0 ? (
+              <div className="empty-state">
+                <History size={48} />
+                <p>No applications yet</p>
+                <p>Start applying to jobs to see your history here</p>
+              </div>
+            ) : (
+              <div className="applications-grid">
+                {getApplicationsForJob(selectedCompany, selectedJob).map(application => (
+                  <div 
+                    key={application.id}
+                    className={`application-item ${selectedApplication?.id === application.id ? 'selected' : ''}`}
+                    onClick={() => handleApplicationSelect(application.id)}
+                  >
+                    <div className="application-header">
+                      <h4>{application.jobTitle}</h4>
+                      <span className="company">{application.company}</span>
+                    </div>
+                    <div className="application-meta">
+                      <span className="date">{new Date(application.appliedAt).toLocaleDateString()}</span>
+                      <span className={`status ${application.status}`}>{application.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {selectedApplication && (
+            <div className="application-details">
+              <h3>Application Details</h3>
+              <div className="details-content">
+                <div className="detail-item">
+                  <strong>Job Title:</strong> {selectedApplication.jobTitle}
+                </div>
+                <div className="detail-item">
+                  <strong>Company:</strong> {selectedApplication.company}
+                </div>
+                <div className="detail-item">
+                  <strong>Applied:</strong> {new Date(selectedApplication.appliedAt).toLocaleString()}
+                </div>
+                <div className="detail-item">
+                  <strong>Status:</strong> {selectedApplication.status}
+                </div>
+                
+                {selectedApplication.questionsAnswers && selectedApplication.questionsAnswers.length > 0 && (
+                  <div className="questions-section">
+                    <h4>Questions & Answers</h4>
+                    {selectedApplication.questionsAnswers.map((qa, index) => (
+                      <div key={index} className="qa-item">
+                        <div className="question">
+                          <strong>Q:</strong> {qa.question}
+                        </div>
+                        <div className="answer">
+                          <strong>A:</strong> {qa.answer}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderResumeTab = () => (
     <ResumeManager 
