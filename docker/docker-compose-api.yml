@@ -4,8 +4,8 @@ services:
   # Node.js API Server
   api:
     build: 
-      context: .
-      dockerfile: Dockerfile_ApiServer
+      context: ..
+      dockerfile: docker/Dockerfile_ApiServer
     container_name: easyjob-api
     environment:
       DB_HOST: postgres

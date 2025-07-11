@@ -177,10 +177,16 @@ app.get('/api/users/:userId/profile', async (req, res) => {
             questions_answered: 0
         };
 
+        // Get user resumes
+        const resumeResult = await pool.query(
+            'SELECT id, name, extension, path, short_description, creation_date, updated_date, is_default FROM resume WHERE user_id = $1 ORDER BY is_default DESC, creation_date DESC',
+            [userId]
+        );
+
         const profile = {
             profile: user,
             stats: stats,
-            resumes: [], // TODO: Implement resume fetching
+            resumes: resumeResult.rows,
             aiSettings: [] // TODO: Implement AI settings fetching
         };
 
@@ -299,6 +305,329 @@ app.get('/api/users/exists/:email', async (req, res) => {
         res.json({ success: true, exists: result.rows.length > 0 });
     } catch (error) {
         console.error('User exists check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ===== RESUME ENDPOINTS =====
+
+// Get all resumes for a user
+app.get('/api/users/:userId/resumes', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        // Verify user exists
+        const userCheck = await pool.query(
+            'SELECT id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        const result = await pool.query(
+            'SELECT id, name, extension, path, short_description, creation_date, updated_date, is_default FROM resume WHERE user_id = $1 ORDER BY is_default DESC, creation_date DESC',
+            [userId]
+        );
+
+        res.json({ success: true, resumes: result.rows });
+    } catch (error) {
+        console.error('Get resumes error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get resume statistics (must be before the individual resume route)
+app.get('/api/resumes/stats', async (req, res) => {
+    try {
+        const { userId } = req.query;
+        
+        let query = `
+            SELECT 
+                COUNT(*) as total_resumes,
+                COUNT(CASE WHEN is_default = true THEN 1 END) as default_resumes,
+                COUNT(DISTINCT extension) as unique_extensions,
+                COUNT(DISTINCT user_id) as unique_users
+            FROM resume
+        `;
+        const values = [];
+
+        if (userId) {
+            query += ' WHERE user_id = $1';
+            values.push(userId);
+        }
+
+        const result = await pool.query(query, values);
+        res.json({ success: true, stats: result.rows[0] });
+    } catch (error) {
+        console.error('Get resume stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get a specific resume by ID
+app.get('/api/resumes/:resumeId', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        const result = await pool.query(
+            'SELECT id, name, extension, path, short_description, creation_date, updated_date, user_id, is_default FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        res.json({ success: true, resume: result.rows[0] });
+    } catch (error) {
+        console.error('Get resume error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create a new resume
+app.post('/api/users/:userId/resumes', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { name, extension, path, short_description, is_default } = req.body;
+        
+        if (!name || !extension || !path) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Name, extension, and path are required' 
+            });
+        }
+
+        // Verify user exists
+        const userCheck = await pool.query(
+            'SELECT id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        // If this is being set as default, unset other defaults first
+        if (is_default) {
+            await pool.query(
+                'UPDATE resume SET is_default = false WHERE user_id = $1',
+                [userId]
+            );
+        }
+
+        const result = await pool.query(
+            'INSERT INTO resume (name, extension, path, short_description, user_id, is_default) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, extension, path, short_description, creation_date, updated_date, user_id, is_default',
+            [name, extension, path, short_description, userId, is_default || false]
+        );
+
+        const newResume = result.rows[0];
+        res.status(201).json({ success: true, resume: newResume });
+    } catch (error) {
+        console.error('Create resume error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Update a resume
+app.put('/api/resumes/:resumeId', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        const updateData = req.body;
+        
+        // Check if resume exists
+        const resumeCheck = await pool.query(
+            'SELECT id, user_id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (resumeCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        const resume = resumeCheck.rows[0];
+
+        // If setting as default, unset other defaults for this user
+        if (updateData.is_default) {
+            await pool.query(
+                'UPDATE resume SET is_default = false WHERE user_id = $1',
+                [resume.user_id]
+            );
+        }
+
+        // Build update query dynamically
+        const updateFields = [];
+        const values = [];
+        let paramCount = 1;
+
+        const allowedFields = ['name', 'extension', 'path', 'short_description', 'is_default'];
+        
+        for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+                updateFields.push(`${field} = $${paramCount}`);
+                values.push(updateData[field]);
+                paramCount++;
+            }
+        }
+
+        if (updateFields.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'No update data provided' 
+            });
+        }
+
+        updateFields.push('updated_date = NOW()');
+        values.push(resumeId);
+
+        const query = `UPDATE resume SET ${updateFields.join(', ')} WHERE id = $${paramCount} RETURNING id, name, extension, path, short_description, creation_date, updated_date, user_id, is_default`;
+        
+        const result = await pool.query(query, values);
+        const updatedResume = result.rows[0];
+
+        res.json({ success: true, resume: updatedResume });
+    } catch (error) {
+        console.error('Update resume error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Set resume as default
+app.put('/api/resumes/:resumeId/default', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Check if resume exists
+        const resumeCheck = await pool.query(
+            'SELECT id, user_id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (resumeCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        const resume = resumeCheck.rows[0];
+
+        // Start transaction
+        await pool.query('BEGIN');
+
+        try {
+            // Unset all defaults for this user
+            await pool.query(
+                'UPDATE resume SET is_default = false WHERE user_id = $1',
+                [resume.user_id]
+            );
+
+            // Set this resume as default
+            const result = await pool.query(
+                'UPDATE resume SET is_default = true WHERE id = $1 RETURNING id, name, extension, path, short_description, creation_date, updated_date, user_id, is_default',
+                [resumeId]
+            );
+
+            await pool.query('COMMIT');
+
+            res.json({ success: true, resume: result.rows[0] });
+        } catch (error) {
+            await pool.query('ROLLBACK');
+            throw error;
+        }
+    } catch (error) {
+        console.error('Set default resume error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Delete a resume
+app.delete('/api/resumes/:resumeId', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Check if resume exists
+        const resumeCheck = await pool.query(
+            'SELECT id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (resumeCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        // Check if resume is used in applications
+        const applicationCheck = await pool.query(
+            'SELECT COUNT(*) as count FROM applications WHERE resume_id = $1',
+            [resumeId]
+        );
+
+        if (parseInt(applicationCheck.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Cannot delete resume: it is referenced by existing applications' 
+            });
+        }
+
+        await pool.query('DELETE FROM resume WHERE id = $1', [resumeId]);
+
+        res.json({ success: true, message: 'Resume deleted successfully' });
+    } catch (error) {
+        console.error('Delete resume error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Get applications that used a specific resume
+app.get('/api/resumes/:resumeId/applications', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Check if resume exists
+        const resumeCheck = await pool.query(
+            'SELECT id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (resumeCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        const result = await pool.query(`
+            SELECT 
+                a.id, a.status, a.applied_at, a.response_received_at, a.notes,
+                j.title as job_title, j.location as job_location, j.job_url,
+                c.name as company_name, c.website as company_website
+            FROM applications a
+            JOIN jobs j ON a.job_id = j.id
+            JOIN companies c ON j.company_id = c.id
+            WHERE a.resume_id = $1
+            ORDER BY a.applied_at DESC
+        `, [resumeId]);
+
+        res.json({ success: true, applications: result.rows });
+    } catch (error) {
+        console.error('Get resume applications error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
