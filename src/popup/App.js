@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle } from 'lucide-react';
+import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock } from 'lucide-react';
 import './App.css';
+import ResumeManager from './ResumeManager.js';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('login');
@@ -55,6 +56,14 @@ const App = () => {
       clearInterval(stateCheckInterval);
     };
   }, []);
+
+  // Load resume data when currentUser changes
+  useEffect(() => {
+    if (currentUser) {
+      console.log('App: Current user changed, loading resume data');
+      loadResumeData();
+    }
+  }, [currentUser]);
 
   // Check if libraries are loaded
   const checkLibrariesLoaded = () => {
@@ -143,20 +152,24 @@ const App = () => {
 
   const loadCurrentUser = async () => {
     try {
+      console.log('App: Loading current user...');
       const response = await chrome.runtime.sendMessage({
         action: 'getCurrentUser'
       });
 
+      console.log('App: getCurrentUser response:', response);
+
       if (response.success && response.user) {
         setCurrentUser(response.user);
         setIsLoggedIn(response.isLoggedIn);
-        console.log('Current user loaded:', response.user.username);
+        console.log('App: Current user loaded:', response.user.username, response.user.id);
       } else {
         setCurrentUser(null);
         setIsLoggedIn(false);
+        console.log('App: No current user found');
       }
     } catch (error) {
-      console.error('Error loading current user:', error);
+      console.error('App: Error loading current user:', error);
       setCurrentUser(null);
       setIsLoggedIn(false);
     }
@@ -164,14 +177,38 @@ const App = () => {
 
   const loadResumeData = async () => {
     try {
-      const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
-      if (result && (result.userResumeData || result.userResumeText)) {
-        // Use formatted text for display
-        setResumeData(result.userResumeText);
-        setIsResumeLoaded(true);
+      // Check if we have a current user and can load resumes from database
+      if (currentUser) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'apiRequest',
+          method: 'GET',
+          url: `/users/${currentUser.id}/resumes`
+        });
+
+        if (response && response.success) {
+          const resumes = response.resumes || [];
+          setIsResumeLoaded(resumes.length > 0);
+          console.log('App: Resume status updated - resumes count:', resumes.length);
+        } else {
+          setIsResumeLoaded(false);
+          console.log('App: No resumes found in database');
+        }
+      } else {
+        // Fallback to check local storage for backward compatibility
+        const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
+        if (result && (result.userResumeData || result.userResumeText)) {
+          // Use formatted text for display
+          setResumeData(result.userResumeText);
+          setIsResumeLoaded(true);
+          console.log('App: Resume loaded from local storage');
+        } else {
+          setIsResumeLoaded(false);
+          console.log('App: No resume data found');
+        }
       }
     } catch (error) {
       console.error('Error loading resume data:', error);
+      setIsResumeLoaded(false);
     }
   };
 
@@ -526,6 +563,17 @@ const App = () => {
     setSelectedApplication(application);
   };
 
+  const handleResumeUpdate = () => {
+    // Refresh resume data when resumes are updated
+    console.log('App: Resume update triggered, refreshing resume status');
+    loadResumeData();
+    
+    // Also refresh user data if needed
+    if (currentUser) {
+      loadCurrentUser();
+    }
+  };
+
   const renderLoginTab = () => (
     <div className="tab-content">
       <div className="login-section">
@@ -618,81 +666,43 @@ const App = () => {
               </div>
             )}
             
-            {/* Resume Upload Section */}
-            <div className="resume-section">
-              <h3>Resume Management</h3>
+            {/* Auto Apply Section */}
+            <div className="auto-apply-section">
+              <h3>Auto Apply</h3>
+              <p>Start applying to jobs automatically using your uploaded resume.</p>
               
-              {!librariesLoaded ? (
-                <div className="resume-upload">
-                  <p>Loading resume parser...</p>
-                  <div className="loading-indicator">
-                    <span>⏳ Please wait while libraries load</span>
+              <div className="apply-status">
+                {!isResumeLoaded ? (
+                  <div className="warning-message">
+                    <span>⚠️ Please upload a resume in the "Resumes" tab to start applying</span>
                   </div>
-                </div>
-              ) : !isResumeLoaded ? (
-                <div className="resume-upload">
-                  <p>Upload your resume to start applying</p>
-                  <input
-                    type="file"
-                    accept=".pdf,.yaml,.yml,.json,.txt"
-                    onChange={handleResumeUpload}
-                    disabled={isUploadingResume}
-                    className="file-input"
-                    id="resume-upload"
-                  />
-                  <label htmlFor="resume-upload" className="secondary-button">
-                    <Upload size={16} />
-                    {isUploadingResume ? 'Processing...' : 'Upload Resume'}
-                  </label>
-                  <p className="file-info">
-                    Supported formats: PDF, YAML, JSON, TXT
-                  </p>
-                </div>
-              ) : (
-                <div className="resume-loaded">
-                  <div className="resume-status">
-                    <CheckCircle size={20} className="success-icon" />
-                    <span>Resume loaded successfully</span>
+                ) : (
+                  <div className="success-message">
+                    <span>✅ Resume loaded and ready for applications</span>
                   </div>
-                  
-                  <div className="resume-preview">
-                    <h4>Resume Preview</h4>
-                    <div className="resume-text">
-                      {resumeData.substring(0, 200)}...
-                    </div>
-                  </div>
-                  
-                  <div className="resume-actions">
-                    <input
-                      type="file"
-                      accept=".pdf,.yaml,.yml,.json,.txt"
-                      onChange={handleResumeUpload}
-                      disabled={isUploadingResume}
-                      className="file-input"
-                      id="resume-replace"
-                    />
-                    <label htmlFor="resume-replace" className="utility-button">
-                      <FileText size={16} />
-                      Replace Resume
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="action-buttons">
-              <button 
-                onClick={handleStartApply} 
-                className="primary-button" 
-                disabled={isApplying || !isResumeLoaded || !librariesLoaded}
-              >
-                <Play size={16} />
-                Start Auto Apply
-              </button>
-              <button onClick={handleStopApply} className="secondary-button" disabled={!isApplying}>
-                <Square size={16} />
-                Stop
-              </button>
+                )}
+              </div>
+              
+              <div className="action-buttons">
+                <button 
+                  onClick={handleStartApply} 
+                  className="primary-button" 
+                  disabled={isApplying || !isResumeLoaded || !librariesLoaded}
+                  title={!isResumeLoaded ? "Please upload a resume first" : "Start automatic job applications"}
+                >
+                  <Play size={16} />
+                  Start Auto Apply
+                </button>
+                <button 
+                  onClick={handleStopApply} 
+                  className="secondary-button" 
+                  disabled={!isApplying}
+                  title="Stop automatic job applications"
+                >
+                  <Square size={16} />
+                  Stop
+                </button>
+              </div>
             </div>
             
             <button onClick={handleLogout} className="utility-button">
@@ -890,6 +900,13 @@ const App = () => {
     </div>
   );
 
+  const renderResumeTab = () => (
+    <ResumeManager 
+      currentUser={currentUser} 
+      onResumeUpdate={handleResumeUpdate}
+    />
+  );
+
   return (
     <div className="app">
       <div className="tabs">
@@ -899,6 +916,13 @@ const App = () => {
         >
           <User size={16} />
           Login
+        </button>
+        <button 
+          className={`tab-button ${activeTab === 'resumes' ? 'active' : ''}`}
+          onClick={() => setActiveTab('resumes')}
+        >
+          <FileText size={16} />
+          Resumes
         </button>
         <button 
           className={`tab-button ${activeTab === 'ai-settings' ? 'active' : ''}`}
@@ -917,6 +941,7 @@ const App = () => {
       </div>
 
       {activeTab === 'login' && renderLoginTab()}
+      {activeTab === 'resumes' && renderResumeTab()}
       {activeTab === 'ai-settings' && renderAiSettingsTab()}
       {activeTab === 'history' && renderApplicationHistoryTab()}
 

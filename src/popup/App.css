@@ -561,17 +561,16 @@
 
 /* Resume Section */
 .resume-section {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.resume-section h3 {
-  margin: 0 0 12px 0;
-  font-size: 16px;
+.resume-section h2 {
+  font-size: 18px;
   color: #1e293b;
+  margin: 0;
+  text-align: center;
 }
 
 .resume-upload {
@@ -731,4 +730,351 @@
 
 .user-details strong {
   color: #1e293b;
+}
+
+/* Resume Manager Styles - Updated to match tab structure */
+.upload-form {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.upload-form h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #555;
+}
+
+.file-input-container {
+    position: relative;
+}
+
+.file-input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+}
+
+.file-input-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.file-input-label:hover {
+    border-color: #007bff;
+    background: #f8f9ff;
+}
+
+.file-help {
+    font-size: 12px;
+    color: #666;
+    margin-top: 5px;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.upload-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #007bff;
+    transition: width 0.3s ease;
+}
+
+.resumes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.resume-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    background: white;
+    transition: all 0.2s ease;
+}
+
+.resume-item:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.resume-item.default {
+    border-color: #ffc107;
+    background: #fffbf0;
+}
+
+.resume-info {
+    flex: 1;
+}
+
+.resume-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.file-icon {
+    font-size: 24px;
+    line-height: 1;
+}
+
+.resume-details h4 {
+    margin: 0 0 5px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.resume-meta {
+    margin: 0 0 5px 0;
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.default-badge {
+    background: #ffc107;
+    color: #000;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.resume-description {
+    margin: 0;
+    font-size: 13px;
+    color: #777;
+    line-height: 1.4;
+}
+
+.resume-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.action-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.action-button:hover {
+    background: #f8f9fa;
+}
+
+.action-button.default {
+    color: #ffc107;
+    border-color: #ffc107;
+}
+
+.action-button.danger:hover {
+    background: #dc3545;
+    border-color: #dc3545;
+    color: white;
+}
+
+.no-resumes {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+}
+
+.no-resumes svg {
+    margin-bottom: 15px;
+    color: #ccc;
+}
+
+.no-user {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+}
+
+.no-user svg {
+    margin-bottom: 15px;
+    color: #ccc;
+}
+
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+}
+
+.status-message {
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+/* Button Styles */
+.primary-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s ease;
+}
+
+.primary-button:hover {
+    background: #0056b3;
+}
+
+.primary-button:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+.secondary-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s ease;
+}
+
+.secondary-button:hover {
+    background: #545b62;
+}
+
+/* Auto Apply Section */
+.auto-apply-section {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.auto-apply-section h3 {
+  margin: 0 0 8px 0;
+  color: #1e293b;
+  font-size: 16px;
+}
+
+.auto-apply-section p {
+  margin: 0 0 16px 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.apply-status {
+  margin-bottom: 16px;
+}
+
+.warning-message {
+  padding: 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+}
+
+.warning-message span {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.success-message {
+  padding: 12px;
+  background: #dcfce7;
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+  color: #166534;
+}
+
+.success-message span {
+  font-size: 14px;
+  font-weight: 500;
 }
