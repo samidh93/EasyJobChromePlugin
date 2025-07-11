@@ -315,14 +315,18 @@ class AISettingsService {
             errors.push('AI model is required');
         }
 
-        if (!settingsData.api_key_encrypted || settingsData.api_key_encrypted.trim().length < 1) {
-            errors.push('API key is required');
-        }
-
-        // Validate provider names
-        const validProviders = ['openai', 'anthropic', 'google', 'cohere', 'huggingface', 'local'];
+        // Validate provider names - include 'ollama' as a valid provider
+        const validProviders = ['openai', 'anthropic', 'google', 'cohere', 'huggingface', 'local', 'ollama'];
         if (settingsData.ai_provider && !validProviders.includes(settingsData.ai_provider.toLowerCase())) {
             errors.push(`Invalid AI provider. Allowed: ${validProviders.join(', ')}`);
+        }
+
+        // Only require API key for non-local providers
+        const localProviders = ['local', 'ollama'];
+        const needsApiKey = settingsData.ai_provider && !localProviders.includes(settingsData.ai_provider.toLowerCase());
+        
+        if (needsApiKey && (!settingsData.api_key_encrypted || settingsData.api_key_encrypted.trim().length < 1)) {
+            errors.push('API key is required for this provider');
         }
 
         return {

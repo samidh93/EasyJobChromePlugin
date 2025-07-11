@@ -489,10 +489,18 @@ app.post('/api/users/:userId/ai-settings', async (req, res) => {
         const { userId } = req.params;
         const { ai_provider, ai_model, api_key, is_default } = req.body;
         
-        if (!ai_provider || !ai_model || !api_key) {
+        if (!ai_provider || !ai_model) {
             return res.status(400).json({ 
                 success: false, 
-                error: 'AI provider, model, and API key are required' 
+                error: 'AI provider and model are required' 
+            });
+        }
+
+        // Only require API key for non-Ollama providers
+        if (ai_provider !== 'ollama' && !api_key) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'API key is required for this provider' 
             });
         }
 
@@ -506,8 +514,11 @@ app.post('/api/users/:userId/ai-settings', async (req, res) => {
             });
         }
 
-        // Encrypt API key
-        const encryptedApiKey = await AISettingsService.encryptAPIKey(api_key);
+        // Encrypt API key if provided
+        let encryptedApiKey = null;
+        if (api_key) {
+            encryptedApiKey = await AISettingsService.encryptAPIKey(api_key);
+        }
 
         // If this is being set as default, unset other defaults first
         if (is_default === 'true' || is_default === true) {

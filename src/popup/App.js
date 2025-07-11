@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock } from 'lucide-react';
 import './App.css';
 import ResumeManager from './ResumeManager.js';
+import AiManager from './AiManager.js';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('login');
@@ -18,13 +19,6 @@ const App = () => {
   const [isResumeLoaded, setIsResumeLoaded] = useState(false);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [librariesLoaded, setLibrariesLoaded] = useState(false);
-  
-  // AI Settings State
-  const [aiProvider, setAiProvider] = useState('ollama');
-  const [aiModel, setAiModel] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [availableModels, setAvailableModels] = useState([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
   
   // Application History State
   const [applicationHistory, setApplicationHistory] = useState([]);
@@ -45,7 +39,6 @@ const App = () => {
     
     loadUserData();
     loadCurrentUser(); // Load current user from database
-    loadAiSettings();
     loadApplicationHistory();
     loadResumeData();
     
@@ -212,17 +205,6 @@ const App = () => {
     }
   };
 
-  const loadAiSettings = async () => {
-    try {
-      const result = await chrome.storage.local.get(['aiProvider', 'aiModel', 'apiKey']);
-      setAiProvider(result.aiProvider || 'ollama');
-      setAiModel(result.aiModel || '');
-      setApiKey(result.apiKey || '');
-    } catch (error) {
-      console.error('Error loading AI settings:', error);
-    }
-  };
-
   const loadApplicationHistory = async () => {
     try {
       const result = await chrome.storage.local.get(['applicationHistory']);
@@ -232,7 +214,83 @@ const App = () => {
     }
   };
 
+  const handleStartApply = async () => {
+    if (!isResumeLoaded) {
+      setStatusMessage('Please upload a resume first');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
 
+    setIsApplying(true);
+    setStatusMessage('Starting auto apply...');
+    
+    try {
+      // Get current AI settings from database
+      let aiSettings = null;
+      if (currentUser) {
+        const response = await chrome.runtime.sendMessage({
+          action: 'apiRequest',
+          method: 'GET',
+          url: `/users/${currentUser.id}/ai-settings/default`
+        });
+
+        if (response && response.success) {
+          aiSettings = {
+            provider: response.ai_settings.ai_provider,
+            model: response.ai_settings.ai_model,
+            apiKey: response.ai_settings.api_key_encrypted ? 'encrypted' : null
+          };
+        }
+      }
+
+      // Fallback to local storage if no database settings
+      if (!aiSettings) {
+        const result = await chrome.storage.local.get(['aiProvider', 'aiModel', 'apiKey']);
+        aiSettings = {
+          provider: result.aiProvider || 'ollama',
+          model: result.aiModel || 'qwen2.5:3b',
+          apiKey: result.apiKey || null
+        };
+      }
+
+      const response = await chrome.runtime.sendMessage({
+        action: 'startAutoApply',
+        loginData: loginData,
+        aiSettings: aiSettings
+      });
+
+      if (response.success) {
+        setStatusMessage('Auto apply started successfully!');
+      } else {
+        setIsApplying(false);
+        setStatusMessage(response.error || 'Failed to start auto apply');
+      }
+    } catch (error) {
+      setIsApplying(false);
+      setStatusMessage('Error starting auto apply: ' + error.message);
+    }
+    
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleStopApply = async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'stopAutoApply'
+      });
+
+      if (response.success) {
+        setIsApplying(false);
+        setStatusMessage('Auto apply stopped');
+      } else {
+        setStatusMessage('Failed to stop auto apply');
+      }
+    } catch (error) {
+      setStatusMessage('Error stopping auto apply: ' + error.message);
+    }
+    
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
 
   const handleLogout = async () => {
     try {
@@ -344,206 +402,21 @@ const App = () => {
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  const handleResumeUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    setIsUploadingResume(true);
-    setStatusMessage('Uploading and parsing resume...');
-
-    try {
-      // Check if ResumeParser is available
-      if (!window.ResumeParser) {
-        throw new Error('ResumeParser not loaded. Please refresh the page and try again.');
-      }
-      
-      if (typeof window.ResumeParser !== 'function') {
-        throw new Error('ResumeParser is not a constructor. Please refresh the page and try again.');
-      }
-      
-      // Debug: Log available libraries
-      console.log('Libraries check:', {
-        jsyaml: !!window.jsyaml,
-        pdfjsLib: !!window.pdfjsLib,
-        ResumeParser: !!window.ResumeParser,
-        ResumeParserType: typeof window.ResumeParser
-      });
-      
-      // Initialize ResumeParser
-      const parser = new window.ResumeParser();
-      
-      // Parse the resume (returns object with structured and formatted data)
-      const parsedData = await parser.parseResume(file);
-      
-      // Store both structured and formatted resume data
-      await chrome.storage.local.set({
-        userResumeData: parsedData.structured,
-        userResumeText: parsedData.formatted,
-        userResumeType: parsedData.type
-      });
-      
-      setResumeData(parsedData.formatted);
-      setIsResumeLoaded(true);
-      setStatusMessage('Resume uploaded and parsed successfully!');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } catch (error) {
-      console.error('Error processing resume:', error);
-      setStatusMessage(`Error processing resume: ${error.message}`);
-      setTimeout(() => setStatusMessage(''), 3000);
-    } finally {
-      setIsUploadingResume(false);
-      // Reset the file input
-      event.target.value = '';
-    }
-  };
-
-  const handleAiProviderChange = async (provider) => {
-    setAiProvider(provider);
-    setAiModel('');
-    setAvailableModels([]);
+  const handleResumeUpdate = () => {
+    // Refresh resume data when resumes are updated
+    console.log('App: Resume update triggered, refreshing resume status');
+    loadResumeData();
     
-    try {
-      await chrome.storage.local.set({ aiProvider: provider });
-      
-      if (provider === 'ollama') {
-        await loadOllamaModels();
-      }
-    } catch (error) {
-      console.error('Error saving AI provider:', error);
+    // Also refresh user data if needed
+    if (currentUser) {
+      loadCurrentUser();
     }
   };
 
-  const loadOllamaModels = async () => {
-    setIsLoadingModels(true);
-    try {
-      const response = await fetch('http://localhost:11434/api/tags');
-      if (response.ok) {
-        const data = await response.json();
-        const models = data.models.map(model => model.name);
-        setAvailableModels(models);
-        if (models.length > 0 && !aiModel) {
-          setAiModel(models[0]);
-          await chrome.storage.local.set({ aiModel: models[0] });
-        }
-      } else {
-        setStatusMessage('Failed to load Ollama models');
-        setTimeout(() => setStatusMessage(''), 3000);
-      }
-    } catch (error) {
-      setStatusMessage('Error connecting to Ollama');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } finally {
-      setIsLoadingModels(false);
-    }
-  };
-
-  const handleApiKeySubmit = async () => {
-    if (!apiKey) {
-      setStatusMessage('Please enter API key');
-      setTimeout(() => setStatusMessage(''), 3000);
-      return;
-    }
-
-    setIsLoadingModels(true);
-    try {
-      await chrome.storage.local.set({ apiKey });
-      
-      // Load models based on provider
-      let models = [];
-      if (aiProvider === 'openai') {
-        models = ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'];
-      } else if (aiProvider === 'claude') {
-        models = ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'];
-      } else if (aiProvider === 'gemini') {
-        models = ['gemini-pro', 'gemini-pro-vision'];
-      }
-      
-      setAvailableModels(models);
-      if (models.length > 0) {
-        setAiModel(models[0]);
-        await chrome.storage.local.set({ aiModel: models[0] });
-      }
-      
-      setStatusMessage('API key saved successfully');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } catch (error) {
-      setStatusMessage('Error saving API key');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } finally {
-      setIsLoadingModels(false);
-    }
-  };
-
-  const handleModelChange = async (model) => {
-    setAiModel(model);
-    try {
-      await chrome.storage.local.set({ aiModel: model });
-    } catch (error) {
-      console.error('Error saving AI model:', error);
-    }
-  };
-
-  const handleStartApply = async () => {
-    if (!isLoggedIn) {
-      setStatusMessage('Please login first');
-      setTimeout(() => setStatusMessage(''), 3000);
-      return;
-    }
-
-    if (!isResumeLoaded) {
-      setStatusMessage('Please upload your resume first');
-      setTimeout(() => setStatusMessage(''), 3000);
-      return;
-    }
-
-    setStatusMessage('Starting auto apply...');
-    
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'startAutoApply',
-        loginData: loginData,
-        aiSettings: { provider: aiProvider, model: aiModel, apiKey: apiKey }
-      });
-      
-      if (response && response.success) {
-        setIsApplying(true);
-        setStatusMessage('Auto apply started successfully!');
-        console.log('Auto apply started:', response.message);
-      } else {
-        setStatusMessage(response?.error || 'Failed to start auto apply');
-        console.error('Start failed:', response?.error || 'Unknown error');
-      }
-    } catch (error) {
-      setStatusMessage('Error starting auto apply');
-      console.error('Error:', error);
-    }
-    
-    setTimeout(() => setStatusMessage(''), 3000);
-  };
-
-  const handleStopApply = async () => {
-    setStatusMessage('Stopping auto apply...');
-    
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'stopAutoApply'
-      });
-      
-      if (response && response.success) {
-        setIsApplying(false);
-        setStatusMessage('Auto apply stopped successfully');
-        console.log('Auto apply stopped:', response.message);
-      } else {
-        setStatusMessage('Failed to stop auto apply');
-        console.error('Stop failed:', response?.error || 'Unknown error');
-      }
-    } catch (error) {
-      setStatusMessage('Error stopping auto apply');
-      console.error('Error:', error);
-      // Don't change isApplying state if there was an error
-    }
-    
-    setTimeout(() => setStatusMessage(''), 3000);
+  const handleAiSettingsUpdate = () => {
+    // Callback for when AI settings are updated
+    console.log('App: AI settings updated');
+    // Could reload AI settings or update UI state here if needed
   };
 
   const getUniqueCompanies = () => {
@@ -561,17 +434,6 @@ const App = () => {
   const handleApplicationSelect = (applicationId) => {
     const application = applicationHistory.find(app => app.id === applicationId);
     setSelectedApplication(application);
-  };
-
-  const handleResumeUpdate = () => {
-    // Refresh resume data when resumes are updated
-    console.log('App: Resume update triggered, refreshing resume status');
-    loadResumeData();
-    
-    // Also refresh user data if needed
-    if (currentUser) {
-      loadCurrentUser();
-    }
   };
 
   const renderLoginTab = () => (
@@ -627,52 +489,20 @@ const App = () => {
               </div>
             </div>
             
-            <div className="auth-buttons">
-              {authMode === 'login' ? (
-                <button onClick={handleDatabaseLogin} className="primary-button">
-                  <User size={16} />
-                  Login
-                </button>
-              ) : (
-                <button onClick={handleDatabaseRegister} className="primary-button">
-                  <User size={16} />
-                  Create Account
-                </button>
-              )}
-            </div>
-
-            <div className="auth-info">
-              <p>
-                {authMode === 'login' 
-                  ? 'Your login data is securely stored in the database.' 
-                  : 'Create a new account to save your applications and settings.'}
-              </p>
-            </div>
+            <button 
+              onClick={authMode === 'login' ? handleDatabaseLogin : handleDatabaseRegister}
+              className="primary-button"
+            >
+              {authMode === 'login' ? 'Login' : 'Register'}
+            </button>
           </div>
         ) : (
           <div className="user-info">
             <div className="user-status">
-              <User size={20} />
-              <span>Welcome{currentUser ? `, ${currentUser.username}` : `, ${loginData.username}`}!</span>
+              <User size={24} />
+              <span>Welcome, {currentUser?.username || loginData.username}!</span>
             </div>
             
-            {currentUser && (
-              <div className="user-details">
-                <p><strong>Email:</strong> {currentUser.email}</p>
-                <p><strong>Member since:</strong> {
-                  currentUser.created_at 
-                    ? new Date(currentUser.created_at).toLocaleDateString()
-                    : 'Unknown'
-                }</p>
-                {currentUser.last_login && (
-                  <p><strong>Last login:</strong> {
-                    new Date(currentUser.last_login).toLocaleString()
-                  }</p>
-                )}
-              </div>
-            )}
-            
-            {/* Auto Apply Section */}
             <div className="auto-apply-section">
               <h3>Auto Apply</h3>
               <p>Start applying to jobs automatically using your uploaded resume.</p>
@@ -719,104 +549,6 @@ const App = () => {
       </div>
     </div>
   );
-
-  const renderAiSettingsTab = () => {
-    if (!currentUser) {
-      return (
-        <div className="tab-content">
-          <div className="ai-settings-section">
-            <div className="no-user">
-              <Settings size={48} />
-              <p>Please log in to configure AI settings</p>
-              <p>AI settings are saved per user account</p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="tab-content">
-        <div className="ai-settings-section">
-          <h2>AI Configuration</h2>
-          
-          <div className="form-group">
-            <label htmlFor="ai-provider">AI Provider</label>
-            <select 
-              id="ai-provider"
-              value={aiProvider} 
-              onChange={(e) => handleAiProviderChange(e.target.value)}
-            >
-              <option value="ollama">Ollama (Local)</option>
-              <option value="openai">OpenAI</option>
-              <option value="claude">Claude (Anthropic)</option>
-              <option value="gemini">Gemini (Google)</option>
-            </select>
-          </div>
-
-          {aiProvider !== 'ollama' && (
-            <div className="form-group">
-              <label htmlFor="api-key">API Key</label>
-              <div className="api-key-container">
-                <input
-                  id="api-key"
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={`Enter your ${aiProvider} API key`}
-                />
-                <button onClick={handleApiKeySubmit} className="utility-button">
-                  <Key size={16} />
-                  Save
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="form-group">
-            <label htmlFor="ai-model">AI Model</label>
-            <select 
-              id="ai-model"
-              value={aiModel} 
-              onChange={(e) => handleModelChange(e.target.value)}
-              disabled={availableModels.length === 0}
-            >
-              <option value="">
-                {isLoadingModels ? 'Loading models...' : 'Select a model'}
-              </option>
-              {availableModels.map(model => (
-                <option key={model} value={model}>{model}</option>
-              ))}
-            </select>
-          </div>
-
-          {aiProvider === 'ollama' && (
-            <button onClick={loadOllamaModels} className="utility-button" disabled={isLoadingModels}>
-              <Server size={16} />
-              {isLoadingModels ? 'Loading...' : 'Refresh Models'}
-            </button>
-          )}
-
-          <div className="ai-status">
-            <div className="status-item">
-              <span>Provider: </span>
-              <strong>{aiProvider}</strong>
-            </div>
-            <div className="status-item">
-              <span>Model: </span>
-              <strong>{aiModel || 'Not selected'}</strong>
-            </div>
-            {aiProvider !== 'ollama' && (
-              <div className="status-item">
-                <span>API Key: </span>
-                <strong>{apiKey ? '••••••••' : 'Not set'}</strong>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderApplicationHistoryTab = () => {
     if (!currentUser) {
@@ -867,32 +599,26 @@ const App = () => {
             )}
           </div>
 
-          <div className="application-list">
+          <div className="applications-list">
             {applicationHistory.length === 0 ? (
               <div className="empty-state">
                 <History size={48} />
-                <p>No applications yet</p>
-                <p>Start applying to jobs to see your history here</p>
+                <p>No applications found</p>
+                <p>Your application history will appear here after you start applying to jobs</p>
               </div>
             ) : (
-              <div className="applications-grid">
-                {getApplicationsForJob(selectedCompany, selectedJob).map(application => (
-                  <div 
-                    key={application.id}
-                    className={`application-item ${selectedApplication?.id === application.id ? 'selected' : ''}`}
-                    onClick={() => handleApplicationSelect(application.id)}
-                  >
-                    <div className="application-header">
-                      <h4>{application.jobTitle}</h4>
-                      <span className="company">{application.company}</span>
-                    </div>
-                    <div className="application-meta">
-                      <span className="date">{new Date(application.appliedAt).toLocaleDateString()}</span>
-                      <span className={`status ${application.status}`}>{application.status}</span>
-                    </div>
+              getApplicationsForJob(selectedCompany, selectedJob).map(app => (
+                <div key={app.id} className="application-item" onClick={() => handleApplicationSelect(app.id)}>
+                  <div className="application-header">
+                    <h4>{app.jobTitle}</h4>
+                    <span className={`status ${app.status}`}>{app.status}</span>
                   </div>
-                ))}
-              </div>
+                  <div className="application-details">
+                    <p><strong>Company:</strong> {app.company}</p>
+                    <p><strong>Applied:</strong> {new Date(app.appliedAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              ))
             )}
           </div>
 
@@ -940,6 +666,13 @@ const App = () => {
     <ResumeManager 
       currentUser={currentUser} 
       onResumeUpdate={handleResumeUpdate}
+    />
+  );
+
+  const renderAiSettingsTab = () => (
+    <AiManager 
+      currentUser={currentUser} 
+      onAiSettingsUpdate={handleAiSettingsUpdate}
     />
   );
 
