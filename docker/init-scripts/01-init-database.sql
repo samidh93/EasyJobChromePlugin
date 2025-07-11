@@ -19,7 +19,25 @@ CREATE TABLE users (
     is_active BOOLEAN DEFAULT TRUE
 );
 
--- 2. AI Settings Table
+-- 2. Resume Table
+CREATE TABLE resume (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    extension VARCHAR(10) NOT NULL,
+    path TEXT NOT NULL,
+    short_description TEXT,
+    creation_date TIMESTAMP DEFAULT NOW(),
+    updated_date TIMESTAMP DEFAULT NOW(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    is_default BOOLEAN DEFAULT FALSE
+);
+
+-- Create partial unique index for default resumes only
+CREATE UNIQUE INDEX unique_default_resume_per_user 
+ON resume (user_id) 
+WHERE is_default = true;
+
+-- 3. AI Settings Table
 CREATE TABLE ai_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -32,7 +50,7 @@ CREATE TABLE ai_settings (
     UNIQUE(user_id, ai_provider, ai_model)
 );
 
--- 3. Companies Table
+-- 4. Companies Table
 CREATE TABLE companies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -45,7 +63,7 @@ CREATE TABLE companies (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 4. Jobs Table
+-- 5. Jobs Table
 CREATE TABLE jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID REFERENCES companies(id),
@@ -57,24 +75,21 @@ CREATE TABLE jobs (
     platform_job_id VARCHAR(255), -- External platform's job ID
     job_url TEXT NOT NULL,
     job_description TEXT,
-    salary_min INTEGER,
-    salary_max INTEGER,
-    salary_currency VARCHAR(3) DEFAULT 'USD',
     applicant_count INTEGER DEFAULT 0,
     posted_date TIMESTAMP,
-    expires_date TIMESTAMP,
     status VARCHAR(20) DEFAULT 'active', -- 'active', 'closed', 'expired'
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(platform, platform_job_id)
 );
 
--- 5. Applications Table
+-- 6. Applications Table
 CREATE TABLE applications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
     ai_settings_id UUID REFERENCES ai_settings(id),
+    resume_id UUID REFERENCES resume(id) ON DELETE RESTRICT,
     status VARCHAR(50) DEFAULT 'applied', -- 'applied', 'reviewed', 'interviewed', 'rejected', 'accepted'
     applied_at TIMESTAMP DEFAULT NOW(),
     response_received_at TIMESTAMP,
@@ -84,7 +99,7 @@ CREATE TABLE applications (
     UNIQUE(user_id, job_id)
 );
 
--- 6. Questions_Answers Table
+-- 7. Questions_Answers Table
 CREATE TABLE questions_answers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
@@ -97,7 +112,7 @@ CREATE TABLE questions_answers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 7. Application_History Table (For tracking status changes)
+-- 8. Application_History Table (For tracking status changes)
 CREATE TABLE application_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
