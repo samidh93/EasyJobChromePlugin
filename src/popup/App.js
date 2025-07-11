@@ -9,6 +9,8 @@ const App = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [currentUser, setCurrentUser] = useState(null);
   
   // Resume upload state
   const [resumeData, setResumeData] = useState(null);
@@ -41,6 +43,7 @@ const App = () => {
     }
     
     loadUserData();
+    loadCurrentUser(); // Load current user from database
     loadAiSettings();
     loadApplicationHistory();
     loadResumeData();
@@ -138,6 +141,27 @@ const App = () => {
     }
   };
 
+  const loadCurrentUser = async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'getCurrentUser'
+      });
+
+      if (response.success && response.user) {
+        setCurrentUser(response.user);
+        setIsLoggedIn(response.isLoggedIn);
+        console.log('Current user loaded:', response.user.username);
+      } else {
+        setCurrentUser(null);
+        setIsLoggedIn(false);
+      }
+    } catch (error) {
+      console.error('Error loading current user:', error);
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+    }
+  };
+
   const loadResumeData = async () => {
     try {
       const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
@@ -171,41 +195,116 @@ const App = () => {
     }
   };
 
-  const handleLogin = async () => {
-    if (!loginData.username || !loginData.password) {
-      setStatusMessage('Please enter username and password');
-      setTimeout(() => setStatusMessage(''), 3000);
-      return;
-    }
 
-    // For now, just check if fields are filled - later implement real authentication
-    try {
-      await chrome.storage.local.set({
-        isLoggedIn: true,
-        loginData: loginData
-      });
-      setIsLoggedIn(true);
-      setStatusMessage('Login successful!');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } catch (error) {
-      setStatusMessage('Login failed');
-      setTimeout(() => setStatusMessage(''), 3000);
-    }
-  };
 
   const handleLogout = async () => {
     try {
+      // Try database logout first
+      try {
+        await chrome.runtime.sendMessage({ action: 'logoutUser' });
+      } catch (dbError) {
+        console.warn('Database logout failed, continuing with local logout:', dbError);
+      }
+
+      // Clear local storage
       await chrome.storage.local.set({
         isLoggedIn: false,
         loginData: { username: '', password: '' }
       });
+      
       setIsLoggedIn(false);
+      setCurrentUser(null);
       setLoginData({ username: '', password: '' });
       setStatusMessage('Logged out successfully');
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (error) {
       console.error('Error logging out:', error);
     }
+  };
+
+  const handleDatabaseLogin = async () => {
+    if (!loginData.username || !loginData.password) {
+      setStatusMessage('Please enter email and password');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+
+    try {
+      setStatusMessage('Logging in...');
+      
+      const response = await chrome.runtime.sendMessage({
+        action: 'loginUser',
+        email: loginData.username, // Using username field as email
+        password: loginData.password
+      });
+
+      if (response.success) {
+        setCurrentUser(response.user);
+        setIsLoggedIn(true);
+        setStatusMessage('Login successful!');
+        
+        // Also store in local storage for backward compatibility
+        await chrome.storage.local.set({
+          isLoggedIn: true,
+          loginData: { username: response.user.email, password: '' } // Don't store password
+        });
+        
+        console.log('Database login successful:', response.user.username);
+      } else {
+        setStatusMessage(response.error || 'Login failed');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setStatusMessage('Login failed: ' + error.message);
+    }
+    
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleDatabaseRegister = async () => {
+    if (!loginData.username || !loginData.password) {
+      setStatusMessage('Please enter email and password');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+
+    // Extract username from email for registration
+    const email = loginData.username;
+    const username = email.split('@')[0] || email;
+
+    try {
+      setStatusMessage('Registering...');
+      
+      const response = await chrome.runtime.sendMessage({
+        action: 'registerUser',
+        userData: {
+          username: username,
+          email: email,
+          password: loginData.password
+        }
+      });
+
+      if (response.success) {
+        setCurrentUser(response.user);
+        setIsLoggedIn(true);
+        setStatusMessage('Registration successful!');
+        
+        // Also store in local storage for backward compatibility
+        await chrome.storage.local.set({
+          isLoggedIn: true,
+          loginData: { username: response.user.email, password: '' } // Don't store password
+        });
+        
+        console.log('Database registration successful:', response.user.username);
+      } else {
+        setStatusMessage(response.error || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      setStatusMessage('Registration failed: ' + error.message);
+    }
+    
+    setTimeout(() => setStatusMessage(''), 3000);
   };
 
   const handleResumeUpload = async (event) => {
@@ -434,14 +533,29 @@ const App = () => {
         
         {!isLoggedIn ? (
           <div className="login-form">
+            <div className="auth-mode-selector">
+              <button 
+                className={`mode-btn ${authMode === 'login' ? 'active' : ''}`}
+                onClick={() => setAuthMode('login')}
+              >
+                Login
+              </button>
+              <button 
+                className={`mode-btn ${authMode === 'register' ? 'active' : ''}`}
+                onClick={() => setAuthMode('register')}
+              >
+                Register
+              </button>
+            </div>
+
             <div className="form-group">
-              <label htmlFor="username">Username</label>
+              <label htmlFor="username">Email</label>
               <input
                 id="username"
-                type="text"
+                type="email"
                 value={loginData.username}
                 onChange={(e) => setLoginData({...loginData, username: e.target.value})}
-                placeholder="Enter your username"
+                placeholder="Enter your email address"
               />
             </div>
             
@@ -465,17 +579,44 @@ const App = () => {
               </div>
             </div>
             
-            <button onClick={handleLogin} className="primary-button">
-              <User size={16} />
-              Login
-            </button>
+            <div className="auth-buttons">
+              {authMode === 'login' ? (
+                <button onClick={handleDatabaseLogin} className="primary-button">
+                  <User size={16} />
+                  Login
+                </button>
+              ) : (
+                <button onClick={handleDatabaseRegister} className="primary-button">
+                  <User size={16} />
+                  Create Account
+                </button>
+              )}
+            </div>
+
+            <div className="auth-info">
+              <p>
+                {authMode === 'login' 
+                  ? 'Your login data is securely stored in the database.' 
+                  : 'Create a new account to save your applications and settings.'}
+              </p>
+            </div>
           </div>
         ) : (
           <div className="user-info">
             <div className="user-status">
               <User size={20} />
-              <span>Welcome, {loginData.username}!</span>
+              <span>Welcome{currentUser ? `, ${currentUser.username}` : `, ${loginData.username}`}!</span>
             </div>
+            
+            {currentUser && (
+              <div className="user-details">
+                <p><strong>Email:</strong> {currentUser.email}</p>
+                <p><strong>Member since:</strong> {new Date(currentUser.created_at).toLocaleDateString()}</p>
+                {currentUser.last_login && (
+                  <p><strong>Last login:</strong> {new Date(currentUser.last_login).toLocaleString()}</p>
+                )}
+              </div>
+            )}
             
             {/* Resume Upload Section */}
             <div className="resume-section">

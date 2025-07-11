@@ -56,6 +56,10 @@ try {
     fs.copyFileSync('src/popup/popup-init.js', 'dist/popup-init.js');
     console.log('Popup initialization script copied to dist/');
     
+    // ✅ Copy manifest.json to dist folder
+    fs.copyFileSync('manifest.json', 'dist/manifest.json');
+    console.log('Manifest copied to dist/');
+    
     // ✅ Build Content Script
     await esbuild.build({
         ...commonOptions,

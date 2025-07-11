@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # Node.js API Server
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile_ApiServer
+    container_name: easyjob-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: easyjob_db
+      DB_USER: easyjob_user
+      DB_PASSWORD: easyjob_password
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    networks:
+      - easyjob-network
+
+networks:
+  easyjob-network:
+    external: true
+    name: docker_easyjob-network 
