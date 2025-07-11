@@ -46,6 +46,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'getCurrentUser') {
         handleGetCurrentUser(request, sendResponse);
         return true;
+    } else if (request.action === 'apiRequest') {
+        handleApiRequest(request, sendResponse);
+        return true;
+    } else if (request.action === 'uploadResume') {
+        handleResumeUpload(request, sendResponse);
+        return true;
+    } else if (request.action === 'downloadResume') {
+        handleResumeDownload(request, sendResponse);
+        return true;
     } else if (request.action === 'testOllamaConnection') {
         testOllamaConnection().then(result => {
             sendResponse(result);
@@ -725,6 +734,136 @@ async function handleGetCurrentUser(request, sendResponse) {
         }
     } catch (error) {
         console.error('Error getting current user:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+// Generic API request handler
+async function handleApiRequest(request, sendResponse) {
+    try {
+        const { method, url, data } = request;
+        
+        if (!DATABASE_AVAILABLE) {
+            sendResponse({ success: false, error: 'Database not available' });
+            return;
+        }
+
+        const apiUrl = `${API_BASE_URL}${url}`;
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        };
+
+        if (data && (method === 'POST' || method === 'PUT')) {
+            options.body = JSON.stringify(data);
+        }
+
+        const response = await fetch(apiUrl, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            sendResponse({ success: false, error: result.error || 'API request failed' });
+            return;
+        }
+
+        sendResponse({ success: true, ...result });
+    } catch (error) {
+        console.error('API request error:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+// Resume upload handler
+async function handleResumeUpload(request, sendResponse) {
+    try {
+        const { userId, fileData, formData } = request;
+        
+        if (!DATABASE_AVAILABLE) {
+            sendResponse({ success: false, error: 'Database not available' });
+            return;
+        }
+
+        if (!fileData || !fileData.buffer) {
+            sendResponse({ success: false, error: 'No file data provided' });
+            return;
+        }
+
+        // Create FormData for file upload
+        const uploadData = new FormData();
+        
+        // Convert ArrayBuffer back to Blob/File
+        const fileBlob = new Blob([fileData.buffer], { type: fileData.type });
+        const file = new File([fileBlob], fileData.name, {
+            type: fileData.type,
+            lastModified: fileData.lastModified
+        });
+        
+        uploadData.append('resume', file);
+        uploadData.append('name', formData.name || '');
+        uploadData.append('short_description', formData.short_description || '');
+        uploadData.append('is_default', formData.is_default || false);
+
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/resumes/upload`, {
+            method: 'POST',
+            body: uploadData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            sendResponse({ success: false, error: result.error || 'Upload failed' });
+            return;
+        }
+
+        sendResponse({ success: true, ...result });
+    } catch (error) {
+        console.error('Resume upload error:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
+
+// Resume download handler
+async function handleResumeDownload(request, sendResponse) {
+    try {
+        const { resumeId, fileName } = request;
+        
+        if (!DATABASE_AVAILABLE) {
+            sendResponse({ success: false, error: 'Database not available' });
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/resumes/${resumeId}/download`);
+
+        if (!response.ok) {
+            const result = await response.json();
+            sendResponse({ success: false, error: result.error || 'Download failed' });
+            return;
+        }
+
+        // Get the file as blob
+        const blob = await response.blob();
+        
+        // Create download URL
+        const url = URL.createObjectURL(blob);
+        
+        // Trigger download
+        chrome.downloads.download({
+            url: url,
+            filename: fileName || 'resume'
+        }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+                sendResponse({ success: true, downloadId: downloadId });
+            }
+            
+            // Clean up the URL
+            URL.revokeObjectURL(url);
+        });
+    } catch (error) {
+        console.error('Resume download error:', error);
         sendResponse({ success: false, error: error.message });
     }
 }

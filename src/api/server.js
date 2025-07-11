@@ -2,9 +2,51 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadsDir);
+    },
+    filename: function (req, file, cb) {
+        // Generate unique filename: userId_timestamp_originalname
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const userId = req.params.userId || 'unknown';
+        cb(null, `${userId}_${uniqueSuffix}_${file.originalname}`);
+    }
+});
+
+const fileFilter = (req, file, cb) => {
+    // Allow only specific file types
+    const allowedTypes = ['.pdf', '.doc', '.docx', '.txt', '.yaml', '.yml', '.json'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedTypes.includes(fileExtension)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Invalid file type. Only PDF, DOC, DOCX, TXT, YAML, YML, and JSON files are allowed.'), false);
+    }
+};
+
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    }
+});
 
 // Database configuration
 const pool = new Pool({
@@ -349,9 +391,8 @@ app.get('/api/resumes/stats', async (req, res) => {
         let query = `
             SELECT 
                 COUNT(*) as total_resumes,
-                COUNT(CASE WHEN is_default = true THEN 1 END) as default_resumes,
-                COUNT(DISTINCT extension) as unique_extensions,
-                COUNT(DISTINCT user_id) as unique_users
+                COUNT(DISTINCT user_id) as total_users_with_resumes,
+                array_agg(DISTINCT extension) as file_types
             FROM resume
         `;
         const values = [];
@@ -362,7 +403,16 @@ app.get('/api/resumes/stats', async (req, res) => {
         }
 
         const result = await pool.query(query, values);
-        res.json({ success: true, stats: result.rows[0] });
+        const stats = result.rows[0];
+        
+        // Convert string numbers to integers
+        const formattedStats = {
+            total_resumes: parseInt(stats.total_resumes) || 0,
+            total_users_with_resumes: parseInt(stats.total_users_with_resumes) || 0,
+            file_types: stats.file_types || []
+        };
+        
+        res.json({ success: true, stats: formattedStats });
     } catch (error) {
         console.error('Get resume stats error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -632,9 +682,194 @@ app.get('/api/resumes/:resumeId/applications', async (req, res) => {
     }
 });
 
+// Upload resume file
+app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { name, short_description, is_default } = req.body;
+        
+        if (!req.file) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'No file uploaded' 
+            });
+        }
+        
+        // Verify user exists
+        const userCheck = await pool.query(
+            'SELECT id FROM users WHERE id = $1',
+            [userId]
+        );
+
+        if (userCheck.rows.length === 0) {
+            // Clean up uploaded file
+            fs.unlinkSync(req.file.path);
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        // Get file info
+        const fileExtension = path.extname(req.file.originalname).toLowerCase().substring(1);
+        const fileName = name || path.basename(req.file.originalname, path.extname(req.file.originalname));
+        const filePath = req.file.path;
+        const relativePath = path.relative(path.join(__dirname, '..', '..'), filePath);
+
+        // If this is being set as default, unset other defaults first
+        if (is_default === 'true' || is_default === true) {
+            await pool.query(
+                'UPDATE resume SET is_default = false WHERE user_id = $1',
+                [userId]
+            );
+        }
+
+        // Create resume record in database
+        const result = await pool.query(
+            'INSERT INTO resume (name, extension, path, short_description, user_id, is_default) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, extension, path, short_description, creation_date, updated_date, user_id, is_default',
+            [fileName, fileExtension, relativePath, short_description, userId, is_default === 'true' || is_default === true]
+        );
+
+        const newResume = result.rows[0];
+        
+        // Return resume info with file details
+        res.status(201).json({ 
+            success: true, 
+            resume: {
+                ...newResume,
+                file_size: req.file.size,
+                original_name: req.file.originalname,
+                mime_type: req.file.mimetype
+            }
+        });
+    } catch (error) {
+        console.error('Upload resume error:', error);
+        
+        // Clean up uploaded file on error
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
+        
+        // Check if it's a multer error (file validation)
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ success: false, error: 'File too large. Maximum size is 5MB.' });
+        }
+        
+        if (error.message && error.message.includes('Invalid file type')) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Download resume file
+app.get('/api/resumes/:resumeId/download', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Get resume info from database
+        const result = await pool.query(
+            'SELECT id, name, extension, path, user_id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        const resume = result.rows[0];
+        const filePath = path.resolve(path.join(__dirname, '..', '..', resume.path));
+
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume file not found on disk' 
+            });
+        }
+
+        // Set appropriate headers
+        res.setHeader('Content-Disposition', `attachment; filename="${resume.name}.${resume.extension}"`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+
+        // Send file
+        res.sendFile(filePath);
+    } catch (error) {
+        console.error('Download resume error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get resume file info
+app.get('/api/resumes/:resumeId/file-info', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Get resume info from database
+        const result = await pool.query(
+            'SELECT id, name, extension, path, user_id FROM resume WHERE id = $1',
+            [resumeId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume not found' 
+            });
+        }
+
+        const resume = result.rows[0];
+        const filePath = path.resolve(path.join(__dirname, '..', '..', resume.path));
+
+        // Check if file exists and get stats
+        if (fs.existsSync(filePath)) {
+            const stats = fs.statSync(filePath);
+            res.json({ 
+                success: true, 
+                file_info: {
+                    exists: true,
+                    size: stats.size,
+                    created: stats.birthtime,
+                    modified: stats.mtime,
+                    path: resume.path
+                }
+            });
+        } else {
+            res.json({ 
+                success: true, 
+                file_info: {
+                    exists: false,
+                    path: resume.path
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Get file info error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
     console.error('Unhandled error:', error);
+    
+    // Handle multer errors
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ success: false, error: 'File too large. Maximum size is 5MB.' });
+        }
+        return res.status(400).json({ success: false, error: error.message });
+    }
+    
+    // Handle file type validation errors
+    if (error.message && error.message.includes('Invalid file type')) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+    
     res.status(500).json({ 
         success: false, 
         error: 'Internal server error' 
