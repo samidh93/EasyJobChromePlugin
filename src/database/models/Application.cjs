@@ -6,6 +6,7 @@ class Application {
         this.user_id = applicationData.user_id;
         this.job_id = applicationData.job_id;
         this.ai_settings_id = applicationData.ai_settings_id;
+        this.resume_id = applicationData.resume_id;
         this.status = applicationData.status;
         this.applied_at = applicationData.applied_at;
         this.response_received_at = applicationData.response_received_at;
@@ -17,14 +18,15 @@ class Application {
     // Create a new application
     static async create(applicationData) {
         const query = `
-            INSERT INTO applications (user_id, job_id, ai_settings_id, status, notes)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO applications (user_id, job_id, ai_settings_id, resume_id, status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
         `;
         const values = [
             applicationData.user_id,
             applicationData.job_id,
             applicationData.ai_settings_id,
+            applicationData.resume_id,
             applicationData.status || 'applied',
             applicationData.notes
         ];
@@ -127,10 +129,14 @@ class Application {
                 c.industry,
                 c.website as company_website,
                 ai.ai_provider,
-                ai.ai_model
+                ai.ai_model,
+                r.name as resume_name,
+                r.extension as resume_extension,
+                r.path as resume_path
             FROM applications a
             JOIN jobs j ON a.job_id = j.id
             JOIN companies c ON j.company_id = c.id
+            JOIN resume r ON a.resume_id = r.id
             LEFT JOIN ai_settings ai ON a.ai_settings_id = ai.id
             WHERE a.id = $1
         `;
@@ -185,20 +191,18 @@ class Application {
         }
     }
 
-    // Get application history
-    async getHistory() {
-        const query = `
-            SELECT * FROM application_history 
-            WHERE application_id = $1 
-            ORDER BY created_at DESC
-        `;
+    // Get the resume used for this application
+    async getResume() {
+        const query = 'SELECT * FROM resume WHERE id = $1';
         try {
-            const result = await pool.query(query, [this.id]);
-            return result.rows;
+            const result = await pool.query(query, [this.resume_id]);
+            return result.rows[0] || null;
         } catch (error) {
-            throw new Error(`Failed to get application history: ${error.message}`);
+            throw new Error(`Failed to get application resume: ${error.message}`);
         }
     }
+
+
 
     // Get applications by status
     static async findByStatus(status, userId = null) {

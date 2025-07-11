@@ -6,9 +6,6 @@ class User {
         this.username = userData.username;
         this.email = userData.email;
         this.password_hash = userData.password_hash;
-        this.resume_original = userData.resume_original;
-        this.resume_parsed = userData.resume_parsed;
-        this.resume_type = userData.resume_type;
         this.created_at = userData.created_at;
         this.updated_at = userData.updated_at;
         this.last_login = userData.last_login;
@@ -18,17 +15,14 @@ class User {
     // Create a new user
     static async create(userData) {
         const query = `
-            INSERT INTO users (username, email, password_hash, resume_original, resume_parsed, resume_type)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO users (username, email, password_hash)
+            VALUES ($1, $2, $3)
             RETURNING *
         `;
         const values = [
             userData.username,
             userData.email,
-            userData.password_hash,
-            userData.resume_original,
-            userData.resume_parsed,
-            userData.resume_type
+            userData.password_hash
         ];
 
         try {
@@ -121,30 +115,7 @@ class User {
         }
     }
 
-    // Update resume data
-    async updateResume(resumeData) {
-        const query = `
-            UPDATE users 
-            SET resume_original = $1, resume_parsed = $2, resume_type = $3
-            WHERE id = $4
-            RETURNING *
-        `;
-        const values = [
-            resumeData.original,
-            resumeData.parsed,
-            resumeData.type,
-            this.id
-        ];
 
-        try {
-            const result = await pool.query(query, values);
-            const updatedUser = new User(result.rows[0]);
-            Object.assign(this, updatedUser);
-            return this;
-        } catch (error) {
-            throw new Error(`Failed to update resume: ${error.message}`);
-        }
-    }
 
     // Deactivate user
     async deactivate() {
@@ -195,6 +166,28 @@ class User {
             return result.rows[0] || null;
         } catch (error) {
             throw new Error(`Failed to get default AI settings: ${error.message}`);
+        }
+    }
+
+    // Get user's resumes
+    async getResumes() {
+        const query = 'SELECT * FROM resume WHERE user_id = $1 ORDER BY is_default DESC, creation_date DESC';
+        try {
+            const result = await pool.query(query, [this.id]);
+            return result.rows;
+        } catch (error) {
+            throw new Error(`Failed to get user resumes: ${error.message}`);
+        }
+    }
+
+    // Get default resume
+    async getDefaultResume() {
+        const query = 'SELECT * FROM resume WHERE user_id = $1 AND is_default = true';
+        try {
+            const result = await pool.query(query, [this.id]);
+            return result.rows[0] || null;
+        } catch (error) {
+            throw new Error(`Failed to get default resume: ${error.message}`);
         }
     }
 

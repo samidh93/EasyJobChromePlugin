@@ -14,8 +14,8 @@ echo "======================================"
 case "${1:-help}" in
     "start")
         echo "Starting EasyJob database..."
-        cd "$PROJECT_ROOT"
-        docker-compose -f docker/docker-compose-db.yml up -d
+        cd "$DOCKER_DIR"
+        docker-compose -f docker-compose-db.yml up -d
         
         echo "⏳ Waiting for database to be ready..."
         sleep 5
@@ -55,39 +55,47 @@ case "${1:-help}" in
         echo "   Database: easyjob_db"
         echo "   Username: easyjob_user"
         echo "   Password: easyjob_password"
+        echo ""
+        echo "🌐 Network: easyjob-network created"
+        echo "   Ready for API server connection"
         ;;
+    
     "stop")
         echo "Stopping EasyJob database..."
-        cd "$PROJECT_ROOT"
-        docker-compose -f docker/docker-compose-db.yml down
+        cd "$DOCKER_DIR"
+        docker-compose -f docker-compose-db.yml down
         echo "✅ Database stopped!"
         ;;
+    
     "restart")
         echo "Restarting EasyJob database..."
-        cd "$PROJECT_ROOT"
-        docker-compose -f docker/docker-compose-db.yml restart
+        cd "$DOCKER_DIR"
+        docker-compose -f docker-compose-db.yml restart
         echo "✅ Database restarted!"
         ;;
+    
     "logs")
         echo "Showing database logs..."
-        cd "$PROJECT_ROOT"
-        docker-compose -f docker/docker-compose-db.yml logs -f
+        cd "$DOCKER_DIR"
+        docker-compose -f docker-compose-db.yml logs -f
         ;;
+    
     "reset")
         echo "⚠️  Resetting database (this will delete all data)..."
         read -p "Are you sure? This will permanently delete all data! (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             echo "🗑️  Stopping containers and removing volumes..."
-            cd "$PROJECT_ROOT"
-            docker-compose -f docker/docker-compose-db.yml down -v
+            cd "$DOCKER_DIR"
+            docker-compose -f docker-compose-db.yml down -v
             echo "🚀 Starting fresh database..."
-            docker-compose -f docker/docker-compose-db.yml up -d
+            docker-compose -f docker-compose-db.yml up -d
             echo "✅ Database reset complete!"
         else
             echo "❌ Reset cancelled"
         fi
         ;;
+    
     "backup")
         echo "Creating database backup..."
         timestamp=$(date +%Y%m%d_%H%M%S)
@@ -101,6 +109,7 @@ case "${1:-help}" in
             exit 1
         fi
         ;;
+    
     "restore")
         if [ -z "$2" ]; then
             echo "❌ Please specify backup file: ./run-database.sh restore backup_file.sql"
@@ -127,18 +136,24 @@ case "${1:-help}" in
             echo "❌ Restore cancelled"
         fi
         ;;
+    
     "status")
         echo "Database status:"
-        cd "$PROJECT_ROOT"
-        docker-compose -f docker/docker-compose-db.yml ps
+        cd "$DOCKER_DIR"
+        docker-compose -f docker-compose-db.yml ps
         echo ""
         echo "Container health:"
         docker exec easyjob-postgres pg_isready -U easyjob_user -d easyjob_db && echo "✅ PostgreSQL: Healthy" || echo "❌ PostgreSQL: Not responding"
+        echo ""
+        echo "Network status:"
+        docker network ls | grep easyjob-network && echo "✅ Network: easyjob-network exists" || echo "❌ Network: easyjob-network missing"
         ;;
+    
     "connect")
         echo "Connecting to PostgreSQL database..."
         docker exec -it easyjob-postgres psql -U easyjob_user -d easyjob_db
         ;;
+    
     "query")
         if [ -z "$2" ]; then
             echo "❌ Please specify SQL query: ./run-database.sh query 'SELECT * FROM users;'"
@@ -147,53 +162,27 @@ case "${1:-help}" in
         echo "Executing query: $2"
         docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "$2"
         ;;
-    "stats")
-        echo "📊 Database Statistics:"
-        echo "======================"
-        docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "
-        SELECT 
-            schemaname,
-            relname as tablename,
-            n_tup_ins as inserts,
-            n_tup_upd as updates,
-            n_tup_del as deletes,
-            n_live_tup as live_rows
-        FROM pg_stat_user_tables 
-        ORDER BY live_rows DESC;
-        "
-        ;;
-    "clean")
-        echo "🧹 Cleaning up unused Docker resources..."
-        docker system prune -f
-        echo "✅ Cleanup complete!"
-        ;;
-    "help"|"-h"|"--help")
-        echo "Usage: ./run-database.sh <command>"
+    
+    "help"|*)
+        echo "Usage: $0 COMMAND [OPTIONS]"
         echo ""
         echo "Commands:"
-        echo "  start     - Start the database containers"
-        echo "  stop      - Stop the database containers"
-        echo "  restart   - Restart the database containers"
-        echo "  logs      - Show database logs (follow mode)"
-        echo "  reset     - Reset database (delete all data)"
-        echo "  backup    - Create database backup"
-        echo "  restore   - Restore database from backup"
-        echo "  status    - Show database status"
-        echo "  connect   - Connect to PostgreSQL shell"
-        echo "  query     - Execute SQL query"
-        echo "  stats     - Show database statistics"
-        echo "  clean     - Clean up Docker resources"
-        echo "  help      - Show this help"
+        echo "  start      Start PostgreSQL database + pgAdmin"
+        echo "  stop       Stop all database containers"
+        echo "  restart    Restart all database containers"
+        echo "  logs       Show database logs"
+        echo "  reset      Reset database (deletes all data)"
+        echo "  backup     Create database backup"
+        echo "  restore    Restore from backup file"
+        echo "  status     Show container status and health"
+        echo "  connect    Connect to PostgreSQL shell"
+        echo "  query      Execute SQL query"
+        echo "  help       Show this help message"
         echo ""
         echo "Examples:"
-        echo "  ./run-database.sh start"
-        echo "  ./run-database.sh backup"
-        echo "  ./run-database.sh restore backup_20241201_143022.sql"
-        echo "  ./run-database.sh query 'SELECT COUNT(*) FROM applications;'"
-        ;;
-    *)
-        echo "❌ Unknown command: $1"
-        echo "Use './run-database.sh help' for available commands"
-        exit 1
+        echo "  $0 start           Start database"
+        echo "  $0 backup          Create backup"
+        echo "  $0 restore backup_20241201_143022.sql"
+        echo "  $0 query 'SELECT COUNT(*) FROM users;'"
         ;;
 esac 
