@@ -20,6 +20,10 @@ const App = () => {
   const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [librariesLoaded, setLibrariesLoaded] = useState(false);
   
+  // AI Settings state
+  const [hasAiSettings, setHasAiSettings] = useState(false);
+  const [isLoadingAiSettings, setIsLoadingAiSettings] = useState(false);
+  
   // Application History State
   const [applicationHistory, setApplicationHistory] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState('');
@@ -50,11 +54,16 @@ const App = () => {
     };
   }, []);
 
-  // Load resume data when currentUser changes
+  // Load resume data and AI settings when currentUser changes
   useEffect(() => {
     if (currentUser) {
-      console.log('App: Current user changed, loading resume data');
+      console.log('App: Current user changed, loading resume data and AI settings');
       loadResumeData();
+      loadAiSettingsStatus();
+    } else {
+      // Reset states when user logs out
+      setIsResumeLoaded(false);
+      setHasAiSettings(false);
     }
   }, [currentUser]);
 
@@ -214,9 +223,45 @@ const App = () => {
     }
   };
 
+  const loadAiSettingsStatus = async () => {
+    if (!currentUser) {
+      setHasAiSettings(false);
+      return;
+    }
+    
+    setIsLoadingAiSettings(true);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'GET',
+        url: `/users/${currentUser.id}/ai-settings`
+      });
+
+      if (response && response.success) {
+        const aiSettings = response.ai_settings || [];
+        setHasAiSettings(aiSettings.length > 0);
+        console.log('App: AI settings status updated - settings count:', aiSettings.length);
+      } else {
+        setHasAiSettings(false);
+        console.log('App: No AI settings found in database');
+      }
+    } catch (error) {
+      console.error('Error loading AI settings status:', error);
+      setHasAiSettings(false);
+    } finally {
+      setIsLoadingAiSettings(false);
+    }
+  };
+
   const handleStartApply = async () => {
     if (!isResumeLoaded) {
       setStatusMessage('Please upload a resume first');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+
+    if (!hasAiSettings) {
+      setStatusMessage('Please configure AI settings first');
       setTimeout(() => setStatusMessage(''), 3000);
       return;
     }
@@ -416,7 +461,8 @@ const App = () => {
   const handleAiSettingsUpdate = () => {
     // Callback for when AI settings are updated
     console.log('App: AI settings updated');
-    // Could reload AI settings or update UI state here if needed
+    // Reload AI settings status after update
+    loadAiSettingsStatus();
   };
 
   const getUniqueCompanies = () => {
@@ -505,16 +551,20 @@ const App = () => {
             
             <div className="auto-apply-section">
               <h3>Auto Apply</h3>
-              <p>Start applying to jobs automatically using your uploaded resume.</p>
+              <p>Start applying to jobs automatically using your uploaded resume and AI settings.</p>
               
               <div className="apply-status">
                 {!isResumeLoaded ? (
                   <div className="warning-message">
                     <span>⚠️ Please upload a resume in the "Resumes" tab to start applying</span>
                   </div>
+                ) : !hasAiSettings ? (
+                  <div className="warning-message">
+                    <span>⚠️ Please configure AI settings in the "AI Settings" tab to start applying</span>
+                  </div>
                 ) : (
                   <div className="success-message">
-                    <span>✅ Resume loaded and ready for applications</span>
+                    <span>✅ Resume and AI settings configured - ready for applications</span>
                   </div>
                 )}
               </div>
@@ -523,8 +573,12 @@ const App = () => {
                 <button 
                   onClick={handleStartApply} 
                   className="primary-button" 
-                  disabled={isApplying || !isResumeLoaded || !librariesLoaded}
-                  title={!isResumeLoaded ? "Please upload a resume first" : "Start automatic job applications"}
+                  disabled={isApplying || !isResumeLoaded || !hasAiSettings || !librariesLoaded || isLoadingAiSettings}
+                  title={
+                    !isResumeLoaded ? "Please upload a resume first" : 
+                    !hasAiSettings ? "Please configure AI settings first" : 
+                    "Start automatic job applications"
+                  }
                 >
                   <Play size={16} />
                   Start Auto Apply
