@@ -259,6 +259,33 @@ class Job {
             throw new Error(`Failed to delete job: ${error.message}`);
         }
     }
+
+    // Convert to JSON for API responses
+    toJSON() {
+        return {
+            id: this.id,
+            company_id: this.company_id,
+            title: this.title,
+            location: this.location,
+            is_remote: this.is_remote,
+            job_type: this.job_type,
+            platform: this.platform,
+            platform_job_id: this.platform_job_id,
+            job_url: this.job_url,
+            job_description: this.job_description,
+            applicant_count: this.applicant_count,
+            posted_date: this.posted_date,
+            status: this.status,
+            created_at: this.created_at,
+            updated_at: this.updated_at,
+            // Include additional fields if they exist (from joins)
+            ...(this.company_name && { company_name: this.company_name }),
+            ...(this.industry && { industry: this.industry }),
+            ...(this.size && { size: this.size }),
+            ...(this.website && { website: this.website }),
+            ...(this.linkedin_url && { linkedin_url: this.linkedin_url })
+        };
+    }
 }
 
 module.exports = Job; 

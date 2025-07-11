@@ -243,6 +243,21 @@ class Company {
             throw new Error(`Failed to delete company: ${error.message}`);
         }
     }
+
+    // Convert to JSON for API responses
+    toJSON() {
+        return {
+            id: this.id,
+            name: this.name,
+            industry: this.industry,
+            size: this.size,
+            location: this.location,
+            website: this.website,
+            linkedin_url: this.linkedin_url,
+            created_at: this.created_at,
+            updated_at: this.updated_at
+        };
+    }
 }
 
 module.exports = Company; 
