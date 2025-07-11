@@ -659,9 +659,15 @@ const App = () => {
             {currentUser && (
               <div className="user-details">
                 <p><strong>Email:</strong> {currentUser.email}</p>
-                <p><strong>Member since:</strong> {new Date(currentUser.created_at).toLocaleDateString()}</p>
+                <p><strong>Member since:</strong> {
+                  currentUser.created_at 
+                    ? new Date(currentUser.created_at).toLocaleDateString()
+                    : 'Unknown'
+                }</p>
                 {currentUser.last_login && (
-                  <p><strong>Last login:</strong> {new Date(currentUser.last_login).toLocaleString()}</p>
+                  <p><strong>Last login:</strong> {
+                    new Date(currentUser.last_login).toLocaleString()
+                  }</p>
                 )}
               </div>
             )}

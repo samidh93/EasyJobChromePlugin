@@ -83,9 +83,12 @@ const ResumeManager = ({ currentUser, onResumeUpdate }) => {
             // Convert file to ArrayBuffer since File objects can't be passed through Chrome messages
             const fileBuffer = await selectedFile.arrayBuffer();
             
+            // Convert ArrayBuffer to Uint8Array for serialization
+            const uint8Array = new Uint8Array(fileBuffer);
+            
             // Create file metadata
             const fileData = {
-                buffer: fileBuffer,
+                buffer: Array.from(uint8Array), // Convert to regular array for serialization
                 name: selectedFile.name,
                 type: selectedFile.type,
                 size: selectedFile.size,
@@ -267,21 +270,6 @@ const ResumeManager = ({ currentUser, onResumeUpdate }) => {
                     <Plus size={16} />
                     Upload Resume
                 </button>
-
-                {/* Debug Info */}
-                <div style={{ 
-                    fontSize: '12px', 
-                    color: '#666', 
-                    marginBottom: '10px', 
-                    padding: '8px', 
-                    background: '#f5f5f5', 
-                    borderRadius: '4px' 
-                }}>
-                    <strong>Debug Info:</strong><br />
-                    Current User: {currentUser ? `${currentUser.username} (${currentUser.id})` : 'None'}<br />
-                    Loading: {loading ? 'Yes' : 'No'}<br />
-                    Resumes Count: {resumes.length}
-                </div>
 
                 {statusMessage && (
                     <div className="status-message">
