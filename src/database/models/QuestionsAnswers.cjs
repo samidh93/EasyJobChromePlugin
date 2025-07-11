@@ -367,6 +367,21 @@ class QuestionsAnswers {
             throw new Error(`Failed to delete questions-answers by application ID: ${error.message}`);
         }
     }
+
+    // Convert to JSON for API responses
+    toJSON() {
+        return {
+            id: this.id,
+            application_id: this.application_id,
+            question: this.question,
+            answer: this.answer,
+            question_type: this.question_type,
+            ai_model_used: this.ai_model_used,
+            confidence_score: this.confidence_score,
+            is_skipped: this.is_skipped,
+            created_at: this.created_at
+        };
+    }
 }
 
 module.exports = QuestionsAnswers; 

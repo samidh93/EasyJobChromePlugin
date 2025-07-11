@@ -6,11 +6,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Import the UserService, ResumeService, AISettingsService, ApplicationService and models
+// Import the UserService, ResumeService, AISettingsService, ApplicationService, CompanyService, JobService, QuestionsAnswersService and models
 const UserService = require('./database/user-service.cjs');
 const ResumeService = require('./database/resume-service.cjs');
 const AISettingsService = require('./database/ai-settings-service.cjs');
 const ApplicationService = require('./database/application-service.cjs');
+const CompanyService = require('./database/company-service.cjs');
+const JobService = require('./database/job-service.cjs');
+const QuestionsAnswersService = require('./database/questionsAnswers-service.cjs');
 const { User } = require('./database/models/index.cjs');
 
 const app = express();
@@ -1041,34 +1044,284 @@ app.put('/api/applications/:applicationId/response-received', async (req, res) =
     }
 });
 
-// Get questions and answers for an application
+// ===== QUESTIONS-ANSWERS ENDPOINTS =====
+
+// Get all questions-answers for an application
 app.get('/api/applications/:applicationId/questions-answers', async (req, res) => {
     try {
         const { applicationId } = req.params;
         
-        const questionsAnswers = await ApplicationService.getApplicationQuestionsAnswers(applicationId);
-
-        res.json({ success: true, questions_answers: questionsAnswers });
+        const qas = await QuestionsAnswersService.getQuestionAnswersByApplicationId(applicationId);
+        res.json({ success: true, questions_answers: qas });
     } catch (error) {
-        console.error('Get application questions answers error:', error);
+        console.error('Get questions-answers by application error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// Add question and answer to an application
-app.post('/api/applications/:applicationId/questions-answers', async (req, res) => {
+// Get questions-answers by question type
+app.get('/api/questions-answers/type/:questionType', async (req, res) => {
     try {
-        const { applicationId } = req.params;
-        const { question, answer, question_type, ai_model_used, confidence_score, is_skipped } = req.body;
+        const { questionType } = req.params;
+        const { applicationId } = req.query;
         
-        if (!question || !answer) {
+        const qas = await QuestionsAnswersService.getQuestionAnswersByType(questionType, applicationId);
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Get questions-answers by type error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get skipped questions
+app.get('/api/questions-answers/skipped', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const qas = await QuestionsAnswersService.getSkippedQuestions(applicationId);
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Get skipped questions error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get questions-answers by AI model
+app.get('/api/questions-answers/ai-model/:aiModel', async (req, res) => {
+    try {
+        const { aiModel } = req.params;
+        const { applicationId } = req.query;
+        
+        const qas = await QuestionsAnswersService.getQuestionAnswersByAIModel(aiModel, applicationId);
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Get questions-answers by AI model error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get low confidence questions
+app.get('/api/questions-answers/low-confidence', async (req, res) => {
+    try {
+        const { threshold = 0.5, applicationId } = req.query;
+        
+        const qas = await QuestionsAnswersService.getLowConfidenceQuestions(parseFloat(threshold), applicationId);
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Get low confidence questions error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get recent questions-answers
+app.get('/api/questions-answers/recent', async (req, res) => {
+    try {
+        const { limit = 10, applicationId } = req.query;
+        
+        const qas = await QuestionsAnswersService.getRecentQuestionAnswers(parseInt(limit), applicationId);
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Get recent questions-answers error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search questions by text
+app.get('/api/questions-answers/search/questions', async (req, res) => {
+    try {
+        const { q: searchTerm, applicationId, limit = 20 } = req.query;
+        
+        if (!searchTerm) {
             return res.status(400).json({ 
                 success: false, 
-                error: 'Question and answer are required' 
+                error: 'Search term is required' 
             });
         }
 
-        const questionAnswer = await ApplicationService.addQuestionAnswer(applicationId, {
+        const qas = await QuestionsAnswersService.searchQuestions(searchTerm, applicationId, parseInt(limit));
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Search questions error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search answers by text
+app.get('/api/questions-answers/search/answers', async (req, res) => {
+    try {
+        const { q: searchTerm, applicationId, limit = 20 } = req.query;
+        
+        if (!searchTerm) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Search term is required' 
+            });
+        }
+
+        const qas = await QuestionsAnswersService.searchAnswers(searchTerm, applicationId, parseInt(limit));
+        res.json({ success: true, questions_answers: qas });
+    } catch (error) {
+        console.error('Search answers error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get questions-answers statistics
+app.get('/api/questions-answers/stats', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const stats = await QuestionsAnswersService.getStats(applicationId);
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get questions-answers stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get question types statistics
+app.get('/api/questions-answers/stats/question-types', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const stats = await QuestionsAnswersService.getQuestionTypesStats(applicationId);
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get question types stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get AI model performance statistics
+app.get('/api/questions-answers/stats/ai-models', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const stats = await QuestionsAnswersService.getAIModelStats(applicationId);
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get AI model stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get unique question types
+app.get('/api/questions-answers/types', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const types = await QuestionsAnswersService.getUniqueQuestionTypes(applicationId);
+        res.json({ success: true, question_types: types });
+    } catch (error) {
+        console.error('Get unique question types error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get unique AI models
+app.get('/api/questions-answers/ai-models', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const models = await QuestionsAnswersService.getUniqueAIModels(applicationId);
+        res.json({ success: true, ai_models: models });
+    } catch (error) {
+        console.error('Get unique AI models error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get questions-answers count
+app.get('/api/questions-answers/count', async (req, res) => {
+    try {
+        const { applicationId } = req.query;
+        
+        const count = await QuestionsAnswersService.getQuestionAnswersCount(applicationId);
+        res.json({ success: true, count });
+    } catch (error) {
+        console.error('Get questions-answers count error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Check if question-answer exists
+app.get('/api/questions-answers/:qaId/exists', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const exists = await QuestionsAnswersService.questionAnswerExists(qaId);
+        res.json({ success: true, exists });
+    } catch (error) {
+        console.error('Question-answer exists check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get application for question-answer
+app.get('/api/questions-answers/:qaId/application', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const application = await QuestionsAnswersService.getApplicationForQuestionAnswer(qaId);
+        
+        if (!application) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Application not found for this question-answer' 
+            });
+        }
+
+        res.json({ success: true, application });
+    } catch (error) {
+        console.error('Get application for question-answer error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get question-answer by ID - MUST BE LAST AMONG GET ROUTES
+app.get('/api/questions-answers/:qaId', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const qa = await QuestionsAnswersService.getQuestionAnswerById(qaId);
+        
+        if (!qa) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Question-answer not found' 
+            });
+        }
+
+        res.json({ success: true, question_answer: qa });
+    } catch (error) {
+        console.error('Get question-answer by ID error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create new question-answer
+app.post('/api/questions-answers', async (req, res) => {
+    try {
+        const { application_id, question, answer, question_type, ai_model_used, confidence_score, is_skipped } = req.body;
+        
+        if (!application_id || !question) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Application ID and question are required' 
+            });
+        }
+
+        // Verify application exists
+        const application = await ApplicationService.getApplicationById(application_id);
+        if (!application) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Application not found' 
+            });
+        }
+
+        const newQA = await QuestionsAnswersService.createQuestionAnswer({
+            application_id,
             question,
             answer,
             question_type,
@@ -1077,64 +1330,838 @@ app.post('/api/applications/:applicationId/questions-answers', async (req, res) 
             is_skipped
         });
 
-        res.status(201).json({ success: true, question_answer: questionAnswer });
+        res.status(201).json({ success: true, question_answer: newQA });
     } catch (error) {
-        console.error('Add question answer error:', error);
+        console.error('Create question-answer error:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 });
 
-// Get the resume used for an application
-app.get('/api/applications/:applicationId/resume', async (req, res) => {
+// Update question-answer
+app.put('/api/questions-answers/:qaId', async (req, res) => {
     try {
-        const { applicationId } = req.params;
+        const { qaId } = req.params;
+        const updateData = req.body;
         
-        const resume = await ApplicationService.getApplicationResume(applicationId);
+        const updatedQA = await QuestionsAnswersService.updateQuestionAnswer(qaId, updateData);
 
-        if (!resume) {
-            return res.status(404).json({ 
+        res.json({ success: true, question_answer: updatedQA });
+    } catch (error) {
+        console.error('Update question-answer error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Update answer only
+app.put('/api/questions-answers/:qaId/answer', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        const { answer, confidence_score } = req.body;
+        
+        if (!answer) {
+            return res.status(400).json({ 
                 success: false, 
-                error: 'Resume not found' 
+                error: 'Answer is required' 
             });
         }
 
-        res.json({ success: true, resume });
+        const updatedQA = await QuestionsAnswersService.updateAnswer(qaId, answer, confidence_score);
+
+        res.json({ success: true, question_answer: updatedQA });
     } catch (error) {
-        console.error('Get application resume error:', error);
+        console.error('Update answer error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Mark question as skipped
+app.put('/api/questions-answers/:qaId/skip', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const updatedQA = await QuestionsAnswersService.markQuestionSkipped(qaId);
+
+        res.json({ success: true, question_answer: updatedQA });
+    } catch (error) {
+        console.error('Mark question skipped error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Mark question as not skipped
+app.put('/api/questions-answers/:qaId/unskip', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const updatedQA = await QuestionsAnswersService.markQuestionNotSkipped(qaId);
+
+        res.json({ success: true, question_answer: updatedQA });
+    } catch (error) {
+        console.error('Mark question not skipped error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Delete question-answer
+app.delete('/api/questions-answers/:qaId', async (req, res) => {
+    try {
+        const { qaId } = req.params;
+        
+        const result = await QuestionsAnswersService.deleteQuestionAnswer(qaId);
+
+        res.json({ success: true, message: result.message });
+    } catch (error) {
+        console.error('Delete question-answer error:', error);
+        
+        if (error.message.includes('not found')) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Question-answer not found' 
+            });
+        }
+        
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// Delete an application
-app.delete('/api/applications/:applicationId', async (req, res) => {
+// Delete all questions-answers for an application
+app.delete('/api/applications/:applicationId/questions-answers', async (req, res) => {
     try {
         const { applicationId } = req.params;
         
-        const deleted = await ApplicationService.deleteApplication(applicationId);
+        const result = await QuestionsAnswersService.deleteQuestionAnswersByApplicationId(applicationId);
+
+        res.json({ success: true, message: result.message, deleted_count: result.deleted_count });
+    } catch (error) {
+        console.error('Delete questions-answers by application error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ===== COMPANY ENDPOINTS =====
+
+// Get all companies (with pagination)
+app.get('/api/companies', async (req, res) => {
+    try {
+        const { limit = 50, offset = 0 } = req.query;
+        
+        const companies = await CompanyService.getAllCompanies(parseInt(limit), parseInt(offset));
+
+        res.json({ success: true, companies });
+    } catch (error) {
+        console.error('Get companies error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get companies count
+app.get('/api/companies/count', async (req, res) => {
+    try {
+        const count = await CompanyService.getCompaniesCount();
+
+        res.json({ success: true, count });
+    } catch (error) {
+        console.error('Get companies count error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company statistics
+app.get('/api/companies/stats', async (req, res) => {
+    try {
+        const stats = await CompanyService.getGlobalCompanyStats();
+        
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get company stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all industries
+app.get('/api/companies/industries', async (req, res) => {
+    try {
+        const industries = await CompanyService.getIndustries();
+
+        res.json({ success: true, industries });
+    } catch (error) {
+        console.error('Get industries error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search companies
+app.get('/api/companies/search', async (req, res) => {
+    try {
+        const { q: searchTerm, limit = 20 } = req.query;
+        
+        if (!searchTerm) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Search term is required' 
+            });
+        }
+
+        const companies = await CompanyService.searchCompanies(searchTerm, parseInt(limit));
+
+        res.json({ success: true, companies });
+    } catch (error) {
+        console.error('Search companies error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get companies by industry
+app.get('/api/companies/industry/:industry', async (req, res) => {
+    try {
+        const { industry } = req.params;
+        
+        const companies = await CompanyService.getCompaniesByIndustry(industry);
+
+        res.json({ success: true, companies });
+    } catch (error) {
+        console.error('Get companies by industry error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get companies by size
+app.get('/api/companies/size/:size', async (req, res) => {
+    try {
+        const { size } = req.params;
+        
+        const companies = await CompanyService.getCompaniesBySize(size);
+
+        res.json({ success: true, companies });
+    } catch (error) {
+        console.error('Get companies by size error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get a specific company by ID
+app.get('/api/companies/:companyId', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const company = await CompanyService.getCompanyById(companyId);
+
+        if (!company) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Company not found' 
+            });
+        }
+
+        res.json({ success: true, company });
+    } catch (error) {
+        console.error('Get company error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company by name
+app.get('/api/companies/name/:name', async (req, res) => {
+    try {
+        const { name } = req.params;
+        
+        const company = await CompanyService.getCompanyByName(name);
+
+        if (!company) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Company not found' 
+            });
+        }
+
+        res.json({ success: true, company });
+    } catch (error) {
+        console.error('Get company by name error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company statistics
+app.get('/api/companies/:companyId/stats', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const stats = await CompanyService.getCompanyStats(companyId);
+
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get company stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company jobs
+app.get('/api/companies/:companyId/jobs', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const jobs = await CompanyService.getCompanyJobs(companyId);
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get company jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company active jobs
+app.get('/api/companies/:companyId/jobs/active', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const jobs = await CompanyService.getCompanyActiveJobs(companyId);
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get company active jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get company applications
+app.get('/api/companies/:companyId/applications', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const applications = await CompanyService.getCompanyApplications(companyId);
+
+        res.json({ success: true, applications });
+    } catch (error) {
+        console.error('Get company applications error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create new company
+app.post('/api/companies', async (req, res) => {
+    try {
+        const { name, industry, size, location, website, linkedin_url } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Company name is required' 
+            });
+        }
+
+        // Check if company already exists
+        const existingCompany = await CompanyService.getCompanyByName(name);
+        if (existingCompany) {
+            return res.status(409).json({ 
+                success: false, 
+                error: 'Company with this name already exists' 
+            });
+        }
+
+        const newCompany = await CompanyService.createCompany({
+            name,
+            industry,
+            size,
+            location,
+            website,
+            linkedin_url
+        });
+
+        res.status(201).json({ success: true, company: newCompany });
+    } catch (error) {
+        console.error('Create company error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Update company
+app.put('/api/companies/:companyId', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        const updateData = req.body;
+        
+        // If updating name, check for duplicates
+        if (updateData.name) {
+            const existingCompany = await CompanyService.getCompanyByName(updateData.name);
+            if (existingCompany && existingCompany.id !== companyId) {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'Company with this name already exists' 
+                });
+            }
+        }
+
+        const updatedCompany = await CompanyService.updateCompany(companyId, updateData);
+
+        res.json({ success: true, company: updatedCompany });
+    } catch (error) {
+        console.error('Update company error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Delete company
+app.delete('/api/companies/:companyId', async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        
+        const deleted = await CompanyService.deleteCompany(companyId);
 
         if (!deleted) {
             return res.status(404).json({ 
                 success: false, 
-                error: 'Application not found' 
+                error: 'Company not found' 
             });
         }
 
-        res.json({ success: true, message: 'Application deleted successfully' });
+        res.json({ success: true, message: 'Company deleted successfully' });
     } catch (error) {
-        console.error('Delete application error:', error);
+        console.error('Delete company error:', error);
+        
+        if (error.message.includes('has associated jobs')) {
+            return res.status(409).json({ 
+                success: false, 
+                error: 'Cannot delete company: it has associated jobs' 
+            });
+        }
+        
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// Check if application exists
-app.get('/api/applications/:applicationId/exists', async (req, res) => {
+// Check if company exists
+app.get('/api/companies/:companyId/exists', async (req, res) => {
     try {
-        const { applicationId } = req.params;
+        const { companyId } = req.params;
         
-        const exists = await ApplicationService.applicationExists(applicationId);
+        const exists = await CompanyService.companyExists(companyId);
         res.json({ success: true, exists });
     } catch (error) {
-        console.error('Application exists check error:', error);
+        console.error('Company exists check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Check if company exists by name
+app.get('/api/companies/name/:name/exists', async (req, res) => {
+    try {
+        const { name } = req.params;
+        
+        const exists = await CompanyService.companyExistsByName(name);
+        res.json({ success: true, exists });
+    } catch (error) {
+        console.error('Company exists by name check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ===== JOB ENDPOINTS =====
+
+// Get all jobs (with pagination)
+app.get('/api/jobs', async (req, res) => {
+    try {
+        const { limit = 50, offset = 0 } = req.query;
+        
+        const jobs = await JobService.getAllJobs(parseInt(limit), parseInt(offset));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get jobs count
+app.get('/api/jobs/count', async (req, res) => {
+    try {
+        const count = await JobService.getJobsCount();
+
+        res.json({ success: true, count });
+    } catch (error) {
+        console.error('Get jobs count error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get job statistics
+app.get('/api/jobs/stats', async (req, res) => {
+    try {
+        const stats = await JobService.getJobStats();
+        
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('Get job stats error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get recent jobs
+app.get('/api/jobs/recent', async (req, res) => {
+    try {
+        const { limit = 20 } = req.query;
+        
+        const jobs = await JobService.getRecentJobs(parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get recent jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get remote jobs
+app.get('/api/jobs/remote', async (req, res) => {
+    try {
+        const { limit = 20 } = req.query;
+        
+        const jobs = await JobService.getRemoteJobs(parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get remote jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search jobs
+app.get('/api/jobs/search', async (req, res) => {
+    try {
+        const { q: searchTerm, limit = 20 } = req.query;
+        
+        if (!searchTerm) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Search term is required' 
+            });
+        }
+
+        const jobs = await JobService.searchJobs(searchTerm, parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Search jobs error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get jobs by status
+app.get('/api/jobs/status/:status', async (req, res) => {
+    try {
+        const { status } = req.params;
+        const { limit = 50 } = req.query;
+        
+        const jobs = await JobService.getJobsByStatus(status, parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get jobs by status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get jobs by type
+app.get('/api/jobs/type/:type', async (req, res) => {
+    try {
+        const { type } = req.params;
+        const { limit = 50 } = req.query;
+        
+        const jobs = await JobService.getJobsByType(type, parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get jobs by type error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get jobs by platform
+app.get('/api/jobs/platform/:platform', async (req, res) => {
+    try {
+        const { platform } = req.params;
+        const { limit = 50 } = req.query;
+        
+        const jobs = await JobService.getJobsByPlatform(platform, parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get jobs by platform error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get jobs by location
+app.get('/api/jobs/location/:location', async (req, res) => {
+    try {
+        const { location } = req.params;
+        const { limit = 50 } = req.query;
+        
+        const jobs = await JobService.getJobsByLocation(location, parseInt(limit));
+
+        res.json({ success: true, jobs });
+    } catch (error) {
+        console.error('Get jobs by location error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all platforms
+app.get('/api/jobs/platforms', async (req, res) => {
+    try {
+        const platforms = await JobService.getPlatforms();
+
+        res.json({ success: true, platforms });
+    } catch (error) {
+        console.error('Get platforms error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all job types
+app.get('/api/jobs/types', async (req, res) => {
+    try {
+        const types = await JobService.getJobTypes();
+
+        res.json({ success: true, types });
+    } catch (error) {
+        console.error('Get job types error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all locations
+app.get('/api/jobs/locations', async (req, res) => {
+    try {
+        const locations = await JobService.getLocations();
+
+        res.json({ success: true, locations });
+    } catch (error) {
+        console.error('Get locations error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get a specific job by ID
+app.get('/api/jobs/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const job = await JobService.getJobById(jobId);
+
+        if (!job) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Job not found' 
+            });
+        }
+
+        res.json({ success: true, job });
+    } catch (error) {
+        console.error('Get job error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get job with company details
+app.get('/api/jobs/:jobId/details', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const jobDetails = await JobService.getJobWithCompany(jobId);
+
+        if (!jobDetails) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Job not found' 
+            });
+        }
+
+        res.json({ success: true, job: jobDetails });
+    } catch (error) {
+        console.error('Get job details error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get job by platform and platform job ID
+app.get('/api/jobs/platform/:platform/:platformJobId', async (req, res) => {
+    try {
+        const { platform, platformJobId } = req.params;
+        
+        const job = await JobService.getJobByPlatformId(platform, platformJobId);
+
+        if (!job) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Job not found' 
+            });
+        }
+
+        res.json({ success: true, job });
+    } catch (error) {
+        console.error('Get job by platform ID error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get job applications
+app.get('/api/jobs/:jobId/applications', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const applications = await JobService.getJobApplications(jobId);
+
+        res.json({ success: true, applications });
+    } catch (error) {
+        console.error('Get job applications error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create new job
+app.post('/api/jobs', async (req, res) => {
+    try {
+        const { company_id, title, location, is_remote, job_type, platform, platform_job_id, job_url, job_description, applicant_count, posted_date, status } = req.body;
+        
+        if (!company_id || !title) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Company ID and title are required' 
+            });
+        }
+
+        // Verify company exists
+        const company = await CompanyService.getCompanyById(company_id);
+        if (!company) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Company not found' 
+            });
+        }
+
+        // Check if job already exists by platform ID
+        if (platform && platform_job_id) {
+            const existingJob = await JobService.getJobByPlatformId(platform, platform_job_id);
+            if (existingJob) {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'Job with this platform ID already exists' 
+                });
+            }
+        }
+
+        const newJob = await JobService.createJob({
+            company_id,
+            title,
+            location,
+            is_remote,
+            job_type,
+            platform,
+            platform_job_id,
+            job_url,
+            job_description,
+            applicant_count,
+            posted_date,
+            status
+        });
+
+        res.status(201).json({ success: true, job: newJob });
+    } catch (error) {
+        console.error('Create job error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Update job
+app.put('/api/jobs/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const updateData = req.body;
+        
+        // If updating company_id, verify company exists
+        if (updateData.company_id) {
+            const company = await CompanyService.getCompanyById(updateData.company_id);
+            if (!company) {
+                return res.status(404).json({ 
+                    success: false, 
+                    error: 'Company not found' 
+                });
+            }
+        }
+
+        const updatedJob = await JobService.updateJob(jobId, updateData);
+
+        res.json({ success: true, job: updatedJob });
+    } catch (error) {
+        console.error('Update job error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Mark job as closed
+app.put('/api/jobs/:jobId/close', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const closedJob = await JobService.markJobClosed(jobId);
+
+        res.json({ success: true, job: closedJob });
+    } catch (error) {
+        console.error('Mark job closed error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Delete job
+app.delete('/api/jobs/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const deleted = await JobService.deleteJob(jobId);
+
+        if (!deleted) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Job not found' 
+            });
+        }
+
+        res.json({ success: true, message: 'Job deleted successfully' });
+    } catch (error) {
+        console.error('Delete job error:', error);
+        
+        if (error.message.includes('has associated applications')) {
+            return res.status(409).json({ 
+                success: false, 
+                error: 'Cannot delete job: it has associated applications' 
+            });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Check if job exists
+app.get('/api/jobs/:jobId/exists', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        
+        const exists = await JobService.jobExists(jobId);
+        res.json({ success: true, exists });
+    } catch (error) {
+        console.error('Job exists check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Check if job exists by platform ID
+app.get('/api/jobs/platform/:platform/:platformJobId/exists', async (req, res) => {
+    try {
+        const { platform, platformJobId } = req.params;
+        
+        const exists = await JobService.jobExistsByPlatformId(platform, platformJobId);
+        res.json({ success: true, exists });
+    } catch (error) {
+        console.error('Job exists by platform ID check error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
