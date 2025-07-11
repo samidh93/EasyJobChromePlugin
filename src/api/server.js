@@ -129,7 +129,7 @@ app.post('/api/users/login', async (req, res) => {
 
         // Find user by email
         const result = await pool.query(
-            'SELECT id, username, email, password_hash, is_active FROM users WHERE email = $1',
+            'SELECT id, username, email, password_hash, created_at, updated_at, last_login, is_active FROM users WHERE email = $1',
             [email]
         );
 
@@ -688,11 +688,28 @@ app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (re
         const { userId } = req.params;
         const { name, short_description, is_default } = req.body;
         
+        console.log('=== UPLOAD DEBUG ===');
+        console.log('userId:', userId);
+        console.log('req.file:', req.file ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+            path: req.file.path
+        } : 'No file');
+        console.log('req.body:', req.body);
+        
         if (!req.file) {
             return res.status(400).json({ 
                 success: false, 
                 error: 'No file uploaded' 
             });
+        }
+        
+        // Check first few bytes of the uploaded file
+        if (fs.existsSync(req.file.path)) {
+            const buffer = fs.readFileSync(req.file.path);
+            console.log('File first 20 bytes:', buffer.slice(0, 20));
+            console.log('File as string (first 50 chars):', buffer.toString().substring(0, 50));
         }
         
         // Verify user exists

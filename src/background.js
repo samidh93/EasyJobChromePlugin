@@ -790,15 +790,28 @@ async function handleResumeUpload(request, sendResponse) {
             return;
         }
 
+        // Debug logging
+        console.log('Upload debug - fileData.buffer type:', typeof fileData.buffer);
+        console.log('Upload debug - fileData.buffer length:', fileData.buffer.length);
+        console.log('Upload debug - first 10 bytes:', fileData.buffer.slice(0, 10));
+
         // Create FormData for file upload
         const uploadData = new FormData();
         
-        // Convert ArrayBuffer back to Blob/File
-        const fileBlob = new Blob([fileData.buffer], { type: fileData.type });
+        // Convert array back to Uint8Array and then to Blob/File
+        const uint8Array = new Uint8Array(fileData.buffer);
+        console.log('Upload debug - uint8Array:', uint8Array.slice(0, 10));
+        
+        const fileBlob = new Blob([uint8Array], { type: fileData.type });
+        console.log('Upload debug - blob size:', fileBlob.size);
+        console.log('Upload debug - blob type:', fileBlob.type);
+        
         const file = new File([fileBlob], fileData.name, {
             type: fileData.type,
             lastModified: fileData.lastModified
         });
+        console.log('Upload debug - file size:', file.size);
+        console.log('Upload debug - file type:', file.type);
         
         uploadData.append('resume', file);
         uploadData.append('name', formData.name || '');
@@ -834,34 +847,57 @@ async function handleResumeDownload(request, sendResponse) {
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/resumes/${resumeId}/download`);
+        // First get the resume details to get the proper filename and extension
+        const resumeResponse = await fetch(`${API_BASE_URL}/resumes/${resumeId}`);
+        
+        if (!resumeResponse.ok) {
+            const result = await resumeResponse.json();
+            sendResponse({ success: false, error: result.error || 'Resume not found' });
+            return;
+        }
 
-        if (!response.ok) {
-            const result = await response.json();
+        const resumeData = await resumeResponse.json();
+        const resume = resumeData.resume;
+        
+        // Construct proper filename with extension
+        const properFileName = `${resume.name}.${resume.extension}`;
+
+        // Now download the file
+        const downloadResponse = await fetch(`${API_BASE_URL}/resumes/${resumeId}/download`);
+
+        if (!downloadResponse.ok) {
+            const result = await downloadResponse.json();
             sendResponse({ success: false, error: result.error || 'Download failed' });
             return;
         }
 
         // Get the file as blob
-        const blob = await response.blob();
+        const blob = await downloadResponse.blob();
         
-        // Create download URL
-        const url = URL.createObjectURL(blob);
-        
-        // Trigger download
-        chrome.downloads.download({
-            url: url,
-            filename: fileName || 'resume'
-        }, (downloadId) => {
-            if (chrome.runtime.lastError) {
-                sendResponse({ success: false, error: chrome.runtime.lastError.message });
-            } else {
-                sendResponse({ success: true, downloadId: downloadId });
-            }
+        // Convert blob to data URL (since URL.createObjectURL is not available in service workers)
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const dataUrl = reader.result;
             
-            // Clean up the URL
-            URL.revokeObjectURL(url);
-        });
+            // Trigger download using data URL with proper filename
+            chrome.downloads.download({
+                url: dataUrl,
+                filename: properFileName
+            }, (downloadId) => {
+                if (chrome.runtime.lastError) {
+                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                    sendResponse({ success: true, downloadId: downloadId });
+                }
+            });
+        };
+        
+        reader.onerror = () => {
+            sendResponse({ success: false, error: 'Failed to read file data' });
+        };
+        
+        // Read the blob as data URL
+        reader.readAsDataURL(blob);
     } catch (error) {
         console.error('Resume download error:', error);
         sendResponse({ success: false, error: error.message });
