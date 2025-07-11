@@ -263,6 +263,20 @@ class AISettings {
             throw new Error(`Failed to get AI models by provider: ${error.message}`);
         }
     }
+
+    // Convert to JSON (for consistent serialization, excluding sensitive data)
+    toJSON() {
+        return {
+            id: this.id,
+            user_id: this.user_id,
+            ai_provider: this.ai_provider,
+            ai_model: this.ai_model,
+            // Don't include api_key_encrypted in JSON output for security
+            is_default: this.is_default,
+            created_at: this.created_at,
+            updated_at: this.updated_at
+        };
+    }
 }
 
 module.exports = AISettings; 

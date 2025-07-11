@@ -297,6 +297,38 @@ class Application {
             throw new Error(`Failed to delete application: ${error.message}`);
         }
     }
+
+    // Convert to JSON for API responses
+    toJSON() {
+        return {
+            id: this.id,
+            user_id: this.user_id,
+            job_id: this.job_id,
+            ai_settings_id: this.ai_settings_id,
+            resume_id: this.resume_id,
+            status: this.status,
+            applied_at: this.applied_at,
+            response_received_at: this.response_received_at,
+            notes: this.notes,
+            created_at: this.created_at,
+            updated_at: this.updated_at,
+            // Include additional fields if they exist (from joins)
+            ...(this.job_title && { job_title: this.job_title }),
+            ...(this.company_name && { company_name: this.company_name }),
+            ...(this.job_location && { job_location: this.job_location }),
+            ...(this.is_remote !== undefined && { is_remote: this.is_remote }),
+            ...(this.job_type && { job_type: this.job_type }),
+            ...(this.job_url && { job_url: this.job_url }),
+            ...(this.platform && { platform: this.platform }),
+            ...(this.industry && { industry: this.industry }),
+            ...(this.company_website && { company_website: this.company_website }),
+            ...(this.ai_provider && { ai_provider: this.ai_provider }),
+            ...(this.ai_model && { ai_model: this.ai_model }),
+            ...(this.resume_name && { resume_name: this.resume_name }),
+            ...(this.resume_extension && { resume_extension: this.resume_extension }),
+            ...(this.resume_path && { resume_path: this.resume_path })
+        };
+    }
 }
 
 module.exports = Application; 
