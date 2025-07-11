@@ -1,9 +1,56 @@
 // No imports needed - we'll work directly with user data
 
 class AIQuestionAnswerer {
-    constructor() {
-        this.model = 'qwen2.5:3b';
+    constructor(model = null) {
+        this.model = model || 'qwen2.5:3b'; // Use provided model or default
         this.user_data = null;
+        this.formatted_text = null;
+        this.modelLoadPromise = null;
+        
+        // If no model provided, try to load from storage
+        if (!model) {
+            this.modelLoadPromise = this.loadModelFromStorage();
+        }
+    }
+
+    /**
+     * Load the current AI model from Chrome storage
+     * @returns {Promise<void>}
+     */
+    async loadModelFromStorage() {
+        try {
+            const result = await chrome.storage.local.get(['aiModel']);
+            if (result.aiModel) {
+                this.model = result.aiModel;
+                console.log(`AIQuestionAnswerer: Loaded model from storage: ${this.model}`);
+            } else {
+                console.log(`AIQuestionAnswerer: No model in storage, using default: ${this.model}`);
+            }
+        } catch (error) {
+            console.warn(`AIQuestionAnswerer: Failed to load model from storage, using default: ${this.model}`, error);
+        }
+    }
+
+    /**
+     * Ensure model is loaded before making API calls
+     * @returns {Promise<void>}
+     */
+    async ensureModelLoaded() {
+        if (this.modelLoadPromise) {
+            await this.modelLoadPromise;
+            this.modelLoadPromise = null; // Clear the promise after loading
+        }
+    }
+
+    /**
+     * Set the AI model to use
+     * @param {string} model - The model name to use
+     */
+    setModel(model) {
+        if (model && typeof model === 'string') {
+            this.model = model;
+            console.log(`AIQuestionAnswerer: Model set to: ${this.model}`);
+        }
     }
 
     /**
@@ -45,7 +92,11 @@ class AIQuestionAnswerer {
      */
     async answerQuestion(question, options = null, shouldStop = null) {
         try {
+            // Ensure model is loaded from storage if needed
+            await this.ensureModelLoaded();
+            
             console.log("Answering question:", question);
+            console.log("Using AI model:", this.model);
             console.log("Options:", options);
             
             // Check for direct matches first (personal info)

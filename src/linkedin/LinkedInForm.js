@@ -497,8 +497,15 @@ class LinkedInForm extends LinkedInBase {
      */
     static async shouldSkipQuestionWithTranslation(questionText) {
         try {
-            // Create AI instance for translation
-            const ai = new AIQuestionAnswerer();
+            // Get current AI model from window.currentAiSettings or fall back to storage
+            let aiModel = null;
+            if (window.currentAiSettings && window.currentAiSettings.model) {
+                aiModel = window.currentAiSettings.model;
+            }
+            
+            // Create AI instance for translation with the current model
+            const ai = new AIQuestionAnswerer(aiModel);
+            await ai.ensureModelLoaded(); // Ensure model is loaded from storage if needed
             
             // Simple translation prompt
             const translationPrompt = `Translate this text to English. Only return the English translation, nothing else:
@@ -508,7 +515,7 @@ class LinkedInForm extends LinkedInBase {
 English translation:`;
 
             const response = await ai.callOllamaAPI({
-                model: 'qwen2.5:3b',
+                model: ai.model, // Use the loaded model instead of hardcoded
                 prompt: translationPrompt,
                 stream: false
             });
@@ -627,8 +634,15 @@ English translation:`;
 
     static async answerQuestion(question, options = [], inputField, element, shouldStop = null) {
         try {
-            // Create a new instance of AIQuestionAnswerer for each question
-            const ai = new AIQuestionAnswerer();
+            // Get current AI model from window.currentAiSettings or fall back to storage
+            let aiModel = null;
+            if (window.currentAiSettings && window.currentAiSettings.model) {
+                aiModel = window.currentAiSettings.model;
+                this.debugLog(`Using AI model from current settings: ${aiModel}`);
+            }
+            
+            // Create AIQuestionAnswerer instance with the current model
+            const ai = new AIQuestionAnswerer(aiModel);
 
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);
