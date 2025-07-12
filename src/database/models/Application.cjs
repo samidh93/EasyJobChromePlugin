@@ -13,6 +13,23 @@ class Application {
         this.notes = applicationData.notes;
         this.created_at = applicationData.created_at;
         this.updated_at = applicationData.updated_at;
+        
+        // Set joined fields if they exist (from JOIN queries)
+        if (applicationData.job_title) this.job_title = applicationData.job_title;
+        if (applicationData.company_name) this.company_name = applicationData.company_name;
+        if (applicationData.location) this.location = applicationData.location;
+        if (applicationData.is_remote !== undefined) this.is_remote = applicationData.is_remote;
+        if (applicationData.job_location) this.job_location = applicationData.job_location;
+        if (applicationData.job_type) this.job_type = applicationData.job_type;
+        if (applicationData.job_url) this.job_url = applicationData.job_url;
+        if (applicationData.platform) this.platform = applicationData.platform;
+        if (applicationData.industry) this.industry = applicationData.industry;
+        if (applicationData.company_website) this.company_website = applicationData.company_website;
+        if (applicationData.ai_provider) this.ai_provider = applicationData.ai_provider;
+        if (applicationData.ai_model) this.ai_model = applicationData.ai_model;
+        if (applicationData.resume_name) this.resume_name = applicationData.resume_name;
+        if (applicationData.resume_extension) this.resume_extension = applicationData.resume_extension;
+        if (applicationData.resume_path) this.resume_path = applicationData.resume_path;
     }
 
     // Create a new application
@@ -315,6 +332,7 @@ class Application {
             // Include additional fields if they exist (from joins)
             ...(this.job_title && { job_title: this.job_title }),
             ...(this.company_name && { company_name: this.company_name }),
+            ...(this.location && { location: this.location }),
             ...(this.job_location && { job_location: this.job_location }),
             ...(this.is_remote !== undefined && { is_remote: this.is_remote }),
             ...(this.job_type && { job_type: this.job_type }),
