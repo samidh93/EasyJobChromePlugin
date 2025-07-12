@@ -227,13 +227,66 @@ A test page is available at `test-managers.html` to verify manager functionality
 open src/popup/managers/test-managers.html
 ```
 
+## Timezone Support
+
+The application includes comprehensive timezone support to handle UTC timestamps from the database:
+
+### Timezone Utilities
+
+Located in `src/popup/utils/timezone.js`, these utilities provide:
+
+```javascript
+import { 
+  formatLocalTime, 
+  formatBerlinTime, 
+  getUserTimezone, 
+  isBerlinTimezone,
+  formatTimeWithTimezone 
+} from './utils/timezone.js';
+
+// Convert UTC timestamp to local timezone
+const localDate = formatLocalTime(utcTimestamp, 'date');
+const localDateTime = formatLocalTime(utcTimestamp, 'datetime');
+const localRelative = formatLocalTime(utcTimestamp, 'relative');
+
+// Convert UTC timestamp to Berlin timezone
+const berlinDate = formatBerlinTime(utcTimestamp, 'date');
+const berlinDateTime = formatBerlinTime(utcTimestamp, 'datetime');
+
+// Get user's timezone
+const timezone = getUserTimezone();
+const isBerlin = isBerlinTimezone();
+```
+
+### Format Options
+
+- `'date'` - Date only (e.g., "7/12/2025")
+- `'time'` - Time only (e.g., "3:07:42 PM")
+- `'datetime'` - Date and time (e.g., "7/12/2025, 3:07:42 PM")
+- `'relative'` - Relative time (e.g., "2 hours ago", "3 days ago")
+- `'iso'` - ISO format
+
+### Database Configuration
+
+- **Database timezone**: UTC (recommended for consistency)
+- **Timestamp columns**: `TIMESTAMP WITHOUT TIME ZONE`
+- **Frontend conversion**: Automatic conversion to user's local timezone
+
+### Testing
+
+A timezone test page is available at `test-timezone.html`:
+
+```bash
+# Open the test page in your browser
+open src/popup/test-timezone.html
+```
+
 ## Future Enhancements
 
 Potential future managers:
-- **ResumeManager** - Handle resume upload, parsing, and management
-- **AiSettingsManager** - Handle AI configuration and settings
 - **JobSearchManager** - Handle job search and filtering
 - **NotificationManager** - Handle notifications and alerts
+- **AnalyticsManager** - Handle application analytics and reporting
 
 ## Migration Guide
 

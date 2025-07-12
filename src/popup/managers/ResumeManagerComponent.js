@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Download, Trash2, Star, StarOff, Plus, Check, X, AlertCircle } from 'lucide-react';
 import { resumeManager } from './index.js';
+import { formatLocalTime } from '../utils/timezone.js';
 
 const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
     const [resumes, setResumes] = useState([]);
@@ -321,7 +322,7 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                                     )}
                                     <div className="resume-meta">
                                         <span>Size: {formatFileSize(resume.file_size)}</span>
-                                        <span>Uploaded: {new Date(resume.created_at).toLocaleDateString()}</span>
+                                        <span>Uploaded: {formatLocalTime(resume.created_at, 'date')}</span>
                                     </div>
                                 </div>
                             </div>

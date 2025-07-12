@@ -4,6 +4,7 @@ import './App.css';
 import ResumeManagerComponent from './managers/ResumeManagerComponent.js';
 import AiManagerComponent from './managers/AiManagerComponent.js';
 import { authManager, applicationsManager, aiManager, resumeManager } from './managers/index.js';
+import { formatLocalTime, formatBerlinTime, getUserTimezone } from './utils/timezone.js';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('login');
@@ -713,7 +714,7 @@ const App = () => {
                   </div>
                   <div className="application-details">
                     <p><strong>Company:</strong> {app.company}</p>
-                    <p><strong>Applied:</strong> {new Date(app.appliedAt).toLocaleDateString()}</p>
+                    <p><strong>Applied:</strong> {formatLocalTime(app.appliedAt, 'date')}</p>
                   </div>
                 </div>
               ))
@@ -731,7 +732,7 @@ const App = () => {
                   <strong>Company:</strong> {selectedApplication.company}
                 </div>
                 <div className="detail-item">
-                  <strong>Applied:</strong> {new Date(selectedApplication.appliedAt).toLocaleString()}
+                  <strong>Applied:</strong> {formatLocalTime(selectedApplication.appliedAt, 'datetime')}
                 </div>
                 <div className="detail-item">
                   <strong>Status:</strong> {selectedApplication.status}
