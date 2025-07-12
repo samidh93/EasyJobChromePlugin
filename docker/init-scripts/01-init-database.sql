@@ -112,14 +112,15 @@ CREATE TABLE questions_answers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- 8. Application_History Table (For tracking status changes)
-CREATE TABLE application_history (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
-    status VARCHAR(50) NOT NULL,
-    notes TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+-- 8. Application_History Table (REMOVED - For tracking status changes)
+-- This table was removed to simplify application tracking
+-- CREATE TABLE application_history (
+--     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
+--     status VARCHAR(50) NOT NULL,
+--     notes TEXT,
+--     created_at TIMESTAMP DEFAULT NOW()
+-- );
 
 -- Create indexes for performance
 CREATE INDEX idx_users_email ON users(email);
@@ -149,8 +150,8 @@ CREATE INDEX idx_qa_application ON questions_answers(application_id);
 CREATE INDEX idx_qa_type ON questions_answers(question_type);
 CREATE INDEX idx_qa_skipped ON questions_answers(is_skipped);
 
-CREATE INDEX idx_history_application ON application_history(application_id);
-CREATE INDEX idx_history_status ON application_history(status);
+-- CREATE INDEX idx_history_application ON application_history(application_id);
+-- CREATE INDEX idx_history_status ON application_history(status);
 
 -- Full-text search for job descriptions and titles
 CREATE INDEX idx_jobs_description_fts ON jobs USING gin(to_tsvector('english', job_description));
@@ -186,22 +187,22 @@ CREATE TRIGGER update_applications_updated_at
     BEFORE UPDATE ON applications 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Create trigger for application history
-CREATE OR REPLACE FUNCTION log_application_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only log if status actually changed
-    IF OLD.status IS DISTINCT FROM NEW.status THEN
-        INSERT INTO application_history (application_id, status, notes)
-        VALUES (NEW.id, NEW.status, 'Status changed from ' || COALESCE(OLD.status, 'NULL') || ' to ' || NEW.status);
-    END IF;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
+-- Create trigger for application history (REMOVED)
+-- CREATE OR REPLACE FUNCTION log_application_status_change()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--     -- Only log if status actually changed
+--     IF OLD.status IS DISTINCT FROM NEW.status THEN
+--         INSERT INTO application_history (application_id, status, notes)
+--         VALUES (NEW.id, NEW.status, 'Status changed from ' || COALESCE(OLD.status, 'NULL') || ' to ' || NEW.status);
+--     END IF;
+--     RETURN NEW;
+-- END;
+-- $$ language 'plpgsql';
 
-CREATE TRIGGER log_application_status_change_trigger
-    AFTER UPDATE ON applications
-    FOR EACH ROW EXECUTE FUNCTION log_application_status_change();
+-- CREATE TRIGGER log_application_status_change_trigger
+--     AFTER UPDATE ON applications
+--     FOR EACH ROW EXECUTE FUNCTION log_application_status_change();
 
 -- Insert sample data for testing
 INSERT INTO companies (name, industry, size, location, website) VALUES 

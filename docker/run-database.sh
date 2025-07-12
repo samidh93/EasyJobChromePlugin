@@ -163,6 +163,42 @@ case "${1:-help}" in
         docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "$2"
         ;;
     
+    "remove-history")
+        echo "🗑️  Removing application_history table..."
+        echo "⚠️  This will permanently delete the application_history table and all its data!"
+        read -p "Are you sure? This action cannot be undone! (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "🔧 Dropping application_history table..."
+            
+            # Drop the trigger first
+            docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "
+                DROP TRIGGER IF EXISTS log_application_status_change_trigger ON applications;
+            " 2>/dev/null || echo "⚠️  Trigger already dropped or doesn't exist"
+            
+            # Drop the function
+            docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "
+                DROP FUNCTION IF EXISTS log_application_status_change();
+            " 2>/dev/null || echo "⚠️  Function already dropped or doesn't exist"
+            
+            # Drop the table
+            docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "
+                DROP TABLE IF EXISTS application_history CASCADE;
+            " 2>/dev/null || echo "⚠️  Table already dropped or doesn't exist"
+            
+            # Drop the index
+            docker exec easyjob-postgres psql -U easyjob_user -d easyjob_db -c "
+                DROP INDEX IF EXISTS idx_history_application;
+                DROP INDEX IF EXISTS idx_history_status;
+            " 2>/dev/null || echo "⚠️  Indexes already dropped or don't exist"
+            
+            echo "✅ application_history table removed successfully!"
+            echo "📝 Note: Application status changes will no longer be automatically logged"
+        else
+            echo "❌ Operation cancelled"
+        fi
+        ;;
+    
     "help"|*)
         echo "Usage: $0 COMMAND [OPTIONS]"
         echo ""
@@ -177,6 +213,7 @@ case "${1:-help}" in
         echo "  status     Show container status and health"
         echo "  connect    Connect to PostgreSQL shell"
         echo "  query      Execute SQL query"
+        echo "  remove-history  Remove application_history table"
         echo "  help       Show this help message"
         echo ""
         echo "Examples:"
@@ -184,5 +221,6 @@ case "${1:-help}" in
         echo "  $0 backup          Create backup"
         echo "  $0 restore backup_20241201_143022.sql"
         echo "  $0 query 'SELECT COUNT(*) FROM users;'"
+        echo "  $0 remove-history  Remove application_history table"
         ;;
 esac 
