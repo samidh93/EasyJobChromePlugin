@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock } from 'lucide-react';
 import './App.css';
-import ResumeManager from './ResumeManager.js';
-import AiManager from './AiManager.js';
+import ResumeManagerComponent from './managers/ResumeManagerComponent.js';
+import AiManagerComponent from './managers/AiManagerComponent.js';
+import { authManager, applicationsManager, aiManager, resumeManager } from './managers/index.js';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('login');
@@ -68,6 +69,44 @@ const App = () => {
       setApplicationHistory([]);
     }
   }, [currentUser]);
+
+  // Listen to auth manager state changes
+  useEffect(() => {
+    const unsubscribe = authManager.addListener((authState) => {
+      setCurrentUser(authState.currentUser);
+      setIsLoggedIn(authState.isLoggedIn);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Listen to applications manager state changes
+  useEffect(() => {
+    const unsubscribe = applicationsManager.addListener((appsState) => {
+      setApplicationHistory(appsState.applications);
+      setSelectedApplication(appsState.selectedApplication);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Listen to AI manager state changes
+  useEffect(() => {
+    const unsubscribe = aiManager.addListener((aiState) => {
+      setHasAiSettings(aiState.aiSettings.length > 0);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Listen to resume manager state changes
+  useEffect(() => {
+    const unsubscribe = resumeManager.addListener((resumeState) => {
+      setIsResumeLoaded(resumeState.resumes.length > 0);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Check if libraries are loaded
   const checkLibrariesLoaded = () => {
@@ -144,8 +183,8 @@ const App = () => {
 
   const loadUserData = async () => {
     try {
-      const result = await chrome.storage.local.get(['isLoggedIn', 'loginData']);
-      if (result.isLoggedIn) {
+      const result = await authManager.loadUserData();
+      if (result.success && result.isLoggedIn) {
         setIsLoggedIn(true);
         setLoginData(result.loginData || { username: '', password: '' });
       }
@@ -156,21 +195,15 @@ const App = () => {
 
   const loadCurrentUser = async () => {
     try {
-      console.log('App: Loading current user...');
-      const response = await chrome.runtime.sendMessage({
-        action: 'getCurrentUser'
-      });
-
-      console.log('App: getCurrentUser response:', response);
-
-      if (response.success && response.user) {
-        setCurrentUser(response.user);
-        setIsLoggedIn(response.isLoggedIn);
-        console.log('App: Current user loaded:', response.user.username, response.user.id);
-      } else {
-        setCurrentUser(null);
-        setIsLoggedIn(false);
-        console.log('App: No current user found');
+      const result = await authManager.loadCurrentUser();
+      if (result.success) {
+        setCurrentUser(result.user);
+        setIsLoggedIn(result.isLoggedIn);
+        if (result.user) {
+          console.log('App: Current user loaded:', result.user.username, result.user.id);
+        } else {
+          console.log('App: No current user found');
+        }
       }
     } catch (error) {
       console.error('App: Error loading current user:', error);
@@ -183,16 +216,10 @@ const App = () => {
     try {
       // Check if we have a current user and can load resumes from database
       if (currentUser) {
-        const response = await chrome.runtime.sendMessage({
-          action: 'apiRequest',
-          method: 'GET',
-          url: `/users/${currentUser.id}/resumes`
-        });
-
-        if (response && response.success) {
-          const resumes = response.resumes || [];
-          setIsResumeLoaded(resumes.length > 0);
-          console.log('App: Resume status updated - resumes count:', resumes.length);
+        const result = await resumeManager.loadResumes(currentUser.id);
+        if (result.success) {
+          setIsResumeLoaded(result.resumes.length > 0);
+          console.log('App: Resume status updated - resumes count:', result.resumes.length);
         } else {
           setIsResumeLoaded(false);
           console.log('App: No resumes found in database');
@@ -226,31 +253,13 @@ const App = () => {
     try {
       console.log('App: Loading application history for user:', currentUser.id);
       
-      const response = await chrome.runtime.sendMessage({
-        action: 'apiRequest',
-        method: 'GET',
-        url: `/users/${currentUser.id}/applications`
-      });
-
-      if (response && response.success) {
-        console.log('App: Successfully loaded applications:', response.applications);
-        
-        // Transform the data to match the expected format
-        const transformedApplications = response.applications.map(app => ({
-          id: app.id,
-          jobTitle: app.job_title,
-          company: app.company_name,
-          status: app.status,
-          appliedAt: app.applied_at,
-          location: app.location,
-          isRemote: app.is_remote,
-          notes: app.notes,
-          questionsAnswers: [] // Will be loaded when application is selected
-        }));
-        
-        setApplicationHistory(transformedApplications);
+      const result = await applicationsManager.loadApplications(currentUser.id);
+      
+      if (result.success) {
+        console.log('App: Successfully loaded applications:', result.applications);
+        setApplicationHistory(result.applications);
       } else {
-        console.error('App: Failed to load applications:', response);
+        console.error('App: Failed to load applications:', result.error);
         setApplicationHistory([]);
       }
     } catch (error) {
@@ -267,16 +276,10 @@ const App = () => {
     
     setIsLoadingAiSettings(true);
     try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'apiRequest',
-        method: 'GET',
-        url: `/users/${currentUser.id}/ai-settings`
-      });
-
-      if (response && response.success) {
-        const aiSettings = response.ai_settings || [];
-        setHasAiSettings(aiSettings.length > 0);
-        console.log('App: AI settings status updated - settings count:', aiSettings.length);
+      const result = await aiManager.loadAiSettings(currentUser.id);
+      if (result.success) {
+        setHasAiSettings(result.aiSettings.length > 0);
+        console.log('App: AI settings status updated - settings count:', result.aiSettings.length);
       } else {
         setHasAiSettings(false);
         console.log('App: No AI settings found in database');
@@ -375,24 +378,17 @@ const App = () => {
 
   const handleLogout = async () => {
     try {
-      // Try database logout first
-      try {
-        await chrome.runtime.sendMessage({ action: 'logoutUser' });
-      } catch (dbError) {
-        console.warn('Database logout failed, continuing with local logout:', dbError);
-      }
-
-      // Clear local storage
-      await chrome.storage.local.set({
-        isLoggedIn: false,
-        loginData: { username: '', password: '' }
-      });
+      const result = await authManager.logout();
       
-      setIsLoggedIn(false);
-      setCurrentUser(null);
-      setLoginData({ username: '', password: '' });
-      setStatusMessage('Logged out successfully');
-      setTimeout(() => setStatusMessage(''), 3000);
+      if (result.success) {
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setLoginData({ username: '', password: '' });
+        setStatusMessage('Logged out successfully');
+        setTimeout(() => setStatusMessage(''), 3000);
+      } else {
+        console.error('Logout failed:', result.error);
+      }
     } catch (error) {
       console.error('Error logging out:', error);
     }
@@ -408,24 +404,20 @@ const App = () => {
     try {
       setStatusMessage('Logging in...');
       
-      const response = await chrome.runtime.sendMessage({
-        action: 'loginUser',
-        email: loginData.username, // Using username field as email
-        password: loginData.password
-      });
+      const result = await authManager.login(loginData.username, loginData.password);
 
-      if (response.success) {
-        setCurrentUser(response.user);
+      if (result.success) {
+        setCurrentUser(result.user);
         setIsLoggedIn(true);
         setStatusMessage('Login successful!');
         
         // Also store in local storage for backward compatibility
         await chrome.storage.local.set({
           isLoggedIn: true,
-          loginData: { username: response.user.email, password: '' } // Don't store password
+          loginData: { username: result.user.email, password: '' } // Don't store password
         });
         
-        console.log('Database login successful:', response.user.username);
+        console.log('Database login successful:', result.user.username);
         
         // Load user data after successful login
         setTimeout(async () => {
@@ -434,7 +426,7 @@ const App = () => {
           await loadApplicationHistory();
         }, 100);
       } else {
-        setStatusMessage(response.error || 'Login failed');
+        setStatusMessage(result.error || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -458,27 +450,24 @@ const App = () => {
     try {
       setStatusMessage('Registering...');
       
-      const response = await chrome.runtime.sendMessage({
-        action: 'registerUser',
-        userData: {
-          username: username,
-          email: email,
-          password: loginData.password
-        }
+      const result = await authManager.register({
+        username: username,
+        email: email,
+        password: loginData.password
       });
 
-      if (response.success) {
-        setCurrentUser(response.user);
+      if (result.success) {
+        setCurrentUser(result.user);
         setIsLoggedIn(true);
         setStatusMessage('Registration successful!');
         
         // Also store in local storage for backward compatibility
         await chrome.storage.local.set({
           isLoggedIn: true,
-          loginData: { username: response.user.email, password: '' } // Don't store password
+          loginData: { username: result.user.email, password: '' } // Don't store password
         });
         
-        console.log('Database registration successful:', response.user.username);
+        console.log('Database registration successful:', result.user.username);
         
         // Load user data after successful registration
         setTimeout(async () => {
@@ -487,7 +476,7 @@ const App = () => {
           await loadApplicationHistory();
         }, 100);
       } else {
-        setStatusMessage(response.error || 'Registration failed');
+        setStatusMessage(result.error || 'Registration failed');
       }
     } catch (error) {
       console.error('Registration error:', error);
@@ -516,63 +505,24 @@ const App = () => {
   };
 
   const getUniqueCompanies = () => {
-    return [...new Set(applicationHistory.map(app => app.company))].filter(Boolean);
+    return applicationsManager.getUniqueCompanies();
   };
 
   const getJobsForCompany = (company) => {
-    return [...new Set(applicationHistory.filter(app => app.company === company).map(app => app.jobTitle))].filter(Boolean);
+    return applicationsManager.getJobsForCompany(company);
   };
 
   const getApplicationsForJob = (company, jobTitle) => {
-    return applicationHistory.filter(app => app.company === company && app.jobTitle === jobTitle);
+    return applicationsManager.getApplicationsForJob(company, jobTitle);
   };
 
   const handleApplicationSelect = async (applicationId) => {
-    const application = applicationHistory.find(app => app.id === applicationId);
+    const result = await applicationsManager.selectApplication(applicationId);
     
-    if (!application) {
-      console.error('Application not found:', applicationId);
-      return;
-    }
-
-    try {
-      console.log('App: Loading questions and answers for application:', applicationId);
-      
-      // Load questions and answers for this application
-      const response = await chrome.runtime.sendMessage({
-        action: 'apiRequest',
-        method: 'GET',
-        url: `/applications/${applicationId}/questions-answers`
-      });
-
-      if (response && response.success) {
-        console.log('App: Successfully loaded questions and answers:', response.questions_answers);
-        
-        // Add questions and answers to the application
-        const applicationWithQA = {
-          ...application,
-          questionsAnswers: response.questions_answers.map(qa => ({
-            id: qa.id,
-            question: qa.question,
-            answer: qa.answer,
-            question_type: qa.question_type,
-            ai_model_used: qa.ai_model_used,
-            confidence_score: qa.confidence_score,
-            is_skipped: qa.is_skipped,
-            created_at: qa.created_at
-          }))
-        };
-        
-        setSelectedApplication(applicationWithQA);
-      } else {
-        console.error('App: Failed to load questions and answers:', response);
-        // Still set the application even if Q&A loading fails
-        setSelectedApplication(application);
-      }
-    } catch (error) {
-      console.error('App: Error loading questions and answers:', error);
-      // Still set the application even if Q&A loading fails
-      setSelectedApplication(application);
+    if (result.success) {
+      setSelectedApplication(result.application);
+    } else {
+      console.error('App: Failed to select application:', result.error);
     }
   };
 
@@ -811,14 +761,14 @@ const App = () => {
   };
 
   const renderResumeTab = () => (
-    <ResumeManager 
+    <ResumeManagerComponent 
       currentUser={currentUser} 
       onResumeUpdate={handleResumeUpdate}
     />
   );
 
   const renderAiSettingsTab = () => (
-    <AiManager 
+    <AiManagerComponent 
       currentUser={currentUser} 
       onAiSettingsUpdate={handleAiSettingsUpdate}
     />
