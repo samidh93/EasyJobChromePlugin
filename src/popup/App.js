@@ -165,6 +165,11 @@ const App = () => {
         setCurrentUser(response.user);
         setIsLoggedIn(response.isLoggedIn);
         console.log('App: Current user loaded:', response.user.username, response.user.id);
+        
+        // Load application history for the current user
+        setTimeout(async () => {
+          await loadApplicationHistory();
+        }, 100);
       } else {
         setCurrentUser(null);
         setIsLoggedIn(false);
@@ -215,11 +220,45 @@ const App = () => {
   };
 
   const loadApplicationHistory = async () => {
+    if (!currentUser) {
+      console.log('App: No current user, skipping application history load');
+      setApplicationHistory([]);
+      return;
+    }
+
     try {
-      const result = await chrome.storage.local.get(['applicationHistory']);
-      setApplicationHistory(result.applicationHistory || []);
+      console.log('App: Loading application history for user:', currentUser.id);
+      
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'GET',
+        url: `/users/${currentUser.id}/applications`
+      });
+
+      if (response && response.success) {
+        console.log('App: Successfully loaded applications:', response.applications);
+        
+        // Transform the data to match the expected format
+        const transformedApplications = response.applications.map(app => ({
+          id: app.id,
+          jobTitle: app.job_title,
+          company: app.company_name,
+          status: app.status,
+          appliedAt: app.applied_at,
+          location: app.location,
+          isRemote: app.is_remote,
+          notes: app.notes,
+          questionsAnswers: [] // Will be loaded when application is selected
+        }));
+        
+        setApplicationHistory(transformedApplications);
+      } else {
+        console.error('App: Failed to load applications:', response);
+        setApplicationHistory([]);
+      }
     } catch (error) {
-      console.error('Error loading application history:', error);
+      console.error('App: Error loading application history:', error);
+      setApplicationHistory([]);
     }
   };
 
@@ -390,6 +429,13 @@ const App = () => {
         });
         
         console.log('Database login successful:', response.user.username);
+        
+        // Load user data after successful login
+        setTimeout(async () => {
+          await loadResumeData();
+          await loadAiSettingsStatus();
+          await loadApplicationHistory();
+        }, 100);
       } else {
         setStatusMessage(response.error || 'Login failed');
       }
@@ -436,6 +482,13 @@ const App = () => {
         });
         
         console.log('Database registration successful:', response.user.username);
+        
+        // Load user data after successful registration
+        setTimeout(async () => {
+          await loadResumeData();
+          await loadAiSettingsStatus();
+          await loadApplicationHistory();
+        }, 100);
       } else {
         setStatusMessage(response.error || 'Registration failed');
       }
@@ -477,9 +530,53 @@ const App = () => {
     return applicationHistory.filter(app => app.company === company && app.jobTitle === jobTitle);
   };
 
-  const handleApplicationSelect = (applicationId) => {
+  const handleApplicationSelect = async (applicationId) => {
     const application = applicationHistory.find(app => app.id === applicationId);
-    setSelectedApplication(application);
+    
+    if (!application) {
+      console.error('Application not found:', applicationId);
+      return;
+    }
+
+    try {
+      console.log('App: Loading questions and answers for application:', applicationId);
+      
+      // Load questions and answers for this application
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'GET',
+        url: `/applications/${applicationId}/questions-answers`
+      });
+
+      if (response && response.success) {
+        console.log('App: Successfully loaded questions and answers:', response.questions_answers);
+        
+        // Add questions and answers to the application
+        const applicationWithQA = {
+          ...application,
+          questionsAnswers: response.questions_answers.map(qa => ({
+            id: qa.id,
+            question: qa.question,
+            answer: qa.answer,
+            question_type: qa.question_type,
+            ai_model_used: qa.ai_model_used,
+            confidence_score: qa.confidence_score,
+            is_skipped: qa.is_skipped,
+            created_at: qa.created_at
+          }))
+        };
+        
+        setSelectedApplication(applicationWithQA);
+      } else {
+        console.error('App: Failed to load questions and answers:', response);
+        // Still set the application even if Q&A loading fails
+        setSelectedApplication(application);
+      }
+    } catch (error) {
+      console.error('App: Error loading questions and answers:', error);
+      // Still set the application even if Q&A loading fails
+      setSelectedApplication(application);
+    }
   };
 
   const renderLoginTab = () => (
