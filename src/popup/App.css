@@ -312,6 +312,12 @@
   border: 1px solid #fbbf24;
 }
 
+.loading-message {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #3b82f6;
+}
+
 .success-message {
   background: #dcfce7;
   color: #166534;
