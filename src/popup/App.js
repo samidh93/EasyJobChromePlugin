@@ -421,11 +421,9 @@ const App = () => {
         console.log('Database login successful:', result.user.username);
         
         // Load user data after successful login
-        setTimeout(async () => {
-          await loadResumeData();
-          await loadAiSettingsStatus();
-          await loadApplicationHistory();
-        }, 100);
+        await loadResumeData();
+        await loadAiSettingsStatus();
+        await loadApplicationHistory();
       } else {
         setStatusMessage(result.error || 'Login failed');
       }
@@ -471,11 +469,9 @@ const App = () => {
         console.log('Database registration successful:', result.user.username);
         
         // Load user data after successful registration
-        setTimeout(async () => {
-          await loadResumeData();
-          await loadAiSettingsStatus();
-          await loadApplicationHistory();
-        }, 100);
+        await loadResumeData();
+        await loadAiSettingsStatus();
+        await loadApplicationHistory();
       } else {
         setStatusMessage(result.error || 'Registration failed');
       }
@@ -599,7 +595,11 @@ const App = () => {
               <p>Start applying to jobs automatically using your uploaded resume and AI settings.</p>
               
               <div className="apply-status">
-                {!isResumeLoaded ? (
+                {isLoadingAiSettings ? (
+                  <div className="loading-message">
+                    <span>⏳ Loading AI settings...</span>
+                  </div>
+                ) : !isResumeLoaded ? (
                   <div className="warning-message">
                     <span>⚠️ Please upload a resume in the "Resumes" tab to start applying</span>
                   </div>
