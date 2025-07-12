@@ -313,7 +313,7 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                         <div key={resume.id} className={`resume-item ${resume.is_default ? 'default' : ''}`}>
                             <div className="resume-info">
                                 <span className="file-icon">
-                                    {getFileIcon(resume.file_extension)}
+                                    {getFileIcon(resume.extension)}
                                 </span>
                                 <div className="resume-details">
                                     <h4>{resume.name}</h4>
@@ -321,8 +321,11 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                                         <p className="resume-description">{resume.short_description}</p>
                                     )}
                                     <div className="resume-meta">
-                                        <span>Size: {formatFileSize(resume.file_size)}</span>
-                                        <span>Uploaded: {formatLocalTime(resume.created_at, 'date')}</span>
+                                        <span>Type: {resume.extension.toUpperCase()}</span>
+                                        <span>Uploaded: {formatLocalTime(resume.creation_date, 'date')}</span>
+                                        {resume.updated_date !== resume.creation_date && (
+                                            <span>Updated: {formatLocalTime(resume.updated_date, 'date')}</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
