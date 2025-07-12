@@ -54,16 +54,18 @@ const App = () => {
     };
   }, []);
 
-  // Load resume data and AI settings when currentUser changes
+  // Load resume data, AI settings, and application history when currentUser changes
   useEffect(() => {
     if (currentUser) {
-      console.log('App: Current user changed, loading resume data and AI settings');
+      console.log('App: Current user changed, loading resume data, AI settings, and application history');
       loadResumeData();
       loadAiSettingsStatus();
+      loadApplicationHistory();
     } else {
       // Reset states when user logs out
       setIsResumeLoaded(false);
       setHasAiSettings(false);
+      setApplicationHistory([]);
     }
   }, [currentUser]);
 
@@ -165,11 +167,6 @@ const App = () => {
         setCurrentUser(response.user);
         setIsLoggedIn(response.isLoggedIn);
         console.log('App: Current user loaded:', response.user.username, response.user.id);
-        
-        // Load application history for the current user
-        setTimeout(async () => {
-          await loadApplicationHistory();
-        }, 100);
       } else {
         setCurrentUser(null);
         setIsLoggedIn(false);
