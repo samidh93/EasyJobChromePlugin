@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Server, Brain, Check, X, AlertCircle, Plus, Trash2, Star, StarOff } from 'lucide-react';
+import { Settings, Key, Server, Brain, Check, X, AlertCircle, Plus, Trash2, Star, StarOff, Eye, EyeOff } from 'lucide-react';
 import { aiManager } from './index.js';
 
 const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
@@ -10,6 +10,11 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [availableModels, setAvailableModels] = useState([]);
+    
+    // Connection testing state
+    const [isTestingConnection, setIsTestingConnection] = useState(false);
+    const [connectionStatus, setConnectionStatus] = useState(null);
+    const [showResponse, setShowResponse] = useState(false);
     
     // Form state for adding/editing AI settings
     const [settingsForm, setSettingsForm] = useState({
@@ -32,7 +37,7 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
             requiresApiKey: true,
             description: 'GPT models from OpenAI',
             icon: Brain,
-            models: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o', 'gpt-4o-mini']
+            models: ['gpt-4', 'gpt-4-turbo', 'gpt-4o-mini', 'gpt-4o']
         },
         anthropic: {
             name: 'Claude (Anthropic)',
@@ -198,6 +203,115 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
         setTimeout(() => setStatusMessage(''), 3000);
     };
 
+    const handleTestConnection = async () => {
+        if (!currentUser) {
+            setStatusMessage('Please log in to test connection');
+            setTimeout(() => setStatusMessage(''), 3000);
+            return;
+        }
+
+        setIsTestingConnection(true);
+        setConnectionStatus(null);
+        setStatusMessage('Testing connection...');
+
+        try {
+            // Get current AI settings from database
+            const response = await chrome.runtime.sendMessage({
+                action: 'apiRequest',
+                method: 'GET',
+                url: `/users/${currentUser.id}/ai-settings/default`
+            });
+
+            let aiSettings = null;
+            if (response && response.success) {
+                // Get the encrypted API key and decrypt it
+                let decryptedApiKey = null;
+                if (response.ai_settings.api_key_encrypted) {
+                    try {
+                        // Get the actual encrypted key from the database
+                        const keyResponse = await chrome.runtime.sendMessage({
+                            action: 'apiRequest',
+                            method: 'GET',
+                            url: `/ai-settings/${response.ai_settings.id}/encrypted-key`
+                        });
+                        
+                        if (keyResponse && keyResponse.success && keyResponse.api_key_encrypted) {
+                            const decryptResponse = await chrome.runtime.sendMessage({
+                                action: 'apiRequest',
+                                method: 'POST',
+                                url: `/ai-settings/decrypt-api-key`,
+                                data: { encryptedApiKey: keyResponse.api_key_encrypted }
+                            });
+                            
+                            if (decryptResponse && decryptResponse.success) {
+                                decryptedApiKey = decryptResponse.decryptedApiKey;
+                            }
+                        }
+                    } catch (decryptError) {
+                        console.error('Error decrypting API key:', decryptError);
+                    }
+                }
+
+                aiSettings = {
+                    provider: response.ai_settings.ai_provider,
+                    model: response.ai_settings.ai_model,
+                    apiKey: decryptedApiKey
+                };
+            }
+
+            // If no database settings, use form settings
+            if (!aiSettings) {
+                aiSettings = {
+                    provider: settingsForm.ai_provider,
+                    model: settingsForm.ai_model,
+                    apiKey: settingsForm.api_key
+                };
+            }
+
+            // Test connection based on provider
+            let testResult;
+            if (aiSettings.provider === 'ollama') {
+                testResult = await chrome.runtime.sendMessage({
+                    action: 'testOllama'
+                });
+            } else if (aiSettings.provider === 'openai') {
+                testResult = await chrome.runtime.sendMessage({
+                    action: 'testOpenAI',
+                    apiKey: aiSettings.apiKey
+                });
+            } else {
+                testResult = { success: false, error: `Provider ${aiSettings.provider} not yet implemented` };
+            }
+
+            if (testResult.success) {
+                setConnectionStatus({
+                    success: true,
+                    message: `Connection successful! Using ${aiSettings.provider} with model ${aiSettings.model}`,
+                    details: testResult.data
+                });
+                setStatusMessage('Connection test successful!');
+            } else {
+                setConnectionStatus({
+                    success: false,
+                    message: testResult.error || 'Connection failed',
+                    details: testResult.troubleshooting || 'Please check your settings and try again.'
+                });
+                setStatusMessage('Connection test failed');
+            }
+        } catch (error) {
+            console.error('Error testing connection:', error);
+            setConnectionStatus({
+                success: false,
+                message: 'Connection test failed',
+                details: error.message || 'An unexpected error occurred.'
+            });
+            setStatusMessage('Error testing connection');
+        } finally {
+            setIsTestingConnection(false);
+            setTimeout(() => setStatusMessage(''), 5000);
+        }
+    };
+
     const getProviderIcon = (provider) => {
         const providerConfig = AI_PROVIDERS[provider];
         const IconComponent = providerConfig?.icon || Brain;
@@ -224,19 +338,86 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
             <div className="ai-settings-section">
                 <div className="section-header">
                     <h2>AI Settings</h2>
-                    <button 
-                        className="primary-button"
-                        onClick={() => setShowAddForm(true)}
-                        disabled={loading}
-                    >
-                        <Plus size={16} />
-                        Add Settings
-                    </button>
+                    <div className="header-actions">
+                        <button 
+                            className="secondary-button"
+                            onClick={handleTestConnection}
+                            disabled={loading || isTestingConnection}
+                        >
+                            {isTestingConnection ? (
+                                <>
+                                    <div className="spinner"></div>
+                                    Testing...
+                                </>
+                            ) : (
+                                <>
+                                    <Check size={16} />
+                                    Test Connection
+                                </>
+                            )}
+                        </button>
+                        <button 
+                            className="primary-button"
+                            onClick={() => setShowAddForm(true)}
+                            disabled={loading}
+                        >
+                            <Plus size={16} />
+                            Add Settings
+                        </button>
+                    </div>
                 </div>
 
             {statusMessage && (
                 <div className={`status-message ${statusMessage.includes('Error') ? 'error' : 'success'}`}>
                     {statusMessage}
+                </div>
+            )}
+
+            {connectionStatus && (
+                <div className={`connection-status ${connectionStatus.success ? 'success' : 'error'}`}>
+                    <div className="connection-header">
+                        {connectionStatus.success ? (
+                            <Check size={20} className="status-icon success" />
+                        ) : (
+                            <X size={20} className="status-icon error" />
+                        )}
+                        <span className="connection-message">{connectionStatus.message}</span>
+                    </div>
+                    {connectionStatus.details && (
+                        <div className="connection-details">
+                            {typeof connectionStatus.details === 'object' ? (
+                                <div className="details-object">
+                                    <div className="detail-row">
+                                        <span className="detail-label">Provider:</span>
+                                        <span className="detail-value">{connectionStatus.details.provider || 'N/A'}</span>
+                                    </div>
+                                    <div className="detail-row">
+                                        <span className="detail-label">Model:</span>
+                                        <span className="detail-value">{connectionStatus.details.version || 'N/A'}</span>
+                                    </div>
+                                    {connectionStatus.details.response && (
+                                        <div className="detail-row">
+                                            <span className="detail-label">Response:</span>
+                                            <div className="response-container">
+                                                <button 
+                                                    className="response-toggle"
+                                                    onClick={() => setShowResponse(!showResponse)}
+                                                    title={showResponse ? 'Hide response' : 'Show response'}
+                                                >
+                                                    {showResponse ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                </button>
+                                                <span className="detail-value">
+                                                    {showResponse ? connectionStatus.details.response : 'Click to view'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="details-text">{connectionStatus.details}</p>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -367,7 +548,14 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
                                 </div>
                                 <div className="detail-item">
                                     <span className="detail-label">API Key:</span>
-                                    <span className="detail-value">{setting.api_key_encrypted ? 'Configured' : 'Not set'}</span>
+                                    <span className="detail-value">
+                                        {setting.api_key_encrypted ? 'Configured' : 'Not set'}
+                                        {process.env.NODE_ENV === 'development' && (
+                                            <small style={{display: 'block', color: '#666', fontSize: '10px'}}>
+                                                Debug: {typeof setting.api_key_encrypted} - {setting.api_key_encrypted ? 'true' : 'false'}
+                                            </small>
+                                        )}
+                                    </span>
                                 </div>
                             </div>
                         </div>

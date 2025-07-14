@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Connection - EasyJob</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1e293b;
+            margin-bottom: 24px;
+        }
+        .test-section {
+            margin-bottom: 32px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #374151;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 12px;
+        }
+        button:hover {
+            background: #5a67d8;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .result.success {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+        }
+        .result.error {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+        }
+        .result.loading {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            color: #0369a1;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test Connection - EasyJob Extension</h1>
+        
+        <div class="test-section">
+            <h3>Test Ollama Connection</h3>
+            <p>Test if Ollama is running and accessible on localhost:11434</p>
+            <button id="testOllama">Test Ollama</button>
+            <div id="ollamaResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test OpenAI Connection</h3>
+            <p>Test OpenAI API connection with a sample API key</p>
+            <input type="password" id="openaiKey" placeholder="Enter OpenAI API key" style="padding: 8px; margin-right: 12px; border: 1px solid #d1d5db; border-radius: 4px; width: 300px;">
+            <button id="testOpenAI">Test OpenAI</button>
+            <div id="openaiResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Database Connection</h3>
+            <p>Test if the API server is running and accessible</p>
+            <button id="testAPI">Test API</button>
+            <div id="apiResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Test Ollama Connection
+        document.getElementById('testOllama').addEventListener('click', async () => {
+            const button = document.getElementById('testOllama');
+            const resultDiv = document.getElementById('ollamaResult');
+            
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner"></span> Testing...';
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Testing Ollama connection...';
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'testOllama'
+                });
+                
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Connection successful!\n\nModel: ${response.data.version}\nResponse: ${response.data.response}\nPort: ${response.data.port}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ Connection failed!\n\nError: ${response.error}\n\nTroubleshooting: ${response.troubleshooting || 'Please check your Ollama installation.'}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Test failed!\n\nError: ${error.message}`;
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Test Ollama';
+            }
+        });
+
+        // Test OpenAI Connection
+        document.getElementById('testOpenAI').addEventListener('click', async () => {
+            const button = document.getElementById('testOpenAI');
+            const resultDiv = document.getElementById('openaiResult');
+            const apiKey = document.getElementById('openaiKey').value;
+            
+            if (!apiKey) {
+                alert('Please enter an OpenAI API key');
+                return;
+            }
+            
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner"></span> Testing...';
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Testing OpenAI connection...';
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'testOpenAI',
+                    apiKey: apiKey
+                });
+                
+                if (response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ Connection successful!\n\nProvider: ${response.data.provider}\nModel: ${response.data.version}\nResponse: ${response.data.response}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ Connection failed!\n\nError: ${response.error}\n\nTroubleshooting: ${response.troubleshooting || 'Please check your API key.'}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Test failed!\n\nError: ${error.message}`;
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Test OpenAI';
+            }
+        });
+
+        // Test API Connection
+        document.getElementById('testAPI').addEventListener('click', async () => {
+            const button = document.getElementById('testAPI');
+            const resultDiv = document.getElementById('apiResult');
+            
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner"></span> Testing...';
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = 'Testing API connection...';
+            
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'apiRequest',
+                    method: 'GET',
+                    url: '/health'
+                });
+                
+                if (response && response.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ API connection successful!\n\nStatus: ${response.status || 'OK'}\nMessage: ${response.message || 'API is running'}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ API connection failed!\n\nError: ${response?.error || 'Unknown error'}\n\nMake sure the API server is running on localhost:3000`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ API test failed!\n\nError: ${error.message}\n\nMake sure the API server is running on localhost:3000`;
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Test API';
+            }
+        });
+    </script>
+</body>
+</html> 

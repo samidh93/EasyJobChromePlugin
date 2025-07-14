@@ -17,6 +17,14 @@ class AISettingsManager {
     async loadAISettings(userId) {
         try {
             console.log('AISettingsManager: Loading AI settings for user:', userId);
+            console.log('AISettingsManager: User ID type:', typeof userId);
+            console.log('AISettingsManager: User ID length:', userId ? userId.length : 'null');
+            
+            // Validate userId is a proper UUID
+            if (!userId || typeof userId !== 'string' || userId.length !== 36) {
+                console.error('AISettingsManager: Invalid user ID provided:', userId);
+                return this.getDefaultSettings();
+            }
             
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
@@ -100,6 +108,11 @@ class AISettingsManager {
                     action: 'testOllama'
                 });
                 return response;
+            } else if (provider === 'openai') {
+                const response = await chrome.runtime.sendMessage({
+                    action: 'testOpenAI'
+                });
+                return response;
             } else {
                 // For other providers, just validate settings
                 const settings = this.getCurrentSettings();
@@ -139,6 +152,29 @@ class AISettingsManager {
 
                 if (response.success === false) {
                     throw new Error(response.error || 'Unknown error from Ollama API');
+                }
+                
+                return response.data;
+            } else if (provider === 'openai') {
+                // OpenAI implementation
+                const model = this.getModel();
+                const settings = this.getCurrentSettings();
+                
+                if (!settings.apiKey) {
+                    throw new Error('OpenAI API key is required');
+                }
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'callOpenAI',
+                    data: {
+                        ...requestData,
+                        model: model,
+                        apiKey: settings.apiKey
+                    }
+                });
+
+                if (response.success === false) {
+                    throw new Error(response.error || 'Unknown error from OpenAI API');
                 }
                 
                 return response.data;
@@ -215,6 +251,69 @@ class AISettingsManager {
                                 reject(new Error(chrome.runtime.lastError.message));
                             } else if (response.success === false) {
                                 reject(new Error(response.error || 'Unknown error from Ollama API'));
+                            } else {
+                                resolve(response.data);
+                            }
+                        }
+                    );
+                });
+            } else if (provider === 'openai') {
+                // OpenAI implementation with stop checking
+                const model = this.getModel();
+                const settings = this.getCurrentSettings();
+                
+                if (!settings.apiKey) {
+                    throw new Error('OpenAI API key is required');
+                }
+
+                return new Promise((resolve, reject) => {
+                    // Set up periodic stop checking during the API call
+                    let stopCheckInterval = null;
+                    
+                    if (shouldStop) {
+                        stopCheckInterval = setInterval(async () => {
+                            try {
+                                let stopRequested = false;
+                                if (typeof shouldStop === 'function') {
+                                    stopRequested = await shouldStop();
+                                } else if (shouldStop && shouldStop.value !== undefined) {
+                                    stopRequested = shouldStop.value;
+                                } else {
+                                    stopRequested = !!shouldStop;
+                                }
+                                
+                                if (stopRequested) {
+                                    console.log("Stop requested during OpenAI API call");
+                                    if (stopCheckInterval) {
+                                        clearInterval(stopCheckInterval);
+                                    }
+                                    resolve({ stopped: true });
+                                }
+                            } catch (error) {
+                                console.error('Error in stop check:', error);
+                            }
+                        }, 500); // Check every 500ms
+                    }
+                    
+                    chrome.runtime.sendMessage(
+                        {
+                            action: 'callOpenAI',
+                            data: {
+                                ...requestData,
+                                model: model,
+                                apiKey: settings.apiKey
+                            }
+                        },
+                        response => {
+                            // Clear the stop check interval
+                            if (stopCheckInterval) {
+                                clearInterval(stopCheckInterval);
+                            }
+                            
+                            if (chrome.runtime.lastError) {
+                                reject(new Error(chrome.runtime.lastError.message));
+                            } else if (response.success === false) {
+                                reject(new Error(response.error || 'Unknown error from OpenAI API'));
                             } else {
                                 resolve(response.data);
                             }

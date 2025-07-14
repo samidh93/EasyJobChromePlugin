@@ -143,7 +143,18 @@ class AIQuestionAnswerer {
                 return { success: false, stopped: true };
             }
             
-            let answer = response?.response?.trim() || "";
+            // Handle different AI provider response formats
+            let answer = "";
+            if (response?.response) {
+                // Ollama format: { response: "text" }
+                answer = response.response.trim();
+            } else if (response?.choices?.[0]?.message?.content) {
+                // OpenAI format: { choices: [{ message: { content: "text" } }] }
+                answer = response.choices[0].message.content.trim();
+            } else {
+                console.warn('Unexpected AI response format:', response);
+                answer = "";
+            }
             
             // Post-process answer to enforce minimum 5 years for experience questions
             if (this.isYearsOfExperienceQuestion(question) && /^\d+$/.test(answer)) {

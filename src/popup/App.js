@@ -338,9 +338,16 @@ const App = () => {
         };
       }
 
+      // Use current user data instead of form login data
+      const userData = currentUser ? {
+        id: currentUser.id,
+        username: currentUser.username,
+        email: currentUser.email
+      } : null;
+
       const response = await chrome.runtime.sendMessage({
         action: 'startAutoApply',
-        loginData: loginData,
+        loginData: userData,
         aiSettings: aiSettings
       });
 

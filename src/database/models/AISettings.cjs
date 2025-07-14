@@ -271,7 +271,8 @@ class AISettings {
             user_id: this.user_id,
             ai_provider: this.ai_provider,
             ai_model: this.ai_model,
-            // Don't include api_key_encrypted in JSON output for security
+            // Include boolean flag for API key presence (not the actual key)
+            api_key_encrypted: !!this.api_key_encrypted,
             is_default: this.is_default,
             created_at: this.created_at,
             updated_at: this.updated_at
