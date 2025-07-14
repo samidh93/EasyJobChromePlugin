@@ -56,7 +56,7 @@ class BackgroundManager {
             } else if (action.startsWith('registerUser') || action.startsWith('loginUser') || action.startsWith('logoutUser') || 
                        action.startsWith('getUserProfile') || action.startsWith('updateUserProfile') || action === 'getCurrentUser') {
                 await this.managers.get('user').handleMessage(request, sendResponse);
-            } else if (action.startsWith('callOllama') || action.startsWith('testOllama')) {
+            } else if (action.startsWith('callOllama') || action.startsWith('testOllama') || action === 'ollamaRequest') {
                 await this.managers.get('ai').handleMessage(request, sendResponse);
             } else if (action.startsWith('uploadResume') || action.startsWith('downloadResume')) {
                 await this.managers.get('resume').handleMessage(request, sendResponse);

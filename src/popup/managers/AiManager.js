@@ -214,15 +214,19 @@ class AiManager {
         try {
             console.log('AiManager: Loading Ollama models');
             
-            const response = await fetch('http://localhost:11434/api/tags');
-            if (response.ok) {
-                const data = await response.json();
-                const models = data.models.map(model => model.name);
+            const response = await chrome.runtime.sendMessage({
+                action: 'ollamaRequest',
+                method: 'GET',
+                url: '/api/tags'
+            });
+
+            if (response && response.success) {
+                const models = response.models.map(model => model.name);
                 console.log('AiManager: Successfully loaded Ollama models:', models);
                 return { success: true, models: models };
             } else {
-                console.error('AiManager: Failed to load Ollama models');
-                return { success: false, error: 'Failed to load Ollama models. Make sure Ollama is running.' };
+                console.error('AiManager: Failed to load Ollama models:', response);
+                return { success: false, error: response?.error || 'Failed to load Ollama models. Make sure Ollama is running.' };
             }
         } catch (error) {
             console.error('AiManager: Error loading Ollama models:', error);
