@@ -646,6 +646,54 @@ app.get('/api/users/:userId/ai-settings/default', async (req, res) => {
     }
 });
 
+// Get encrypted API key for decryption (internal use only)
+app.get('/api/ai-settings/:settingsId/encrypted-key', async (req, res) => {
+    try {
+        const { settingsId } = req.params;
+        
+        // Get the raw settings object without toJSON() to access api_key_encrypted
+        const { AISettings } = require('./database/models/index.cjs');
+        const settings = await AISettings.findById(settingsId);
+
+        if (!settings) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'AI settings not found' 
+            });
+        }
+
+        // Return only the encrypted key for decryption
+        res.json({ 
+            success: true, 
+            api_key_encrypted: settings.api_key_encrypted 
+        });
+    } catch (error) {
+        console.error('Get encrypted API key error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Decrypt API key endpoint
+app.post('/api/ai-settings/decrypt-api-key', async (req, res) => {
+    try {
+        const { encryptedApiKey } = req.body;
+        
+        if (!encryptedApiKey) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Encrypted API key is required' 
+            });
+        }
+
+        const decryptedApiKey = await AISettingsService.decryptAPIKey(encryptedApiKey);
+
+        res.json({ success: true, decryptedApiKey });
+    } catch (error) {
+        console.error('Decrypt API key error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 // ===== FILE UPLOAD ENDPOINTS =====
 
 // Upload resume file

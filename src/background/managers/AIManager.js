@@ -25,6 +25,12 @@ class AIManager {
             case 'ollamaRequest':
                 await this.handleOllamaRequest(request, sendResponse);
                 break;
+            case 'callOpenAI':
+                await this.handleCallOpenAI(request, sendResponse);
+                break;
+            case 'testOpenAI':
+                await this.handleTestOpenAI(request, sendResponse);
+                break;
             default:
                 sendResponse({ success: false, error: 'Unknown AI action' });
         }
@@ -109,6 +115,12 @@ class AIManager {
                 throw new Error(`Ollama connection failed: ${result.error}`);
             }
             console.log('Ollama connection successful');
+        } else if (aiSettings.provider === 'openai') {
+            const result = await this.testOpenAIConnection(aiSettings.apiKey);
+            if (!result.success) {
+                throw new Error(`OpenAI connection failed: ${result.error}`);
+            }
+            console.log('OpenAI connection successful');
         } else {
             // For external providers, just check if API key is present
             if (!aiSettings.apiKey) {
@@ -148,6 +160,7 @@ class AIManager {
                 return { 
                     success: true, 
                     data: {
+                        provider: 'ollama',
                         version: result.data.model,
                         response: result.data.message.content,
                         port: 11434
@@ -312,6 +325,185 @@ class AIManager {
                 success: false, 
                 error: error.message,
                 details: error.stack,
+                troubleshooting: troubleshooting
+            };
+        }
+    }
+
+    /**
+     * Handle OpenAI API calls
+     */
+    async handleCallOpenAI(request, sendResponse) {
+        try {
+            const data = request.data || {};
+            const result = await this.callOpenAIAPI(data);
+            sendResponse(result);
+        } catch (error) {
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle OpenAI connection testing
+     */
+    async handleTestOpenAI(request, sendResponse) {
+        try {
+            const settings = this.backgroundManager.getAutoApplyState().aiSettings;
+            const apiKey = settings?.apiKey || request.apiKey;
+            
+            if (!apiKey) {
+                sendResponse({ success: false, error: 'OpenAI API key is required' });
+                return;
+            }
+
+            const result = await this.testOpenAIConnection(apiKey);
+            sendResponse(result);
+        } catch (error) {
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Test OpenAI connection
+     */
+    async testOpenAIConnection(apiKey) {
+        try {
+            console.log('Testing OpenAI connection...');
+            
+            const testMessage = {
+                model: "gpt-4o-mini",
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are a helpful AI assistant."
+                    },
+                    {
+                        role: "user",
+                        content: "Hello, are you working?"
+                    }
+                ],
+                max_tokens: 50
+            };
+
+            const result = await this.callOpenAIAPI({
+                ...testMessage,
+                apiKey: apiKey
+            });
+            
+            if (result.success) {
+                console.log('OpenAI connection test successful:', result.data);
+                
+                return { 
+                    success: true, 
+                    data: {
+                        version: result.data.model,
+                        response: result.data.choices[0].message.content,
+                        provider: 'openai'
+                    }
+                };
+            } else {
+                throw new Error(result.error || 'Unknown error from OpenAI');
+            }
+        } catch (error) {
+            console.error('OpenAI connection failed:', error);
+            return { 
+                success: false, 
+                error: error.message,
+                details: error.stack,
+                troubleshooting: "Please check your OpenAI API key and make sure it's valid."
+            };
+        }
+    }
+
+    /**
+     * Make OpenAI API calls
+     */
+    async callOpenAIAPI(data) {
+        try {
+            console.log('Making OpenAI API call:', { model: data.model, prompt: data.prompt?.substring(0, 100) + '...' });
+            
+            const { apiKey, model, prompt, messages, max_tokens = 1000, temperature = 0.7 } = data;
+            
+            if (!apiKey) {
+                throw new Error('OpenAI API key is required');
+            }
+
+            // Prepare the request body
+            const requestBody = {
+                model: model || 'gpt-4o-mini',
+                max_tokens: max_tokens,
+                temperature: temperature
+            };
+
+            // Handle both prompt (for generate) and messages (for chat) formats
+            if (messages) {
+                requestBody.messages = messages;
+            } else if (prompt) {
+                // Convert prompt to chat format for consistency
+                requestBody.messages = [
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ];
+            } else {
+                throw new Error('Either prompt or messages must be provided');
+            }
+            
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('OpenAI API error response:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error: errorData
+                });
+                
+                let errorMessage = `HTTP error! status: ${response.status}`;
+                if (errorData.error?.message) {
+                    errorMessage = errorData.error.message;
+                } else if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+                
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            
+            console.log('OpenAI API call successful:', {
+                model: result.model,
+                usage: result.usage,
+                responseLength: result.choices[0]?.message?.content?.length || 0
+            });
+            
+            return { success: true, data: result };
+        } catch (error) {
+            console.error('OpenAI API call failed:', error);
+            
+            let troubleshooting = "Please check your OpenAI API key and make sure it's valid.";
+            
+            if (error.message.includes('401')) {
+                troubleshooting = "Your OpenAI API key is invalid. Please check your API key.";
+            } else if (error.message.includes('429')) {
+                troubleshooting = "Rate limit exceeded. Please wait a moment and try again.";
+            } else if (error.message.includes('quota')) {
+                troubleshooting = "You've exceeded your OpenAI API quota. Please check your billing.";
+            } else if (error.message.includes('Failed to fetch')) {
+                troubleshooting = "Network error. Please check your internet connection.";
+            }
+            
+            return { 
+                success: false, 
+                error: error.message,
                 troubleshooting: troubleshooting
             };
         }
