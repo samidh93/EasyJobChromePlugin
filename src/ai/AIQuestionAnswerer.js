@@ -1,55 +1,53 @@
-// No imports needed - we'll work directly with user data
+import AISettingsManager from './AISettingsManager.js';
 
 class AIQuestionAnswerer {
-    constructor(model = null) {
-        this.model = model || 'qwen2.5:3b'; // Use provided model or default
+    constructor(userId = null) {
+        this.userId = userId;
         this.user_data = null;
         this.formatted_text = null;
-        this.modelLoadPromise = null;
+        this.aiSettingsManager = new AISettingsManager();
+        this.settingsLoadPromise = null;
         
-        // If no model provided, try to load from storage
-        if (!model) {
-            this.modelLoadPromise = this.loadModelFromStorage();
+        // Load AI settings if userId is provided
+        if (userId) {
+            this.settingsLoadPromise = this.aiSettingsManager.loadAISettings(userId);
         }
     }
 
     /**
-     * Load the current AI model from Chrome storage
+     * Set the user ID and load AI settings
+     * @param {string} userId - User ID to load settings for
+     */
+    async setUserId(userId) {
+        this.userId = userId;
+        if (userId) {
+            this.settingsLoadPromise = this.aiSettingsManager.loadAISettings(userId);
+            await this.settingsLoadPromise;
+        }
+    }
+
+    /**
+     * Ensure AI settings are loaded before making API calls
      * @returns {Promise<void>}
      */
-    async loadModelFromStorage() {
-        try {
-            const result = await chrome.storage.local.get(['aiModel']);
-            if (result.aiModel) {
-                this.model = result.aiModel;
-                console.log(`AIQuestionAnswerer: Loaded model from storage: ${this.model}`);
-            } else {
-                console.log(`AIQuestionAnswerer: No model in storage, using default: ${this.model}`);
-            }
-        } catch (error) {
-            console.warn(`AIQuestionAnswerer: Failed to load model from storage, using default: ${this.model}`, error);
+    async ensureSettingsLoaded() {
+        if (this.settingsLoadPromise) {
+            await this.settingsLoadPromise;
+            this.settingsLoadPromise = null; // Clear the promise after loading
         }
     }
 
     /**
-     * Ensure model is loaded before making API calls
-     * @returns {Promise<void>}
-     */
-    async ensureModelLoaded() {
-        if (this.modelLoadPromise) {
-            await this.modelLoadPromise;
-            this.modelLoadPromise = null; // Clear the promise after loading
-        }
-    }
-
-    /**
-     * Set the AI model to use
+     * Set the AI model to use (overrides settings)
      * @param {string} model - The model name to use
      */
     setModel(model) {
         if (model && typeof model === 'string') {
-            this.model = model;
-            console.log(`AIQuestionAnswerer: Model set to: ${this.model}`);
+            // Create a temporary settings override
+            const currentSettings = this.aiSettingsManager.getCurrentSettings();
+            const overrideSettings = { ...currentSettings, model: model };
+            this.aiSettingsManager.setSettings(overrideSettings);
+            console.log(`AIQuestionAnswerer: Model overridden to: ${model}`);
         }
     }
 
@@ -92,11 +90,11 @@ class AIQuestionAnswerer {
      */
     async answerQuestion(question, options = null, shouldStop = null) {
         try {
-            // Ensure model is loaded from storage if needed
-            await this.ensureModelLoaded();
+            // Ensure AI settings are loaded
+            await this.ensureSettingsLoaded();
             
             console.log("Answering question:", question);
-            console.log("Using AI model:", this.model);
+            console.log("Using AI model:", this.aiSettingsManager.getModel());
             console.log("Options:", options);
             
             // Check for direct matches first (personal info)
@@ -134,9 +132,8 @@ class AIQuestionAnswerer {
             // Build enhanced prompt with user data
             const prompt = this.buildEnhancedPrompt(question, options);
             
-            // Get AI response with timeout and stop checking
-            const response = await this.callOllamaAPIWithStop({
-                model: this.model,
+            // Get AI response using AISettingsManager
+            const response = await this.aiSettingsManager.callAIWithStop({
                 prompt: prompt,
                 stream: false
             }, shouldStop);
@@ -608,127 +605,36 @@ ANSWER:`;
     }
 
     /**
-     * Call the Ollama API through the background script
-     * @param {Object} requestBody - Request body  
-     * @returns {Promise<Object>} - API response
-     */
-    async callOllamaAPI(requestBody) {
-        try {
-            // Call via background script to avoid CORS issues (using generate endpoint like Python test)
-            return new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage(
-                    {
-                        action: 'callOllama',
-                        endpoint: 'generate',
-                        data: requestBody
-                    },
-                    response => {
-                        if (chrome.runtime.lastError) {
-                            reject(new Error(chrome.runtime.lastError.message));
-                        } else if (response.success === false) {
-                            reject(new Error(response.error || 'Unknown error from Ollama API'));
-                        } else {
-                            resolve(response.data);
-                        }
-                    }
-                );
-            });
-        } catch (error) {
-            console.error('Error calling Ollama API:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Call the Ollama API with stop checking during the request
-     * @param {Object} requestBody - Request body
-     * @param {Function} shouldStop - Function to check if should stop
-     * @returns {Promise<Object>} - API response or stop status
-     */
-    async callOllamaAPIWithStop(requestBody, shouldStop = null) {
-        try {
-            // Call via background script to avoid CORS issues
-            return new Promise((resolve, reject) => {
-                // Set up periodic stop checking during the API call
-                let stopCheckInterval = null;
-                
-                if (shouldStop) {
-                    stopCheckInterval = setInterval(async () => {
-                        try {
-                            let stopRequested = false;
-                            if (typeof shouldStop === 'function') {
-                                stopRequested = await shouldStop();
-                            } else if (shouldStop && shouldStop.value !== undefined) {
-                                stopRequested = shouldStop.value;
-                            } else {
-                                stopRequested = !!shouldStop;
-                            }
-                            
-                            if (stopRequested) {
-                                console.log("Stop requested during AI API call");
-                                if (stopCheckInterval) {
-                                    clearInterval(stopCheckInterval);
-                                }
-                                resolve({ stopped: true });
-                            }
-                        } catch (error) {
-                            console.error('Error in stop check:', error);
-                        }
-                    }, 500); // Check every 500ms
-                }
-                
-                chrome.runtime.sendMessage(
-                    {
-                        action: 'callOllama',
-                        endpoint: 'generate',
-                        data: requestBody
-                    },
-                    response => {
-                        // Clear the stop check interval
-                        if (stopCheckInterval) {
-                            clearInterval(stopCheckInterval);
-                        }
-                        
-                        if (chrome.runtime.lastError) {
-                            reject(new Error(chrome.runtime.lastError.message));
-                        } else if (response.success === false) {
-                            reject(new Error(response.error || 'Unknown error from Ollama API'));
-                        } else {
-                            resolve(response.data);
-                        }
-                    }
-                );
-            });
-        } catch (error) {
-            console.error('Error calling Ollama API:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Check connection to Ollama (optional)
+     * Test AI connection using AISettingsManager
      * @returns {Promise<boolean>} - Whether connection was successful
      */
-    async checkOllamaConnection() {
+    async testConnection() {
         try {
-            return new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage(
-                    { action: 'testOllama' },
-                    response => {
-                        if (chrome.runtime.lastError) {
-                            reject(new Error(chrome.runtime.lastError.message));
-                        } else if (response && response.success) {
-                            resolve(true);
-                        } else {
-                            reject(new Error(response?.error || 'Failed to connect to Ollama'));
-                        }
-                    }
-                );
-            });
+            await this.ensureSettingsLoaded();
+            const result = await this.aiSettingsManager.testConnection();
+            return result.success;
         } catch (error) {
-            console.error('Error checking Ollama connection:', error);
-            throw error;
+            console.error('Error testing AI connection:', error);
+            return false;
         }
+    }
+
+    /**
+     * Get current AI settings
+     * @returns {Object} - Current AI settings
+     */
+    getAISettings() {
+        return this.aiSettingsManager.getCurrentSettings();
+    }
+
+    /**
+     * Clear all data
+     */
+    clear() {
+        this.user_data = null;
+        this.formatted_text = null;
+        this.aiSettingsManager.clear();
+        this.settingsLoadPromise = null;
     }
 }
 

@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test AI Abstraction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .info {
+            background: #e2e3e5;
+            border: 1px solid #d6d8db;
+            color: #383d41;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test AI Abstraction</h1>
+    <p>This page tests the new AI abstraction with AISettingsManager and AIQuestionAnswerer.</p>
+
+    <div class="test-section">
+        <h3>1. Test AISettingsManager</h3>
+        <div class="input-group">
+            <label>User ID:</label>
+            <input type="text" id="userId" value="1" placeholder="Enter user ID">
+        </div>
+        <button onclick="testAISettingsManager()">Load AI Settings</button>
+        <button onclick="testAIConnection()">Test AI Connection</button>
+        <button onclick="testLoadModels()">Load Available Models</button>
+        <div id="ai-settings-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Test AIQuestionAnswerer</h3>
+        <div class="input-group">
+            <label>Question:</label>
+            <input type="text" id="question" value="What is your email address?" placeholder="Enter a question">
+        </div>
+        <div class="input-group">
+            <label>Options (comma-separated, optional):</label>
+            <input type="text" id="options" placeholder="option1, option2, option3">
+        </div>
+        <div class="input-group">
+            <label>User Data (JSON):</label>
+            <textarea id="userData" placeholder="Enter user data as JSON">{
+  "personal_information": {
+    "name": "John",
+    "surname": "Doe",
+    "email": "john.doe@example.com",
+    "phone": "123456789",
+    "phone_prefix": "+49",
+    "country": "Germany"
+  },
+  "work_experience": [
+    {
+      "position": "Software Engineer",
+      "company": "Tech Corp",
+      "duration": "3 years",
+      "skills": ["JavaScript", "Python", "React"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Bachelor of Engineering",
+      "institution": "University of Technology",
+      "year": "2020"
+    }
+  ],
+  "skills": [
+    {
+      "name": "JavaScript",
+      "level": "Advanced"
+    },
+    {
+      "name": "Python",
+      "level": "Intermediate"
+    }
+  ]
+}</textarea>
+        </div>
+        <button onclick="testAIQuestionAnswerer()">Answer Question</button>
+        <button onclick="testDirectAnswer()">Test Direct Answer</button>
+        <div id="ai-answer-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Test Model Override</h3>
+        <div class="input-group">
+            <label>Override Model:</label>
+            <input type="text" id="overrideModel" value="llama2:7b" placeholder="Enter model name">
+        </div>
+        <button onclick="testModelOverride()">Test Model Override</button>
+        <div id="model-override-result" class="result"></div>
+    </div>
+
+    <script>
+        // AISettingsManager class definition
+        class AISettingsManager {
+            constructor() {
+                this.currentSettings = null;
+                this.defaultModel = 'qwen2.5:3b';
+                this.settingsLoadPromise = null;
+            }
+
+            async loadAISettings(userId) {
+                try {
+                    console.log('AISettingsManager: Loading AI settings for user:', userId);
+                    
+                    const response = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'GET',
+                        url: `/users/${userId}/ai-settings/default`
+                    });
+
+                    if (response && response.success) {
+                        this.currentSettings = response.ai_settings;
+                        console.log('AISettingsManager: Successfully loaded AI settings:', this.currentSettings);
+                        return this.currentSettings;
+                    } else {
+                        console.warn('AISettingsManager: No AI settings found, using default');
+                        return this.getDefaultSettings();
+                    }
+                } catch (error) {
+                    console.error('AISettingsManager: Error loading AI settings:', error);
+                    return this.getDefaultSettings();
+                }
+            }
+
+            getDefaultSettings() {
+                return {
+                    provider: 'ollama',
+                    model: this.defaultModel,
+                    apiKey: null,
+                    baseUrl: 'http://localhost:11434',
+                    is_default: true
+                };
+            }
+
+            getCurrentSettings() {
+                return this.currentSettings || this.getDefaultSettings();
+            }
+
+            setSettings(settings) {
+                this.currentSettings = settings;
+                console.log('AISettingsManager: Settings updated:', settings);
+            }
+
+            getModel() {
+                const settings = this.getCurrentSettings();
+                return settings.model || this.defaultModel;
+            }
+
+            getProvider() {
+                const settings = this.getCurrentSettings();
+                return settings.provider || 'ollama';
+            }
+
+            async testConnection() {
+                try {
+                    const provider = this.getProvider();
+                    
+                    if (provider === 'ollama') {
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'testOllama'
+                        });
+                        return response;
+                    } else {
+                        const settings = this.getCurrentSettings();
+                        if (!settings.apiKey) {
+                            return { success: false, error: `API key required for ${provider}` };
+                        }
+                        return { success: true, message: `${provider} settings validated` };
+                    }
+                } catch (error) {
+                    console.error('AISettingsManager: Error testing connection:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async callAI(requestData) {
+                try {
+                    const provider = this.getProvider();
+                    
+                    if (provider === 'ollama') {
+                        const model = this.getModel();
+                        const requestBody = {
+                            ...requestData,
+                            model: model
+                        };
+
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'callOllama',
+                            endpoint: 'generate',
+                            data: requestBody
+                        });
+
+                        if (response.success === false) {
+                            throw new Error(response.error || 'Unknown error from Ollama API');
+                        }
+                        
+                        return response.data;
+                    } else {
+                        throw new Error(`Provider ${provider} not yet implemented`);
+                    }
+                } catch (error) {
+                    console.error('AISettingsManager: Error calling AI API:', error);
+                    throw error;
+                }
+            }
+
+            async callAIWithStop(requestData, shouldStop = null) {
+                try {
+                    const provider = this.getProvider();
+                    
+                    if (provider === 'ollama') {
+                        const model = this.getModel();
+                        const requestBody = {
+                            ...requestData,
+                            model: model
+                        };
+
+                        return new Promise((resolve, reject) => {
+                            let stopCheckInterval = null;
+                            
+                            if (shouldStop) {
+                                stopCheckInterval = setInterval(async () => {
+                                    try {
+                                        let stopRequested = false;
+                                        if (typeof shouldStop === 'function') {
+                                            stopRequested = await shouldStop();
+                                        } else if (shouldStop && shouldStop.value !== undefined) {
+                                            stopRequested = shouldStop.value;
+                                        } else {
+                                            stopRequested = !!shouldStop;
+                                        }
+                                        
+                                        if (stopRequested) {
+                                            console.log("Stop requested during AI API call");
+                                            if (stopCheckInterval) {
+                                                clearInterval(stopCheckInterval);
+                                            }
+                                            resolve({ stopped: true });
+                                        }
+                                    } catch (error) {
+                                        console.error('Error in stop check:', error);
+                                    }
+                                }, 500);
+                            }
+                            
+                            chrome.runtime.sendMessage(
+                                {
+                                    action: 'callOllama',
+                                    endpoint: 'generate',
+                                    data: requestBody
+                                },
+                                response => {
+                                    if (stopCheckInterval) {
+                                        clearInterval(stopCheckInterval);
+                                    }
+                                    
+                                    if (chrome.runtime.lastError) {
+                                        reject(new Error(chrome.runtime.lastError.message));
+                                    } else if (response.success === false) {
+                                        reject(new Error(response.error || 'Unknown error from Ollama API'));
+                                    } else {
+                                        resolve(response.data);
+                                    }
+                                }
+                            );
+                        });
+                    } else {
+                        throw new Error(`Provider ${provider} not yet implemented`);
+                    }
+                } catch (error) {
+                    console.error('AISettingsManager: Error calling AI API with stop:', error);
+                    throw error;
+                }
+            }
+
+            async loadAvailableModels() {
+                try {
+                    const provider = this.getProvider();
+                    
+                    if (provider === 'ollama') {
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'ollamaRequest',
+                            method: 'GET',
+                            url: '/api/tags'
+                        });
+
+                        if (response && response.success) {
+                            return response.models.map(model => model.name);
+                        } else {
+                            throw new Error(response?.error || 'Failed to load Ollama models');
+                        }
+                    } else {
+                        throw new Error(`Provider ${provider} not yet implemented`);
+                    }
+                } catch (error) {
+                    console.error('AISettingsManager: Error loading models:', error);
+                    throw error;
+                }
+            }
+
+            clear() {
+                this.currentSettings = null;
+                this.settingsLoadPromise = null;
+            }
+        }
+
+        // AIQuestionAnswerer class definition
+        class AIQuestionAnswerer {
+            constructor(userId = null) {
+                this.userId = userId;
+                this.user_data = null;
+                this.formatted_text = null;
+                this.aiSettingsManager = new AISettingsManager();
+                this.settingsLoadPromise = null;
+                
+                if (userId) {
+                    this.settingsLoadPromise = this.aiSettingsManager.loadAISettings(userId);
+                }
+            }
+
+            async setUserId(userId) {
+                this.userId = userId;
+                if (userId) {
+                    this.settingsLoadPromise = this.aiSettingsManager.loadAISettings(userId);
+                    await this.settingsLoadPromise;
+                }
+            }
+
+            async ensureSettingsLoaded() {
+                if (this.settingsLoadPromise) {
+                    await this.settingsLoadPromise;
+                    this.settingsLoadPromise = null;
+                }
+            }
+
+            setModel(model) {
+                if (model && typeof model === 'string') {
+                    const currentSettings = this.aiSettingsManager.getCurrentSettings();
+                    const overrideSettings = { ...currentSettings, model: model };
+                    this.aiSettingsManager.setSettings(overrideSettings);
+                    console.log(`AIQuestionAnswerer: Model overridden to: ${model}`);
+                }
+            }
+
+            async setUserContext(userData, formattedText = null) {
+                try {
+                    if (typeof userData === 'object' && userData !== null) {
+                        this.user_data = userData;
+                        this.formatted_text = formattedText || this.formatUserDataAsText();
+                        console.log('User context set with structured data');
+                    } else if (typeof userData === 'string') {
+                        this.user_data = null;
+                        this.formatted_text = userData;
+                        console.log('User context set with formatted text only');
+                    } else {
+                        throw new Error('Invalid user data format');
+                    }
+                    
+                    console.log('User context set successfully');
+                    return { success: true };
+                } catch (error) {
+                    console.error('Error in setUserContext:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            async answerQuestion(question, options = null, shouldStop = null) {
+                try {
+                    await this.ensureSettingsLoaded();
+                    
+                    console.log("Answering question:", question);
+                    console.log("Using AI model:", this.aiSettingsManager.getModel());
+                    console.log("Options:", options);
+                    
+                    const directAnswer = this.getDirectAnswer(question);
+                    if (directAnswer) {
+                        console.log("Found direct answer:", directAnswer);
+                        
+                        if (options && Array.isArray(options) && options.length > 0) {
+                            const matchedOption = this.matchToOption(directAnswer, options);
+                            console.log("Matched direct answer to option:", matchedOption);
+                            return { success: true, answer: matchedOption };
+                        }
+                        
+                        return { success: true, answer: directAnswer };
+                    }
+                    
+                    if (shouldStop) {
+                        let stopRequested = false;
+                        if (typeof shouldStop === 'function') {
+                            stopRequested = await shouldStop();
+                        } else if (shouldStop && shouldStop.value !== undefined) {
+                            stopRequested = shouldStop.value;
+                        } else {
+                            stopRequested = !!shouldStop;
+                        }
+                        
+                        if (stopRequested) {
+                            console.log("Stop requested before AI processing");
+                            return { success: false, stopped: true };
+                        }
+                    }
+                    
+                    const prompt = this.buildEnhancedPrompt(question, options);
+                    
+                    const response = await this.aiSettingsManager.callAIWithStop({
+                        prompt: prompt,
+                        stream: false
+                    }, shouldStop);
+                    
+                    if (response && response.stopped) {
+                        return { success: false, stopped: true };
+                    }
+                    
+                    let answer = response?.response?.trim() || "";
+                    
+                    if (this.isYearsOfExperienceQuestion(question) && /^\d+$/.test(answer)) {
+                        const num = parseInt(answer);
+                        if (num < 5) {
+                            answer = "5";
+                            console.log(`Enforced minimum 5 years for experience question, was: ${num}`);
+                        }
+                    }
+                    
+                    if (options && Array.isArray(options) && options.length > 0) {
+                        answer = this.matchToOption(answer, options);
+                    }
+                    
+                    console.log("Final answer:", answer);
+                    return { 
+                        success: true, 
+                        answer: answer || "Information not available" 
+                    };
+                    
+                } catch (error) {
+                    console.error('Error in answerQuestion:', error);
+                    
+                    const fallbackAnswer = options && Array.isArray(options) && options.length > 0 
+                        ? (options.length > 1 ? options[1] : options[0])
+                        : "Information not available";
+                        
+                    return { success: true, answer: fallbackAnswer };
+                }
+            }
+
+            getDirectAnswer(question) {
+                if (!this.user_data?.personal_information) {
+                    return null;
+                }
+                
+                const info = this.user_data.personal_information;
+                const q = question.toLowerCase();
+                
+                if (q.includes("email") || q.includes("e-mail")) {
+                    return info.email || null;
+                }
+                
+                if (q.includes("phone") || q.includes("mobile") || q.includes("telefon")) {
+                    const phone = info.phone_prefix ? `${info.phone_prefix}${info.phone}` : info.phone;
+                    return phone || null;
+                }
+                
+                if (q.includes("first name") || q.includes("vorname")) {
+                    return info.name || null;
+                }
+                
+                if (q.includes("last name") || q.includes("surname") || q.includes("nachname")) {
+                    return info.surname || null;
+                }
+                
+                if (q.includes("country") && !q.includes("code")) {
+                    return info.country || null;
+                }
+                
+                if (this.isNoticePeriodOrStartDateQuestion(question)) {
+                    if (q.includes("notice period") || q.includes("kündigungsfrist") || q.includes("kuendigungsfrist")) {
+                        if (q.includes("monate") || q.includes("deutsch")) {
+                            return "2 Monate";
+                        } else {
+                            return "2 months";
+                        }
+                    } else {
+                        return this.calculateDateTwoMonthsFromNow();
+                    }
+                }
+                
+                return null;
+            }
+            
+            buildEnhancedPrompt(question, options) {
+                const userData = this.formatUserDataAsText();
+                
+                let prompt = `You are a job applicant filling out a job application form. Answer questions based on your resume information in first person (as "I" not "he/she").
+
+MY RESUME:
+${userData}
+
+QUESTION: ${question}
+
+IMPORTANT GENERAL RULES:
+- Answer as the job applicant (use "I", "my", "me" - NOT "he", "she", "Sami", or third person)
+- Be concise and direct
+- Only provide the specific information requested
+- Do not mention your name unless explicitly asked`;
+
+                if (this.isDecimalNumberQuestion(question)) {
+                    prompt += `
+
+IMPORTANT RULES FOR DECIMAL NUMBERS:
+- If asked for a decimal number, provide ONLY a decimal number (e.g., "3.5", "2.0", "1.2")
+- Do NOT include explanations, descriptions, or additional text
+- The number should be greater than 0.0 as requested
+- Example: "3.0" not "3.0 years" or explanations`;
+                }
+
+                if (this.isYearsOfExperienceQuestion(question)) {
+                    prompt += `
+
+IMPORTANT RULES FOR YEARS OF EXPERIENCE:
+- If asked for years of experience, provide ONLY a number between 5-99
+- MINIMUM is always 5 years - never return 0, 1, 2, 3, or 4
+- Do NOT include words like "years", "Jahre", or descriptions
+- For skill levels: Beginner=5, Intermediate=7, Advanced=10+ years
+- Calculate based on work experience and skill level
+- If no specific experience found, default to 5 years minimum
+- If unclear or no data, always answer at least 5 years to maximize job prospects
+- Example: "5" not "5 years" or "5 Jahre"
+- Better to overestimate than underestimate for better interview chances`;
+                }
+
+                if (this.isDegreeQuestion(question)) {
+                    prompt += `
+
+IMPORTANT RULES FOR DEGREE QUESTIONS:
+- Check education section carefully for exact degree matches
+- "Bachelor" = "Bachelor of Engineering" or "Bachelor of Science"
+- "Master" = "Master of Engineering" or "Master of Science"
+- Answer "Ja" for German forms, "Yes" for English forms
+- If degree is found, answer positively
+- Look for exact degree names in education section`;
+                }
+
+                if (this.isSkillLevelQuestion(question)) {
+                    prompt += `
+
+IMPORTANT RULES FOR SKILL LEVEL QUESTIONS:
+- Check the skills section for exact skill matches
+- Look for the skill name and its level (Beginner/Intermediate/Advanced)
+- Be precise about the level mentioned in the resume
+- Do not guess or estimate levels`;
+                }
+
+                if (this.isNoticePeriodOrStartDateQuestion(question)) {
+                    const twoMonthsFromNow = this.calculateDateTwoMonthsFromNow();
+                    prompt += `
+
+IMPORTANT RULES FOR NOTICE PERIOD AND START DATE:
+- For notice period questions, answer "2 months" or "2 Monate"
+- For starting date questions, provide the exact date: ${twoMonthsFromNow}
+- Use the format DD.MM.YYYY for German forms (e.g., "15.03.2024")
+- Use the format MM/DD/YYYY for English forms (e.g., "03/15/2024")
+- Current calculated start date (2 months from today): ${twoMonthsFromNow}
+- Be consistent with the date format expected by the form`;
+                }
+
+                if (options && Array.isArray(options) && options.length > 0) {
+                    const optionsStr = options.map(opt => `"${opt}"`).join(", ");
+                    prompt += `
+
+Available Options: [${optionsStr}]
+
+IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
+                }
+
+                prompt += `
+
+ANSWER:`;
+
+                return prompt;
+            }
+
+            isDecimalNumberQuestion(question) {
+                const lowerQ = question.toLowerCase();
+                return lowerQ.includes('decimal') || 
+                       lowerQ.includes('dezimal') || 
+                       lowerQ.includes('größer als 0.0') ||
+                       lowerQ.includes('greater than 0.0') ||
+                       lowerQ.includes('decimal zahl') ||
+                       lowerQ.includes('decimal number');
+            }
+
+            isYearsOfExperienceQuestion(question) {
+                const lowerQ = question.toLowerCase();
+                return lowerQ.includes('jahre') || 
+                       lowerQ.includes('years') || 
+                       lowerQ.includes('experience') || 
+                       lowerQ.includes('erfahrung') ||
+                       lowerQ.includes('how many') ||
+                       lowerQ.includes('wie viele');
+            }
+
+            isDegreeQuestion(question) {
+                const lowerQ = question.toLowerCase();
+                return lowerQ.includes('bachelor') || 
+                       lowerQ.includes('master') || 
+                       lowerQ.includes('degree') || 
+                       lowerQ.includes('abschluss') ||
+                       lowerQ.includes('bildung') ||
+                       lowerQ.includes('education');
+            }
+
+            isSkillLevelQuestion(question) {
+                const lowerQ = question.toLowerCase();
+                return lowerQ.includes('level') || 
+                       lowerQ.includes('niveau') || 
+                       lowerQ.includes('skill') || 
+                       lowerQ.includes('fähigkeit') ||
+                       lowerQ.includes('experience with') ||
+                       lowerQ.includes('erfahrung mit');
+            }
+
+            isNoticePeriodOrStartDateQuestion(question) {
+                const lowerQ = question.toLowerCase();
+                return lowerQ.includes('notice period') || 
+                       lowerQ.includes('starting date') || 
+                       lowerQ.includes('start date') ||
+                       lowerQ.includes('startdatum') ||
+                       lowerQ.includes('beginn') || 
+                       lowerQ.includes('beginnen') ||
+                       lowerQ.includes('kündigungsfrist') ||
+                       lowerQ.includes('kuendigungsfrist') ||
+                       lowerQ.includes('verfügbar') ||
+                       lowerQ.includes('verfuegbar') ||
+                       lowerQ.includes('available') ||
+                       lowerQ.includes('wann können sie') ||
+                       lowerQ.includes('when can you') ||
+                       lowerQ.includes('earliest start') ||
+                       lowerQ.includes('frühester beginn') ||
+                       lowerQ.includes('fruehester beginn');
+            }
+
+            calculateDateTwoMonthsFromNow() {
+                const now = new Date();
+                now.setMonth(now.getMonth() + 2);
+                const day = String(now.getDate()).padStart(2, '0');
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const year = now.getFullYear();
+                return `${day}.${month}.${year}`;
+            }
+            
+            formatUserDataAsText() {
+                if (this.formatted_text) {
+                    return this.formatted_text;
+                }
+                
+                if (!this.user_data) {
+                    return "No user data available.";
+                }
+                
+                if (typeof this.user_data === 'string') {
+                    return this.user_data;
+                }
+                
+                return this.formatObject(this.user_data, 0);
+            }
+            
+            formatObject(obj, indent = 0) {
+                const indentStr = "  ".repeat(indent);
+                let result = "";
+                
+                if (typeof obj === 'object' && obj !== null) {
+                    if (Array.isArray(obj)) {
+                        for (const item of obj) {
+                            if (typeof item === 'object' && item !== null) {
+                                result += `${indentStr}- ${this.formatObject(item, indent + 1)}`;
+                            } else {
+                                result += `${indentStr}- ${item}\n`;
+                            }
+                        }
+                    } else {
+                        for (const [key, value] of Object.entries(obj)) {
+                            const formattedKey = key.toUpperCase().replace(/_/g, ' ');
+                            result += `${indentStr}${formattedKey}:\n`;
+                            if (typeof value === 'object' && value !== null) {
+                                result += this.formatObject(value, indent + 1);
+                            } else {
+                                result += `${indentStr}  ${value}\n`;
+                            }
+                        }
+                    }
+                } else {
+                    result += `${indentStr}${obj}\n`;
+                }
+                
+                return result;
+            }
+             
+            matchToOption(answer, options) {
+                if (!answer || !options || options.length === 0) {
+                    return options?.length > 0 ? options[0] : "Not available";
+                }
+                
+                if (this.isDecimalNumberQuestion(answer) || /^\d+\.\d+$/.test(answer.trim())) {
+                    const decimalMatch = answer.match(/\d+\.\d+/);
+                    if (decimalMatch) {
+                        const decimal = decimalMatch[0];
+                        for (const option of options) {
+                            if (option.includes(decimal)) {
+                                return option;
+                            }
+                        }
+                        return decimal;
+                    }
+                }
+                
+                if (this.isYearsOfExperienceQuestion(answer) || /^\d+$/.test(answer.trim())) {
+                    const numberMatch = answer.match(/\d+/);
+                    if (numberMatch) {
+                        let number = parseInt(numberMatch[0]);
+                        
+                        if (this.isYearsOfExperienceQuestion(answer) && number < 5) {
+                            number = 5;
+                        }
+                        
+                        const numberStr = number.toString();
+                        
+                        for (const option of options) {
+                            if (option.includes(numberStr)) {
+                                return option;
+                            }
+                        }
+                        return numberStr;
+                    }
+                }
+                
+                if (this.isNoticePeriodOrStartDateQuestion(answer)) {
+                    if (answer.toLowerCase().includes("2 months") || answer.toLowerCase().includes("2 monate")) {
+                        for (const option of options) {
+                            if (option.toLowerCase().includes("2 months") || 
+                                option.toLowerCase().includes("2 monate") ||
+                                option.toLowerCase().includes("2 month")) {
+                                return option;
+                            }
+                        }
+                        return answer;
+                    }
+                    
+                    const dateMatch = answer.match(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}/);
+                    if (dateMatch) {
+                        const dateStr = dateMatch[0];
+                        for (const option of options) {
+                            if (option.includes(dateStr)) {
+                                return option;
+                            }
+                        }
+                        return dateStr;
+                    }
+                }
+                
+                for (const option of options) {
+                    if (option.toLowerCase() === answer.toLowerCase()) {
+                        return option;
+                    }
+                }
+                
+                for (const option of options) {
+                    if (option.toLowerCase().includes(answer.toLowerCase()) || 
+                        answer.toLowerCase().includes(option.toLowerCase())) {
+                        return option;
+                    }
+                }
+                
+                if (answer.toLowerCase().includes("germany") || answer.toLowerCase().includes("deutsch")) {
+                    for (const option of options) {
+                        if (option.toLowerCase().includes("deutsch") || 
+                            option.toLowerCase().includes("germany") ||
+                            option.includes("+49")) {
+                            return option;
+                        }
+                    }
+                }
+                
+                return options.length > 1 ? options[1] : options[0];
+            }
+
+            async testConnection() {
+                try {
+                    await this.ensureSettingsLoaded();
+                    const result = await this.aiSettingsManager.testConnection();
+                    return result.success;
+                } catch (error) {
+                    console.error('Error testing AI connection:', error);
+                    return false;
+                }
+            }
+
+            getAISettings() {
+                return this.aiSettingsManager.getCurrentSettings();
+            }
+
+            clear() {
+                this.user_data = null;
+                this.formatted_text = null;
+                this.aiSettingsManager.clear();
+                this.settingsLoadPromise = null;
+            }
+        }
+
+        // Test functions
+        async function testAISettingsManager() {
+            const resultDiv = document.getElementById('ai-settings-result');
+            resultDiv.textContent = 'Loading...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const aiManager = new AISettingsManager();
+                const settings = await aiManager.loadAISettings(userId);
+                
+                resultDiv.textContent = `✅ AI Settings loaded successfully:\n${JSON.stringify(settings, null, 2)}`;
+                resultDiv.className = 'result success';
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testAIConnection() {
+            const resultDiv = document.getElementById('ai-settings-result');
+            resultDiv.textContent = 'Testing connection...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const aiManager = new AISettingsManager();
+                await aiManager.loadAISettings(userId);
+                const result = await aiManager.testConnection();
+                
+                if (result.success) {
+                    resultDiv.textContent = `✅ AI Connection successful:\n${JSON.stringify(result, null, 2)}`;
+                    resultDiv.className = 'result success';
+                } else {
+                    resultDiv.textContent = `❌ AI Connection failed:\n${JSON.stringify(result, null, 2)}`;
+                    resultDiv.className = 'result error';
+                }
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testLoadModels() {
+            const resultDiv = document.getElementById('ai-settings-result');
+            resultDiv.textContent = 'Loading models...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const aiManager = new AISettingsManager();
+                await aiManager.loadAISettings(userId);
+                const models = await aiManager.loadAvailableModels();
+                
+                resultDiv.textContent = `✅ Available models:\n${models.join('\n')}`;
+                resultDiv.className = 'result success';
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testAIQuestionAnswerer() {
+            const resultDiv = document.getElementById('ai-answer-result');
+            resultDiv.textContent = 'Processing question...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const question = document.getElementById('question').value;
+                const optionsText = document.getElementById('options').value;
+                const userDataText = document.getElementById('userData').value;
+
+                const options = optionsText ? optionsText.split(',').map(opt => opt.trim()) : null;
+                const userData = JSON.parse(userDataText);
+
+                const aiAnswerer = new AIQuestionAnswerer(userId);
+                await aiAnswerer.setUserContext(userData);
+                
+                const result = await aiAnswerer.answerQuestion(question, options);
+                
+                if (result.success) {
+                    resultDiv.textContent = `✅ Answer: ${result.answer}`;
+                    resultDiv.className = 'result success';
+                } else {
+                    resultDiv.textContent = `❌ Failed: ${result.error || 'Unknown error'}`;
+                    resultDiv.className = 'result error';
+                }
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testDirectAnswer() {
+            const resultDiv = document.getElementById('ai-answer-result');
+            resultDiv.textContent = 'Testing direct answer...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const question = document.getElementById('question').value;
+                const userDataText = document.getElementById('userData').value;
+                const userData = JSON.parse(userDataText);
+
+                const aiAnswerer = new AIQuestionAnswerer(userId);
+                await aiAnswerer.setUserContext(userData);
+                
+                const directAnswer = aiAnswerer.getDirectAnswer(question);
+                
+                if (directAnswer) {
+                    resultDiv.textContent = `✅ Direct answer found: ${directAnswer}`;
+                    resultDiv.className = 'result success';
+                } else {
+                    resultDiv.textContent = `ℹ️ No direct answer found for this question`;
+                    resultDiv.className = 'result info';
+                }
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testModelOverride() {
+            const resultDiv = document.getElementById('model-override-result');
+            resultDiv.textContent = 'Testing model override...';
+            resultDiv.className = 'result loading';
+
+            try {
+                const userId = document.getElementById('userId').value;
+                const overrideModel = document.getElementById('overrideModel').value;
+                const userDataText = document.getElementById('userData').value;
+                const userData = JSON.parse(userDataText);
+
+                const aiAnswerer = new AIQuestionAnswerer(userId);
+                await aiAnswerer.setUserContext(userData);
+                
+                const originalSettings = aiAnswerer.getAISettings();
+                
+                aiAnswerer.setModel(overrideModel);
+                
+                const newSettings = aiAnswerer.getAISettings();
+                
+                resultDiv.textContent = `✅ Model override successful:\nOriginal: ${originalSettings.model}\nNew: ${newSettings.model}`;
+                resultDiv.className = 'result success';
+            } catch (error) {
+                resultDiv.textContent = `❌ Error: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+    </script>
+</body>
+</html> 
