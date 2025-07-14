@@ -503,9 +503,12 @@ class LinkedInForm extends LinkedInBase {
                 aiModel = window.currentAiSettings.model;
             }
             
-            // Create AI instance for translation with the current model
-            const ai = new AIQuestionAnswerer(aiModel);
-            await ai.ensureModelLoaded(); // Ensure model is loaded from storage if needed
+            // Create AI instance for translation - pass null as userId since we don't need AI settings for translation
+            const ai = new AIQuestionAnswerer(null);
+            // Override the model for this specific operation
+            if (aiModel) {
+                ai.setModel(aiModel);
+            }
             
             // Simple translation prompt
             const translationPrompt = `Translate this text to English. Only return the English translation, nothing else:
@@ -514,8 +517,7 @@ class LinkedInForm extends LinkedInBase {
 
 English translation:`;
 
-            const response = await ai.callOllamaAPI({
-                model: ai.model, // Use the loaded model instead of hardcoded
+            const response = await ai.aiSettingsManager.callAI({
                 prompt: translationPrompt,
                 stream: false
             });
@@ -641,8 +643,25 @@ English translation:`;
                 this.debugLog(`Using AI model from current settings: ${aiModel}`);
             }
             
-            // Create AIQuestionAnswerer instance with the current model
-            const ai = new AIQuestionAnswerer(aiModel);
+            // Get current user ID from storage
+            let userId = null;
+            try {
+                const userResult = await chrome.storage.local.get(['currentUser']);
+                if (userResult.currentUser && userResult.currentUser.id) {
+                    userId = userResult.currentUser.id;
+                    this.debugLog(`Using user ID: ${userId}`);
+                }
+            } catch (error) {
+                this.errorLog('Error getting current user:', error);
+            }
+            
+            // Create AIQuestionAnswerer instance with the current user ID
+            const ai = new AIQuestionAnswerer(userId);
+            
+            // Override the model if specified
+            if (aiModel) {
+                ai.setModel(aiModel);
+            }
 
             this.debugLog(`Answering question: ${question}`);
             this.debugLog(`Available options:`, options);

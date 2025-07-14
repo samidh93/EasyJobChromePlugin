@@ -38,6 +38,15 @@ class BackgroundManager {
     setupMessageListener() {
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             console.log('Background received message:', request);
+            console.log('Message sender:', sender);
+            
+            // Validate request structure
+            if (!request || typeof request !== 'object') {
+                console.error('Invalid message received - not an object:', request);
+                sendResponse({ success: false, error: 'Invalid message: not an object' });
+                return true;
+            }
+            
             this.handleMessage(request, sender, sendResponse);
             return true; // Keep the message channel open for async response
         });
@@ -49,6 +58,13 @@ class BackgroundManager {
     async handleMessage(request, sender, sendResponse) {
         try {
             const { action } = request;
+            
+            // Validate that action exists
+            if (!action || typeof action !== 'string') {
+                console.error('Invalid message received - missing or invalid action:', request);
+                sendResponse({ success: false, error: 'Invalid message: missing or invalid action' });
+                return;
+            }
             
             // Route to appropriate manager based on action
             if (action.startsWith('startAutoApply') || action.startsWith('stopAutoApply') || action === 'getAutoApplyState') {
@@ -63,7 +79,8 @@ class BackgroundManager {
             } else if (action === 'apiRequest') {
                 await this.managers.get('api').handleMessage(request, sendResponse);
             } else {
-                sendResponse({ success: false, error: 'Unknown action' });
+                console.warn('Unknown action received:', action);
+                sendResponse({ success: false, error: `Unknown action: ${action}` });
             }
         } catch (error) {
             console.error('Error handling message:', error);
