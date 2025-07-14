@@ -1,6 +1,6 @@
 /**
  * API Manager
- * Handles generic API requests to the backend
+ * Handles generic API requests to the backend server only
  */
 class APIManager {
     constructor(backgroundManager) {
@@ -25,7 +25,7 @@ class APIManager {
     }
 
     /**
-     * Handle generic API request
+     * Handle generic API request to backend server
      */
     async handleApiRequest(request, sendResponse) {
         try {

@@ -1,10 +1,11 @@
 /**
  * AI Manager
- * Handles AI provider connections, API calls, and testing
+ * Handles all AI-related operations including Ollama API calls, testing, and AI provider management
  */
 class AIManager {
     constructor(backgroundManager) {
         this.backgroundManager = backgroundManager;
+        this.OLLAMA_BASE_URL = 'http://localhost:11434';
     }
 
     /**
@@ -21,13 +22,56 @@ class AIManager {
             case 'testOllamaConnection':
                 await this.handleTestOllama(request, sendResponse);
                 break;
+            case 'ollamaRequest':
+                await this.handleOllamaRequest(request, sendResponse);
+                break;
             default:
                 sendResponse({ success: false, error: 'Unknown AI action' });
         }
     }
 
     /**
-     * Handle Ollama API calls
+     * Handle generic Ollama API requests (for simple operations like getting models)
+     */
+    async handleOllamaRequest(request, sendResponse) {
+        try {
+            const { method, url, data } = request;
+            
+            const ollamaUrl = `${this.OLLAMA_BASE_URL}${url}`;
+            const options = {
+                method: method || 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            };
+
+            if (data && (method === 'POST' || method === 'PUT')) {
+                options.body = JSON.stringify(data);
+            }
+
+            const response = await fetch(ollamaUrl, options);
+            
+            if (!response.ok) {
+                sendResponse({ 
+                    success: false, 
+                    error: `Ollama request failed: ${response.status} ${response.statusText}` 
+                });
+                return;
+            }
+
+            const result = await response.json();
+            sendResponse({ success: true, ...result });
+        } catch (error) {
+            console.error('Ollama request error:', error);
+            sendResponse({ 
+                success: false, 
+                error: 'Error connecting to Ollama. Make sure it\'s running on localhost:11434.' 
+            });
+        }
+    }
+
+    /**
+     * Handle Ollama API calls (for complex AI operations like chat/generate)
      */
     async handleCallOllama(request, sendResponse) {
         try {
@@ -125,7 +169,7 @@ class AIManager {
     }
 
     /**
-     * Make Ollama API calls
+     * Make Ollama API calls (for complex AI operations)
      */
     async callOllamaAPI(endpoint, data) {
         try {
