@@ -497,17 +497,40 @@ class LinkedInForm extends LinkedInBase {
      */
     static async shouldSkipQuestionWithTranslation(questionText) {
         try {
-            // Get current AI model from window.currentAiSettings or fall back to storage
-            let aiModel = null;
-            if (window.currentAiSettings && window.currentAiSettings.model) {
-                aiModel = window.currentAiSettings.model;
+            // Get current AI settings from window.currentAiSettings
+            let aiSettings = null;
+            if (window.currentAiSettings) {
+                aiSettings = window.currentAiSettings;
+                this.debugLog(`Translation: Using AI settings from current settings:`, aiSettings);
             }
             
-            // Create AI instance for translation - pass null as userId since we don't need AI settings for translation
-            const ai = new AIQuestionAnswerer(null);
-            // Override the model for this specific operation
-            if (aiModel) {
-                ai.setModel(aiModel);
+            // Get current user ID from storage
+            let userId = null;
+            try {
+                const userResult = await chrome.storage.local.get(['currentUser']);
+                if (userResult.currentUser && userResult.currentUser.id) {
+                    userId = userResult.currentUser.id;
+                }
+            } catch (error) {
+                this.errorLog('Error getting current user for translation:', error);
+            }
+            
+            // Create AI instance with the same settings as main question answering
+            const ai = new AIQuestionAnswerer(userId);
+            
+            // If we have AI settings from the popup, use them directly
+            if (aiSettings) {
+                // Create a settings object that matches the database format
+                const settings = {
+                    ai_provider: aiSettings.provider,
+                    ai_model: aiSettings.model,
+                    apiKey: aiSettings.apiKey,
+                    is_default: true
+                };
+                
+                // Set the settings directly in the AISettingsManager
+                ai.aiSettingsManager.setSettings(settings);
+                this.debugLog(`Translation: Set AI settings directly: provider=${settings.ai_provider}, model=${settings.ai_model}`);
             }
             
             // Simple translation prompt
@@ -636,11 +659,11 @@ English translation:`;
 
     static async answerQuestion(question, options = [], inputField, element, shouldStop = null) {
         try {
-            // Get current AI model from window.currentAiSettings or fall back to storage
-            let aiModel = null;
-            if (window.currentAiSettings && window.currentAiSettings.model) {
-                aiModel = window.currentAiSettings.model;
-                this.debugLog(`Using AI model from current settings: ${aiModel}`);
+            // Get current AI settings from window.currentAiSettings
+            let aiSettings = null;
+            if (window.currentAiSettings) {
+                aiSettings = window.currentAiSettings;
+                this.debugLog(`Using AI settings from current settings:`, aiSettings);
             }
             
             // Get current user ID from storage
@@ -658,9 +681,19 @@ English translation:`;
             // Create AIQuestionAnswerer instance with the current user ID
             const ai = new AIQuestionAnswerer(userId);
             
-            // Override the model if specified
-            if (aiModel) {
-                ai.setModel(aiModel);
+            // If we have AI settings from the popup, use them directly
+            if (aiSettings) {
+                // Create a settings object that matches the database format
+                const settings = {
+                    ai_provider: aiSettings.provider,
+                    ai_model: aiSettings.model,
+                    apiKey: aiSettings.apiKey,
+                    is_default: true
+                };
+                
+                // Set the settings directly in the AISettingsManager
+                ai.aiSettingsManager.setSettings(settings);
+                this.debugLog(`Set AI settings directly: provider=${settings.ai_provider}, model=${settings.ai_model}`);
             }
 
             this.debugLog(`Answering question: ${question}`);
