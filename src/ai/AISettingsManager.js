@@ -83,7 +83,8 @@ class AISettingsManager {
      */
     getModel() {
         const settings = this.getCurrentSettings();
-        return settings.model || this.defaultModel;
+        // Handle both ai_model (from database) and model (from default settings)
+        return settings.ai_model || settings.model || this.defaultModel;
     }
 
     /**
@@ -92,7 +93,54 @@ class AISettingsManager {
      */
     getProvider() {
         const settings = this.getCurrentSettings();
-        return settings.provider || 'ollama';
+        // Handle both ai_provider (from database) and provider (from default settings)
+        return settings.ai_provider || settings.provider || 'ollama';
+    }
+
+    /**
+     * Get the decrypted API key for the current settings
+     * @returns {Promise<string>} - Decrypted API key
+     */
+    async getDecryptedApiKey() {
+        const settings = this.getCurrentSettings();
+        
+        // If we already have a decrypted API key, return it
+        if (settings.apiKey && settings.apiKey !== 'encrypted') {
+            return settings.apiKey;
+        }
+        
+        // If we have an encrypted key flag, fetch and decrypt it
+        if (settings.api_key_encrypted && settings.id) {
+            try {
+                // Fetch the encrypted key from the backend
+                const response = await chrome.runtime.sendMessage({
+                    action: 'apiRequest',
+                    method: 'GET',
+                    url: `/ai-settings/${settings.id}/encrypted-key`
+                });
+
+                if (response && response.success && response.api_key_encrypted) {
+                    // Decrypt the API key
+                    const decryptResponse = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'POST',
+                        url: '/ai-settings/decrypt-api-key',
+                        data: { encryptedApiKey: response.api_key_encrypted }
+                    });
+
+                    if (decryptResponse && decryptResponse.success) {
+                        // Store the decrypted key in the settings for future use
+                        settings.apiKey = decryptResponse.decryptedApiKey;
+                        return decryptResponse.decryptedApiKey;
+                    }
+                }
+            } catch (error) {
+                console.error('AISettingsManager: Error fetching/decrypting API key:', error);
+                throw new Error('Failed to retrieve API key');
+            }
+        }
+        
+        return null;
     }
 
     /**
@@ -158,9 +206,9 @@ class AISettingsManager {
             } else if (provider === 'openai') {
                 // OpenAI implementation
                 const model = this.getModel();
-                const settings = this.getCurrentSettings();
+                const apiKey = await this.getDecryptedApiKey();
                 
-                if (!settings.apiKey) {
+                if (!apiKey) {
                     throw new Error('OpenAI API key is required');
                 }
 
@@ -169,7 +217,7 @@ class AISettingsManager {
                     data: {
                         ...requestData,
                         model: model,
-                        apiKey: settings.apiKey
+                        apiKey: apiKey
                     }
                 });
 
@@ -260,9 +308,9 @@ class AISettingsManager {
             } else if (provider === 'openai') {
                 // OpenAI implementation with stop checking
                 const model = this.getModel();
-                const settings = this.getCurrentSettings();
+                const apiKey = await this.getDecryptedApiKey();
                 
-                if (!settings.apiKey) {
+                if (!apiKey) {
                     throw new Error('OpenAI API key is required');
                 }
 
@@ -301,7 +349,7 @@ class AISettingsManager {
                             data: {
                                 ...requestData,
                                 model: model,
-                                apiKey: settings.apiKey
+                                apiKey: apiKey
                             }
                         },
                         response => {

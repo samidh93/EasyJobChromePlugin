@@ -79,6 +79,10 @@ class BackgroundManager {
                 await this.managers.get('resume').handleMessage(request, sendResponse);
             } else if (action === 'apiRequest') {
                 await this.managers.get('api').handleMessage(request, sendResponse);
+            } else if (action === 'STATUS_UPDATE' || action === 'PROCESS_COMPLETE') {
+                // Handle status updates and process completion
+                console.log('Received status update:', request);
+                sendResponse({ success: true, message: 'Status update received' });
             } else {
                 console.warn('Unknown action received:', action);
                 sendResponse({ success: false, error: `Unknown action: ${action}` });

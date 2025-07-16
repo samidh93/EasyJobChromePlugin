@@ -17,7 +17,7 @@ export function debugLog(message, data = null) {
 export function sendStatusUpdate(text, status = 'info') {
     debugLog(`Status Update: ${status} - ${text}`);
     chrome.runtime.sendMessage({
-        type: 'STATUS_UPDATE',
+        action: 'STATUS_UPDATE',
         text,
         status
     });
@@ -29,7 +29,7 @@ export async function shouldStop(isAutoApplyRunning) {
     if (!isAutoApplyRunning) {
         debugLog('Auto-apply process stopped by user (local check)');
         sendStatusUpdate('Auto-apply process stopped', 'info');
-        chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
+        chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
         return true;
     }
     
@@ -42,7 +42,7 @@ export async function shouldStop(isAutoApplyRunning) {
         if (response && response.success && !response.isRunning) {
             debugLog('Auto-apply process stopped by user (background check)');
             sendStatusUpdate('Auto-apply process stopped', 'info');
-            chrome.runtime.sendMessage({ type: 'PROCESS_COMPLETE' });
+            chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
             return true;
         }
     } catch (error) {

@@ -320,11 +320,45 @@ const App = () => {
         });
 
         if (response && response.success) {
+          // Get the encrypted API key and decrypt it
+          let decryptedApiKey = null;
+          if (response.ai_settings.api_key_encrypted) {
+            try {
+              // Get the actual encrypted key from the database
+              const keyResponse = await chrome.runtime.sendMessage({
+                action: 'apiRequest',
+                method: 'GET',
+                url: `/ai-settings/${response.ai_settings.id}/encrypted-key`
+              });
+              
+              if (keyResponse && keyResponse.success && keyResponse.api_key_encrypted) {
+                const decryptResponse = await chrome.runtime.sendMessage({
+                  action: 'apiRequest',
+                  method: 'POST',
+                  url: `/ai-settings/decrypt-api-key`,
+                  data: { encryptedApiKey: keyResponse.api_key_encrypted }
+                });
+                
+                if (decryptResponse && decryptResponse.success) {
+                  decryptedApiKey = decryptResponse.decryptedApiKey;
+                }
+              }
+            } catch (decryptError) {
+              console.error('Error decrypting API key for auto apply:', decryptError);
+            }
+          }
+
           aiSettings = {
             provider: response.ai_settings.ai_provider,
             model: response.ai_settings.ai_model,
-            apiKey: response.ai_settings.api_key_encrypted ? 'encrypted' : null
+            apiKey: decryptedApiKey
           };
+          
+          console.log('App: AI settings from database:', {
+            provider: response.ai_settings.ai_provider,
+            model: response.ai_settings.ai_model,
+            hasApiKey: !!decryptedApiKey
+          });
         }
       }
 
