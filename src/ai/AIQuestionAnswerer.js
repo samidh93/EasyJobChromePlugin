@@ -86,19 +86,46 @@ class AIQuestionAnswerer {
      * @param {string} question - The question to answer
      * @param {Array} options - Optional list of choices
      * @param {Function} shouldStop - Optional function to check if should stop
+     * @param {string} resumeId - Optional resume ID for structured data
      * @returns {Promise<Object>} - Result object with status and answer
      */
-    async answerQuestion(question, options = null, shouldStop = null) {
+    async answerQuestion(question, options = null, shouldStop = null, resumeId = null) {
         try {
             // Ensure AI settings are loaded
             await this.ensureSettingsLoaded();
             
-            console.log("Answering question:", question);
+            console.log("=== AI QUESTION ANSWERING DEBUG ===");
+            console.log("Question:", question);
             console.log("Using AI model:", this.aiSettingsManager.getModel());
             console.log("Options:", options);
+            console.log("Resume ID:", resumeId);
+            
+            // Try to get structured data from database if resumeId is provided
+            let relevantData = null;
+            if (resumeId) {
+                try {
+                    const questionType = this.detectQuestionType(question);
+                    console.log("Detected question type:", questionType);
+                    
+                    const response = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'GET',
+                        url: `/resumes/${resumeId}/relevant-data?questionType=${questionType}`
+                    });
+                    
+                    if (response && response.success) {
+                        relevantData = response.relevantData;
+                        console.log("Retrieved relevant data from database:", relevantData);
+                    } else {
+                        console.log("No structured data found, falling back to user context");
+                    }
+                } catch (error) {
+                    console.error("Error retrieving structured data:", error);
+                }
+            }
             
             // Check for direct matches first (personal info)
-            const directAnswer = this.getDirectAnswer(question);
+            const directAnswer = this.getDirectAnswer(question, relevantData);
             if (directAnswer) {
                 console.log("Found direct answer:", directAnswer);
                 
@@ -106,9 +133,11 @@ class AIQuestionAnswerer {
                 if (options && Array.isArray(options) && options.length > 0) {
                     const matchedOption = this.matchToOption(directAnswer, options);
                     console.log("Matched direct answer to option:", matchedOption);
+                    console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                     return { success: true, answer: matchedOption };
                 }
                 
+                console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                 return { success: true, answer: directAnswer };
             }
             
@@ -125,12 +154,22 @@ class AIQuestionAnswerer {
                 
                 if (stopRequested) {
                     console.log("Stop requested before AI processing");
+                    console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                     return { success: false, stopped: true };
                 }
             }
             
             // Build enhanced prompt with user data
             const prompt = this.buildEnhancedPrompt(question, options);
+            
+            // Debug the full prompt
+            console.log("=== FULL PROMPT BEING SENT ===");
+            console.log(prompt);
+            console.log("=== END FULL PROMPT ===");
+            
+            // Get token analysis
+            const tokenAnalysis = this.aiSettingsManager.getTokenAnalysis({ prompt });
+            console.log("Token Analysis:", tokenAnalysis);
             
             // Get AI response using AISettingsManager
             const response = await this.aiSettingsManager.callAIWithStop({
@@ -140,6 +179,7 @@ class AIQuestionAnswerer {
             
             // Check if the response indicates stopping
             if (response && response.stopped) {
+                console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                 return { success: false, stopped: true };
             }
             
@@ -156,6 +196,8 @@ class AIQuestionAnswerer {
                 answer = "";
             }
             
+            console.log("Raw AI response:", answer);
+            
             // Post-process answer to enforce minimum 5 years for experience questions
             if (this.isYearsOfExperienceQuestion(question) && /^\d+$/.test(answer)) {
                 const num = parseInt(answer);
@@ -171,6 +213,7 @@ class AIQuestionAnswerer {
             }
             
             console.log("Final answer:", answer);
+            console.log("=== END AI QUESTION ANSWERING DEBUG ===");
             return { 
                 success: true, 
                 answer: answer || "Information not available" 
@@ -178,6 +221,7 @@ class AIQuestionAnswerer {
             
         } catch (error) {
             console.error('Error in answerQuestion:', error);
+            console.log("=== END AI QUESTION ANSWERING DEBUG ===");
             
             // Smart fallback
             const fallbackAnswer = options && Array.isArray(options) && options.length > 0 
@@ -189,11 +233,87 @@ class AIQuestionAnswerer {
     }
 
     /**
+     * Detect question type for optimized data retrieval
+     * @param {string} question - The question to analyze
+     * @returns {string} - Question type
+     */
+    detectQuestionType(question) {
+        const questionLower = question.toLowerCase();
+        
+        // Check for language level questions first
+        if (questionLower.includes('level of') || questionLower.includes('proficiency in') || questionLower.includes('fluent in')) {
+            return 'language_level';
+        } else if (questionLower.includes('skill') || questionLower.includes('experience') || questionLower.includes('years') || questionLower.includes('technology') || questionLower.includes('programming') || questionLower.includes('language') || questionLower.includes('c++') || questionLower.includes('python') || questionLower.includes('java')) {
+            return 'skills';
+        } else if (questionLower.includes('education') || questionLower.includes('degree') || questionLower.includes('study') || questionLower.includes('university') || questionLower.includes('college')) {
+            return 'education';
+        } else if (questionLower.includes('language') || questionLower.includes('speak') || questionLower.includes('fluent')) {
+            return 'languages';
+        } else if (questionLower.includes('certification') || questionLower.includes('certified')) {
+            return 'certifications';
+        } else if (questionLower.includes('name') || questionLower.includes('email') || questionLower.includes('phone') || questionLower.includes('contact') || questionLower.includes('location')) {
+            return 'personal';
+        } else if (questionLower.includes('visa') || questionLower.includes('sponsorship') || questionLower.includes('work permit')) {
+            return 'visa';
+        } else if (questionLower.includes('salary') || questionLower.includes('compensation') || questionLower.includes('pay') || questionLower.includes('expectation')) {
+            return 'salary';
+        } else if (questionLower.includes('notice') || questionLower.includes('period') || questionLower.includes('availability') || questionLower.includes('start date')) {
+            return 'notice';
+        } else {
+            return 'general';
+        }
+    }
+
+    /**
      * Check for direct answers from user data (email, phone, name, etc.)
      * @param {string} question - The question to check
+     * @param {Object} relevantData - Optional structured data from database
      * @returns {string|null} - Direct answer if found, null otherwise
      */
-    getDirectAnswer(question) {
+    getDirectAnswer(question, relevantData = null) {
+        // Try structured data first if available
+        if (relevantData) {
+            const questionLower = question.toLowerCase();
+            
+            // Language level questions
+            if (relevantData.languages && (questionLower.includes('level of') || questionLower.includes('proficiency'))) {
+                for (const lang of ['german', 'english', 'french', 'arabic', 'spanish']) {
+                    if (questionLower.includes(lang)) {
+                        const language = relevantData.languages.find(l => l.language?.toLowerCase() === lang);
+                        if (language) {
+                            return language.proficiency || 'Unknown';
+                        }
+                    }
+                }
+            }
+            
+            // Personal information questions
+            if (relevantData.personal_info) {
+                if (questionLower.includes('email') || questionLower.includes('e-mail')) {
+                    return relevantData.personal_info.email || null;
+                }
+                if (questionLower.includes('phone') || questionLower.includes('telephone') || questionLower.includes('mobile')) {
+                    return relevantData.personal_info.phone || null;
+                }
+                if (questionLower.includes('name')) {
+                    return relevantData.personal_info.name || null;
+                }
+                if (questionLower.includes('location') || questionLower.includes('address')) {
+                    return relevantData.personal_info.location || null;
+                }
+                if (questionLower.includes('citizenship')) {
+                    return relevantData.personal_info.citizenship || null;
+                }
+                if (questionLower.includes('visa') || questionLower.includes('sponsorship')) {
+                    return relevantData.personal_info.visa_required || null;
+                }
+                if (questionLower.includes('salary') || questionLower.includes('compensation') || questionLower.includes('pay')) {
+                    return relevantData.personal_info.salary || null;
+                }
+            }
+        }
+        
+        // Fallback to user context data
         if (!this.user_data?.personal_information) {
             return null;
         }

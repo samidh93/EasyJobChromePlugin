@@ -71,6 +71,17 @@ class ResumeManager {
             uploadData.append('name', formData.name || '');
             uploadData.append('short_description', formData.short_description || '');
             uploadData.append('is_default', formData.is_default || false);
+            
+            // Add structured data if provided
+            if (formData.structured_data) {
+                uploadData.append('structured_data', formData.structured_data);
+            }
+            if (formData.formatted_text) {
+                uploadData.append('formatted_text', formData.formatted_text);
+            }
+            if (formData.file_type) {
+                uploadData.append('file_type', formData.file_type);
+            }
 
             const response = await fetch(`${this.API_BASE_URL}/users/${userId}/resumes/upload`, {
                 method: 'POST',

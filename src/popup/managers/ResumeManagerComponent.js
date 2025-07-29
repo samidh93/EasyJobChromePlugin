@@ -316,7 +316,12 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                                     {getFileIcon(resume.extension)}
                                 </span>
                                 <div className="resume-details">
-                                    <h4>{resume.name}</h4>
+                                    <h4>
+                                        {resume.name}
+                                        {resume.has_structured_data && (
+                                            <Check className="parsed-icon" size={16} title="Resume parsed successfully" />
+                                        )}
+                                    </h4>
                                     {resume.short_description && (
                                         <p className="resume-description">{resume.short_description}</p>
                                     )}
@@ -325,6 +330,9 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                                         <span>Uploaded: {formatLocalTime(resume.creation_date, 'date')}</span>
                                         {resume.updated_date !== resume.creation_date && (
                                             <span>Updated: {formatLocalTime(resume.updated_date, 'date')}</span>
+                                        )}
+                                        {resume.has_structured_data && (
+                                            <span className="parsed-status">✓ Parsed</span>
                                         )}
                                     </div>
                                 </div>
@@ -363,6 +371,24 @@ const ResumeManagerComponent = ({ currentUser, onResumeUpdate }) => {
                                     <Trash2 size={16} />
                                 </button>
                             </div>
+                            
+                            {/* Show parsed information if available */}
+                            {resume.has_structured_data && (
+                                <div className="resume-preview">
+                                    <div className="preview-section">
+                                        <strong>Contact:</strong> {resume.structured_data?.personal_info?.email || 'Not available'}
+                                    </div>
+                                    <div className="preview-section">
+                                        <strong>Skills:</strong> {resume.structured_data?.skills?.length || 0} skills
+                                    </div>
+                                    <div className="preview-section">
+                                        <strong>Experience:</strong> {resume.structured_data?.experiences?.length || 0} positions
+                                    </div>
+                                    <div className="preview-section">
+                                        <strong>Languages:</strong> {resume.structured_data?.languages?.length || 0} languages
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))
                 )}

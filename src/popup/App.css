@@ -1147,4 +1147,38 @@
 
 .response-container .detail-value:hover {
   opacity: 0.8;
+}
+
+/* Parsed resume indicators */
+.parsed-icon {
+  color: #10b981;
+  margin-left: 8px;
+}
+
+.parsed-status {
+  color: #10b981;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.resume-preview {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.preview-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+  color: #475569;
+}
+
+.preview-section strong {
+  color: #1e293b;
+  font-weight: 500;
 } 

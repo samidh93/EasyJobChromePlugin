@@ -14,22 +14,36 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('js-yaml configured');
   }
 
-  // Debug: Check if ResumeParser is loaded
-  console.log('Libraries state after DOM ready:', {
-    jsyaml: !!window.jsyaml,
-    pdfjsLib: !!window.pdfjsLib,
-    ResumeParser: !!window.ResumeParser,
-    ResumeParserType: typeof window.ResumeParser
-  });
+  // Wait for ResumeParser to be available
+  function checkResumeParser() {
+    console.log('Checking for ResumeParser...');
+    console.log('Libraries state:', {
+      jsyaml: !!window.jsyaml,
+      pdfjsLib: !!window.pdfjsLib,
+      ResumeParser: !!window.ResumeParser,
+      ResumeParserType: typeof window.ResumeParser
+    });
 
-  // Set a global flag for library readiness
-  window.librariesReady = !!(window.jsyaml && window.pdfjsLib && window.ResumeParser);
-  
-  if (!window.ResumeParser) {
-    console.error('ResumeParser not loaded properly');
-  } else {
-    console.log('All libraries loaded successfully');
+    if (window.ResumeParser && typeof window.ResumeParser === 'function') {
+      console.log('ResumeParser is available!');
+      window.librariesReady = true;
+      
+      // Test ResumeParser
+      try {
+        const parser = new window.ResumeParser();
+        console.log('ResumeParser instance created successfully');
+        console.log('ResumeParser methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(parser)));
+      } catch (error) {
+        console.error('Error creating ResumeParser instance:', error);
+      }
+    } else {
+      console.log('ResumeParser not yet available, retrying in 100ms...');
+      setTimeout(checkResumeParser, 100);
+    }
   }
+
+  // Start checking for ResumeParser
+  checkResumeParser();
 });
 
 // Also check immediately in case DOM is already loaded

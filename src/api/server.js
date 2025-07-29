@@ -9,6 +9,7 @@ const fs = require('fs');
 // Import the UserService, ResumeService, AISettingsService, ApplicationService, CompanyService, JobService, QuestionsAnswersService and models
 const UserService = require('./database/user-service.cjs');
 const ResumeService = require('./database/resume-service.cjs');
+const ResumeStructureService = require('./database/resume-structure-service.cjs');
 const AISettingsService = require('./database/ai-settings-service.cjs');
 const ApplicationService = require('./database/application-service.cjs');
 const CompanyService = require('./database/company-service.cjs');
@@ -759,14 +760,46 @@ app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (re
             is_default: is_default === 'true' || is_default === true
         });
 
-        // Return resume info with file details
+        // Process structured data if provided
+        let structuredData = null;
+        console.log('=== STRUCTURED DATA DEBUG ===');
+        console.log('req.body.structured_data:', req.body.structured_data ? 'Present' : 'Not present');
+        console.log('req.body.formatted_text:', req.body.formatted_text ? 'Present' : 'Not present');
+        console.log('req.body.file_type:', req.body.file_type);
+        console.log('File extension:', fileExtension);
+        
+        if (req.body.structured_data) {
+            try {
+                structuredData = JSON.parse(req.body.structured_data);
+                console.log('Parsed structured data keys:', Object.keys(structuredData));
+                console.log('Personal info keys:', Object.keys(structuredData.personal_info || {}));
+                console.log('Skills count:', structuredData.skills?.length || 0);
+                console.log('Processing structured data for resume:', newResume.id);
+                
+                // Save structured data to resume_structure table
+                await ResumeStructureService.saveResumeStructure(newResume.id, structuredData);
+                console.log('Structured data saved successfully');
+            } catch (error) {
+                console.error('Error processing structured data:', error);
+                console.error('Error details:', {
+                    message: error.message,
+                    stack: error.stack
+                });
+                // Don't fail the upload, just log the error
+            }
+        } else {
+            console.log('No structured data provided in request body');
+        }
+
+        // Return resume info with file details and structured data status
         res.status(201).json({ 
             success: true, 
             resume: {
                 ...newResume,
                 file_size: req.file.size,
                 original_name: req.file.originalname,
-                mime_type: req.file.mimetype
+                mime_type: req.file.mimetype,
+                has_structured_data: !!structuredData
             }
         });
     } catch (error) {
@@ -787,6 +820,64 @@ app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (re
         }
         
         res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Get resume structure data
+app.get('/api/resumes/:resumeId/structure', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        
+        // Get resume structure from database
+        const structure = await ResumeStructureService.getResumeStructure(resumeId);
+        
+        if (!structure) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume structure not found' 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            structure: structure
+        });
+    } catch (error) {
+        console.error('Get resume structure error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get relevant data for AI questions
+app.get('/api/resumes/:resumeId/relevant-data', async (req, res) => {
+    try {
+        const { resumeId } = req.params;
+        const { questionType } = req.query;
+        
+        if (!questionType) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Question type is required' 
+            });
+        }
+        
+        // Get relevant data based on question type
+        const relevantData = await ResumeStructureService.getRelevantData(resumeId, questionType);
+        
+        if (!relevantData) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Resume structure not found' 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            relevantData: relevantData
+        });
+    } catch (error) {
+        console.error('Get relevant data error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

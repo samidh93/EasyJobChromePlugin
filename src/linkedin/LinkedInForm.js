@@ -417,44 +417,33 @@ class LinkedInForm extends LinkedInBase {
     /**
      * Check if a question should be skipped because it's already prefilled in LinkedIn
      * @param {string} questionText - The question text to check
-     * @returns {Promise<boolean>} - True if the question should be skipped
+     * @returns {boolean} - True if the question should be skipped
      */
-    static async shouldSkipQuestion(questionText) {
+    static shouldSkipQuestion(questionText) {
         const lowerQuestion = questionText.toLowerCase();
         
-        // First check with direct keyword matching (fast path)
-        if (this.shouldSkipQuestionDirect(lowerQuestion)) {
-            return true;
-        }
-        
-        // If no direct match, try translation-based checking
-        try {
-            return await this.shouldSkipQuestionWithTranslation(questionText);
-        } catch (error) {
-            this.debugLog(`Translation check failed for "${questionText}": ${error.message}`);
-            // Fall back to direct matching only
-            return false;
-        }
+        // Use comprehensive direct keyword matching
+        return this.shouldSkipQuestionDirect(lowerQuestion);
     }
 
     /**
-     * Direct keyword matching for common languages (fast path)
+     * Comprehensive keyword matching for common languages
      * @param {string} lowerQuestion - Lowercase question text
      * @returns {boolean} - True if should skip
      */
     static shouldSkipQuestionDirect(lowerQuestion) {
         // Skip email-related questions
-        if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail')) {
+        if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail') || lowerQuestion.includes('e-mail-adresse')) {
             return true;
         }
         
         // Skip phone number questions (English, German, Spanish, French, Italian)
         const phoneTerms = [
-            'phone', 'mobile', 'cell', 'telephone',  // English
-            'telefon', 'handynummer', 'mobilnummer', // German
-            'teléfono', 'móvil', 'celular',          // Spanish
-            'téléphone', 'portable', 'mobile',       // French
-            'telefono', 'cellulare', 'mobile'        // Italian
+            'phone', 'mobile', 'cell', 'telephone', 'handy',  // English
+            'telefon', 'handynummer', 'handynumer', 'mobilnummer', 'handy', // German (including typo)
+            'teléfono', 'móvil', 'celular', 'teléfono móvil', // Spanish
+            'téléphone', 'portable', 'mobile', 'téléphone portable', // French
+            'telefono', 'cellulare', 'mobile', 'telefono cellulare' // Italian
         ];
         
         if (phoneTerms.some(term => lowerQuestion.includes(term))) {
@@ -463,11 +452,11 @@ class LinkedInForm extends LinkedInBase {
         
         // Skip country code / area code questions
         const codeTerms = [
-            'country code', 'area code', 'phone prefix', 'calling code', // English
-            'landsvorwahl', 'vorwahl', 'ländercode',                     // German
-            'código de país', 'código de área', 'prefijo',               // Spanish
-            'indicatif pays', 'indicatif', 'préfixe',                   // French
-            'prefisso', 'codice paese'                                   // Italian
+            'country code', 'area code', 'phone prefix', 'calling code', 'prefix', // English
+            'landsvorwahl', 'vorwahl', 'ländercode', 'vorwahl',                   // German
+            'código de país', 'código de área', 'prefijo', 'código',              // Spanish
+            'indicatif pays', 'indicatif', 'préfixe', 'indicatif téléphonique',   // French
+            'prefisso', 'codice paese', 'prefisso telefonico'                     // Italian
         ];
         
         if (codeTerms.some(term => lowerQuestion.includes(term))) {
@@ -476,90 +465,34 @@ class LinkedInForm extends LinkedInBase {
         
         // Skip general contact information
         const contactTerms = [
-            'contact information', 'contact details',        // English
-            'kontaktinformation', 'kontaktdaten',           // German
-            'información de contacto', 'datos de contacto', // Spanish
-            'coordonnées', 'informations de contact',       // French
-            'informazioni di contatto', 'dati di contatto'  // Italian
+            'contact information', 'contact details', 'contact',        // English
+            'kontaktinformation', 'kontaktdaten', 'kontakt',           // German
+            'información de contacto', 'datos de contacto', 'contacto', // Spanish
+            'coordonnées', 'informations de contact', 'contact',       // French
+            'informazioni di contatto', 'dati di contatto', 'contatto'  // Italian
         ];
         
         if (contactTerms.some(term => lowerQuestion.includes(term))) {
             return true;
         }
         
+        // Skip name-related questions (first name, last name, full name)
+        const nameTerms = [
+            'first name', 'last name', 'full name', 'name', 'given name', 'family name', // English
+            'vorname', 'nachname', 'vollständiger name', 'name', 'familienname',         // German
+            'nombre', 'apellido', 'nombre completo', 'primer nombre', 'segundo nombre',  // Spanish
+            'prénom', 'nom', 'nom complet', 'nom de famille',                            // French
+            'nome', 'cognome', 'nome completo', 'nome di battesimo'                       // Italian
+        ];
+        
+        if (nameTerms.some(term => lowerQuestion.includes(term))) {
+            return true;
+        }
+        
         return false;
     }
 
-    /**
-     * Translation-based question checking for other languages
-     * @param {string} questionText - The question text to translate and check
-     * @returns {Promise<boolean>} - True if should skip
-     */
-    static async shouldSkipQuestionWithTranslation(questionText) {
-        try {
-            // Get current AI settings from window.currentAiSettings
-            let aiSettings = null;
-            if (window.currentAiSettings) {
-                aiSettings = window.currentAiSettings;
-                this.debugLog(`Translation: Using AI settings from current settings:`, aiSettings);
-            }
-            
-            // Get current user ID from storage
-            let userId = null;
-            try {
-                const userResult = await chrome.storage.local.get(['currentUser']);
-                if (userResult.currentUser && userResult.currentUser.id) {
-                    userId = userResult.currentUser.id;
-                }
-            } catch (error) {
-                this.errorLog('Error getting current user for translation:', error);
-            }
-            
-            // Create AI instance with the same settings as main question answering
-            const ai = new AIQuestionAnswerer(userId);
-            
-            // If we have AI settings from the popup, use them directly
-            if (aiSettings) {
-                // Create a settings object that matches the database format
-                const settings = {
-                    ai_provider: aiSettings.provider,
-                    ai_model: aiSettings.model,
-                    apiKey: aiSettings.apiKey,
-                    is_default: true
-                };
-                
-                // Set the settings directly in the AISettingsManager
-                ai.aiSettingsManager.setSettings(settings);
-                this.debugLog(`Translation: Set AI settings directly: provider=${settings.ai_provider}, model=${settings.ai_model}`);
-            }
-            
-            // Simple translation prompt
-            const translationPrompt = `Translate this text to English. Only return the English translation, nothing else:
 
-"${questionText}"
-
-English translation:`;
-
-            const response = await ai.aiSettingsManager.callAI({
-                prompt: translationPrompt,
-                stream: false
-            });
-
-            if (!response || !response.response) {
-                return false;
-            }
-
-            const translatedText = response.response.trim().toLowerCase();
-            this.debugLog(`Translated "${questionText}" to: "${translatedText}"`);
-            
-            // Check if the translated text contains skip keywords
-            return this.shouldSkipQuestionDirect(translatedText);
-            
-        } catch (error) {
-            this.debugLog(`Translation failed: ${error.message}`);
-            return false;
-        }
-    }
 
     static async processFormQuestions(shouldStop = null) {
         try {
@@ -598,7 +531,7 @@ English translation:`;
                     this.debugLog(`Processing question: ${questionText}`);
 
                     // Check if this question should be skipped (already prefilled in LinkedIn)
-                    if (await this.shouldSkipQuestion(questionText)) {
+                    if (this.shouldSkipQuestion(questionText)) {
                         this.debugLog(`Skipping prefilled question: ${questionText}`);
                         continue;
                     }
@@ -719,8 +652,20 @@ English translation:`;
                 this.errorLog('Error loading user resume from storage:', error);
             }
 
+            // Get current resume ID from storage
+            let resumeId = null;
+            try {
+                const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                if (resumeResult.currentResumeId) {
+                    resumeId = resumeResult.currentResumeId;
+                    this.debugLog(`Using resume ID: ${resumeId}`);
+                }
+            } catch (error) {
+                this.errorLog('Error getting current resume ID:', error);
+            }
+
             // Get the answer using our simplified approach with stop callback
-            const result = await ai.answerQuestion(question, options, shouldStop);
+            const result = await ai.answerQuestion(question, options, shouldStop, resumeId);
 
             // Check if the process was stopped
             if (result.stopped) {

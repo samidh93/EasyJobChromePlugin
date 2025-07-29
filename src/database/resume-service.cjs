@@ -1,4 +1,5 @@
 const { Resume } = require('./models/index.cjs');
+const ResumeStructureService = require('./resume-structure-service.cjs');
 
 class ResumeService {
     /**
@@ -30,7 +31,37 @@ class ResumeService {
     static async getResumeById(resumeId) {
         try {
             const resume = await Resume.findById(resumeId);
-            return resume ? (resume.toJSON ? resume.toJSON() : resume) : null;
+            if (!resume) return null;
+            
+            const resumeData = resume.toJSON ? resume.toJSON() : resume;
+            
+            // Add structured data
+            try {
+                const structure = await ResumeStructureService.getResumeStructure(resumeId);
+                if (structure) {
+                    resumeData.has_structured_data = true;
+                    resumeData.structured_data = {
+                        personal_info: structure.personal_info,
+                        summary: structure.summary,
+                        experiences: structure.experiences,
+                        educations: structure.educations,
+                        skills: structure.skills,
+                        languages: structure.languages,
+                        projects: structure.projects,
+                        certifications: structure.certifications,
+                        interests: structure.interests
+                    };
+                } else {
+                    resumeData.has_structured_data = false;
+                    resumeData.structured_data = null;
+                }
+            } catch (error) {
+                console.error(`Error getting structured data for resume ${resumeId}:`, error);
+                resumeData.has_structured_data = false;
+                resumeData.structured_data = null;
+            }
+            
+            return resumeData;
         } catch (error) {
             console.error('Error getting resume by ID:', error);
             throw error;
@@ -45,7 +76,37 @@ class ResumeService {
     static async getResumesByUserId(userId) {
         try {
             const resumes = await Resume.findByUserId(userId);
-            return resumes.map(resume => resume.toJSON ? resume.toJSON() : resume);
+            const resumeData = resumes.map(resume => resume.toJSON ? resume.toJSON() : resume);
+            
+            // Add structured data to each resume
+            for (let resume of resumeData) {
+                try {
+                    const structure = await ResumeStructureService.getResumeStructure(resume.id);
+                    if (structure) {
+                        resume.has_structured_data = true;
+                        resume.structured_data = {
+                            personal_info: structure.personal_info,
+                            summary: structure.summary,
+                            experiences: structure.experiences,
+                            educations: structure.educations,
+                            skills: structure.skills,
+                            languages: structure.languages,
+                            projects: structure.projects,
+                            certifications: structure.certifications,
+                            interests: structure.interests
+                        };
+                    } else {
+                        resume.has_structured_data = false;
+                        resume.structured_data = null;
+                    }
+                } catch (error) {
+                    console.error(`Error getting structured data for resume ${resume.id}:`, error);
+                    resume.has_structured_data = false;
+                    resume.structured_data = null;
+                }
+            }
+            
+            return resumeData;
         } catch (error) {
             console.error('Error getting resumes by user ID:', error);
             throw error;

@@ -23,21 +23,28 @@ class AISettingsManager {
             // Validate userId is a proper UUID
             if (!userId || typeof userId !== 'string' || userId.length !== 36) {
                 console.error('AISettingsManager: Invalid user ID provided:', userId);
+                console.log('AISettingsManager: Returning default settings (ollama)');
                 return this.getDefaultSettings();
             }
             
+            console.log('AISettingsManager: Making API request to load settings...');
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'GET',
                 url: `/users/${userId}/ai-settings/default`
             });
 
+            console.log('AISettingsManager: API response received:', response);
+
             if (response && response.success) {
                 this.currentSettings = response.ai_settings;
                 console.log('AISettingsManager: Successfully loaded AI settings:', this.currentSettings);
+                console.log('AISettingsManager: Provider:', this.currentSettings.ai_provider);
+                console.log('AISettingsManager: Model:', this.currentSettings.ai_model);
                 return this.currentSettings;
             } else {
                 console.warn('AISettingsManager: No AI settings found, using default');
+                console.log('AISettingsManager: Response was:', response);
                 return this.getDefaultSettings();
             }
         } catch (error) {
@@ -183,14 +190,38 @@ class AISettingsManager {
     async callAI(requestData) {
         try {
             const provider = this.getProvider();
+            const model = this.getModel();
+            
+            // Debug logging for prompt and tokens
+            console.log('=== AI API CALL DEBUG ===');
+            console.log('Provider:', provider);
+            console.log('Model:', model);
+            console.log('Request Data:', {
+                prompt: requestData.prompt,
+                messages: requestData.messages,
+                max_tokens: requestData.max_tokens,
+                temperature: requestData.temperature,
+                stream: requestData.stream
+            });
+            
+            // Calculate approximate input tokens
+            let inputTokens = 0;
+            if (requestData.prompt) {
+                inputTokens = this.estimateTokens(requestData.prompt);
+                console.log('Input tokens (prompt):', inputTokens);
+            } else if (requestData.messages) {
+                inputTokens = this.estimateTokensFromMessages(requestData.messages);
+                console.log('Input tokens (messages):', inputTokens);
+            }
             
             if (provider === 'ollama') {
                 // Use the model from current settings
-                const model = this.getModel();
                 const requestBody = {
                     ...requestData,
                     model: model
                 };
+
+                console.log('Sending Ollama request:', requestBody);
 
                 const response = await chrome.runtime.sendMessage({
                     action: 'callOllama',
@@ -202,28 +233,50 @@ class AISettingsManager {
                     throw new Error(response.error || 'Unknown error from Ollama API');
                 }
                 
+                // Calculate output tokens
+                const outputTokens = this.estimateTokens(response.data.response || '');
+                console.log('Output tokens:', outputTokens);
+                console.log('Total tokens:', inputTokens + outputTokens);
+                console.log('=== END AI API CALL DEBUG ===');
+                
                 return response.data;
             } else if (provider === 'openai') {
                 // OpenAI implementation
-                const model = this.getModel();
                 const apiKey = await this.getDecryptedApiKey();
                 
                 if (!apiKey) {
                     throw new Error('OpenAI API key is required');
                 }
 
+                const requestBody = {
+                    ...requestData,
+                    model: model,
+                    apiKey: apiKey
+                };
+
+                console.log('Sending OpenAI request:', {
+                    ...requestBody,
+                    apiKey: '[REDACTED]'
+                });
+
                 const response = await chrome.runtime.sendMessage({
                     action: 'callOpenAI',
-                    data: {
-                        ...requestData,
-                        model: model,
-                        apiKey: apiKey
-                    }
+                    data: requestBody
                 });
 
                 if (response.success === false) {
                     throw new Error(response.error || 'Unknown error from OpenAI API');
                 }
+                
+                // Calculate output tokens from OpenAI response
+                const outputTokens = response.data.usage?.completion_tokens || 0;
+                const totalTokens = response.data.usage?.total_tokens || 0;
+                console.log('OpenAI Token Usage:', {
+                    prompt_tokens: response.data.usage?.prompt_tokens || 0,
+                    completion_tokens: outputTokens,
+                    total_tokens: totalTokens
+                });
+                console.log('=== END AI API CALL DEBUG ===');
                 
                 return response.data;
             } else {
@@ -406,6 +459,70 @@ class AISettingsManager {
             console.error('AISettingsManager: Error loading models:', error);
             throw error;
         }
+    }
+
+    /**
+     * Estimate tokens for a text string (approximate calculation)
+     * @param {string} text - Text to estimate tokens for
+     * @returns {number} - Estimated token count
+     */
+    estimateTokens(text) {
+        if (!text) return 0;
+        
+        // Rough estimation: 1 token ≈ 4 characters for English text
+        // This is a simplified approximation - actual tokenization varies by model
+        const charCount = text.length;
+        const estimatedTokens = Math.ceil(charCount / 4);
+        
+        return estimatedTokens;
+    }
+
+    /**
+     * Estimate tokens for messages array
+     * @param {Array} messages - Array of message objects
+     * @returns {number} - Estimated total token count
+     */
+    estimateTokensFromMessages(messages) {
+        if (!messages || !Array.isArray(messages)) return 0;
+        
+        let totalTokens = 0;
+        
+        for (const message of messages) {
+            if (message.content) {
+                totalTokens += this.estimateTokens(message.content);
+            }
+            
+            // Add overhead for role and formatting (rough estimate)
+            totalTokens += 4; // ~4 tokens for role and formatting
+        }
+        
+        return totalTokens;
+    }
+
+    /**
+     * Get detailed token analysis for a prompt
+     * @param {Object} requestData - Request data
+     * @returns {Object} - Token analysis
+     */
+    getTokenAnalysis(requestData) {
+        const analysis = {
+            inputTokens: 0,
+            estimatedOutputTokens: 0,
+            maxTokens: requestData.max_tokens || 1000,
+            provider: this.getProvider(),
+            model: this.getModel()
+        };
+
+        if (requestData.prompt) {
+            analysis.inputTokens = this.estimateTokens(requestData.prompt);
+        } else if (requestData.messages) {
+            analysis.inputTokens = this.estimateTokensFromMessages(requestData.messages);
+        }
+
+        // Estimate output tokens (will be updated with actual response)
+        analysis.estimatedOutputTokens = Math.min(analysis.maxTokens, 100);
+
+        return analysis;
     }
 
     /**

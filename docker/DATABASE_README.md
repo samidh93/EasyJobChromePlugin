@@ -87,7 +87,22 @@ CREATE TABLE resume (
     CONSTRAINT unique_default_per_user UNIQUE (user_id, is_default) DEFERRABLE INITIALLY DEFERRED
 );
 ```
-
+### 1. resume_structure Table
+```sql
+CREATE TABLE resume_structure (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    resume_id UUID REFERENCES resume(id) ON DELETE CASCADE,
+    personal_info JSONB NOT NULL,
+    summary JSONB NOT NULL,
+    experiences JSONB NOT NULL,
+    educations JSONB NOT NULL,
+    skills JSONB NOT NULL,
+    languages JSONB NOT NULL,
+    projects JSONB NOT NULL,
+    certifications JSONB NOT NULL,
+    interests JSONB NOT NULL
+);
+```
 ### 3. AI Settings Table
 ```sql
 CREATE TABLE ai_settings (
