@@ -1,5 +1,6 @@
 import LinkedInBase from './LinkedInBase.js';
 import AIQuestionAnswerer from '../ai/AIQuestionAnswerer.js'
+import applicationTracker from './ApplicationTracker.js'
 
 class LinkedInForm extends LinkedInBase {
     static async closeForm(save = false) {
@@ -216,7 +217,14 @@ class LinkedInForm extends LinkedInBase {
 
     static async processForm(shouldStop) {
         try {
+            this.debugLog("=== FORM PROCESSING STARTED ===");
             this.debugLog("Starting form processing");
+            this.debugLog("About to call startApplicationTracking...");
+
+            // Start application tracking
+            await this.startApplicationTracking();
+            
+            this.debugLog("startApplicationTracking completed");
 
             // Set timeout for form processing (3 minutes)
             const formTimeout = setTimeout(async () => {
@@ -316,6 +324,9 @@ class LinkedInForm extends LinkedInBase {
 
                         await this.clickDismissAfterSubmit();
 
+                        // Complete application tracking successfully
+                        await applicationTracker.completeApplication(true);
+
                         this.debugLog("Clicked submit button after review");
                         clearTimeout(reviewTimeout);
                         break;
@@ -391,6 +402,8 @@ class LinkedInForm extends LinkedInBase {
 
                         await this.clickDismissAfterSubmit();
 
+                        // Complete application tracking successfully
+                        await applicationTracker.completeApplication(true);
 
                         break;
                     }
@@ -411,6 +424,66 @@ class LinkedInForm extends LinkedInBase {
         } catch (error) {
             this.errorLog("Error processing form", error);
             return false;
+        }
+    }
+
+    /**
+     * Start application tracking for the current job
+     */
+    static async startApplicationTracking() {
+        try {
+            this.debugLog('=== STARTING APPLICATION TRACKING ===');
+            
+            // Get current job info from storage
+            const jobResult = await chrome.storage.local.get(['currentJob']);
+            this.debugLog('Job result:', jobResult);
+            if (!jobResult.currentJob) {
+                this.debugLog('No current job found, skipping application tracking');
+                return;
+            }
+
+            // Get current user data
+            const userResult = await chrome.storage.local.get(['currentUser']);
+            this.debugLog('User result:', userResult);
+            if (!userResult.currentUser) {
+                this.debugLog('No current user found, skipping application tracking');
+                return;
+            }
+
+            // Get current AI settings
+            const aiSettings = window.currentAiSettings;
+            this.debugLog('AI settings from window:', aiSettings);
+            if (!aiSettings) {
+                this.debugLog('No AI settings found, skipping application tracking');
+                return;
+            }
+
+            // Get current resume ID
+            const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+            this.debugLog('Resume result:', resumeResult);
+            if (!resumeResult.currentResumeId) {
+                this.debugLog('No current resume ID found, skipping application tracking');
+                return;
+            }
+
+            this.debugLog('All data found, starting application tracking...');
+            this.debugLog('Job info:', jobResult.currentJob);
+            this.debugLog('User data:', userResult.currentUser);
+            this.debugLog('AI settings:', aiSettings);
+            this.debugLog('Resume ID:', resumeResult.currentResumeId);
+
+            // Start application tracking
+            await applicationTracker.startApplication(
+                jobResult.currentJob,
+                userResult.currentUser,
+                aiSettings,
+                resumeResult.currentResumeId
+            );
+
+            this.debugLog('Application tracking started successfully');
+        } catch (error) {
+            this.errorLog('Error starting application tracking:', error);
+            // Don't throw error to avoid breaking the form process
         }
     }
 
@@ -652,13 +725,54 @@ class LinkedInForm extends LinkedInBase {
                 this.errorLog('Error loading user resume from storage:', error);
             }
 
-            // Get current resume ID from storage
+            // Get current resume ID directly from database
             let resumeId = null;
             try {
+                this.debugLog('=== RESUME ID RETRIEVAL DEBUG ===');
+                
+                // First try to get from storage (for performance)
                 const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                this.debugLog('Resume result from storage:', resumeResult);
+                
                 if (resumeResult.currentResumeId) {
                     resumeId = resumeResult.currentResumeId;
-                    this.debugLog(`Using resume ID: ${resumeId}`);
+                    this.debugLog(`Using resume ID from storage: ${resumeId}`);
+                } else {
+                    // If not in storage, get from database
+                    this.debugLog('No resume ID in storage, fetching from database...');
+                    
+                    if (userId) {
+                        this.debugLog(`Fetching default resume for user: ${userId}`);
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'apiRequest',
+                            method: 'GET',
+                            url: `/users/${userId}/resumes/default`
+                        });
+                        
+                        this.debugLog('Default resume API response:', response);
+                        this.debugLog('Response success:', response?.success);
+                        this.debugLog('Response resume:', response?.resume);
+                        this.debugLog('Response error:', response?.error);
+                        
+                        if (response && response.success && response.resume) {
+                            resumeId = response.resume.id;
+                            this.debugLog(`Got resume ID from database: ${resumeId}`);
+                            
+                            // Store in storage for future use
+                            await chrome.storage.local.set({ 'currentResumeId': resumeId });
+                            this.debugLog('Stored resume ID in storage for future use');
+                        } else {
+                            this.debugLog('Failed to get default resume from database:', response);
+                            this.debugLog('Response details:', {
+                                success: response?.success,
+                                error: response?.error,
+                                status: response?.status,
+                                message: response?.message
+                            });
+                        }
+                    } else {
+                        this.debugLog('No user ID available for resume fetch');
+                    }
                 }
             } catch (error) {
                 this.errorLog('Error getting current resume ID:', error);
@@ -680,6 +794,24 @@ class LinkedInForm extends LinkedInBase {
 
             const answer = result.answer;
             this.debugLog(`AI Answer: ${answer}`);
+
+            // Track question and answer in application tracker
+            try {
+                const questionType = this.detectQuestionType(question);
+                const aiModel = window.currentAiSettings?.model || 'unknown';
+                const isSkipped = this.shouldSkipQuestion(question);
+                
+                await applicationTracker.addQuestionAnswer(
+                    question,
+                    answer,
+                    questionType,
+                    aiModel,
+                    isSkipped
+                );
+            } catch (error) {
+                this.errorLog('Error tracking question/answer:', error);
+                // Don't throw error to avoid breaking the form process
+            }
 
             // Fill in the answer using the provided inputField
             switch (inputField.tagName.toLowerCase()) {
@@ -733,6 +865,35 @@ class LinkedInForm extends LinkedInBase {
         } catch (error) {
             this.errorLog(`Error answering question "${question}"`, error);
             return { success: false };
+        }
+    }
+
+    /**
+     * Detect question type for tracking purposes
+     * @param {string} question - The question text
+     * @returns {string} - Question type
+     */
+    static detectQuestionType(question) {
+        const questionLower = question.toLowerCase();
+        
+        if (questionLower.includes('level of') || questionLower.includes('proficiency in') || questionLower.includes('fluent in')) {
+            return 'language_level';
+        } else if (questionLower.includes('skill') || questionLower.includes('experience') || questionLower.includes('years') || questionLower.includes('technology') || questionLower.includes('programming') || questionLower.includes('language') || questionLower.includes('c++') || questionLower.includes('python') || questionLower.includes('java')) {
+            return 'skills';
+        } else if (questionLower.includes('education') || questionLower.includes('degree') || questionLower.includes('study') || questionLower.includes('university') || questionLower.includes('college')) {
+            return 'education';
+        } else if (questionLower.includes('language') || questionLower.includes('speak') || questionLower.includes('fluent')) {
+            return 'languages';
+        } else if (questionLower.includes('notice') || questionLower.includes('period') || questionLower.includes('availability') || questionLower.includes('start date')) {
+            return 'notice';
+        } else if (questionLower.includes('salary') || questionLower.includes('compensation') || questionLower.includes('pay')) {
+            return 'salary';
+        } else if (questionLower.includes('visa') || questionLower.includes('citizenship') || questionLower.includes('work permit')) {
+            return 'visa';
+        } else if (questionLower.includes('certification') || questionLower.includes('certificate')) {
+            return 'certifications';
+        } else {
+            return 'general';
         }
     }
 

@@ -84,6 +84,47 @@ class LinkedInJob extends LinkedInBase {
             debugLog('Job info:', jobInfo);
             await chrome.storage.local.set({ 'currentJob': jobInfo });
             
+            // Store current user data for application tracking
+            if (window.currentUserData) {
+                await chrome.storage.local.set({ 'currentUser': window.currentUserData });
+                debugLog('Stored current user data for application tracking');
+            }
+            
+            // Store current resume ID for application tracking
+            try {
+                debugLog('=== RESUME ID STORAGE DEBUG ===');
+                const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                debugLog('Current resume result from storage:', resumeResult);
+                
+                if (!resumeResult.currentResumeId) {
+                    debugLog('No current resume ID found, fetching default resume...');
+                    // Get default resume for current user
+                    if (window.currentUserData) {
+                        debugLog('User data available, fetching default resume...');
+                        const response = await chrome.runtime.sendMessage({
+                            action: 'apiRequest',
+                            method: 'GET',
+                            url: `/users/${window.currentUserData.id}/resumes/default`
+                        });
+                        
+                        debugLog('Default resume API response:', response);
+                        
+                        if (response && response.success && response.resume) {
+                            await chrome.storage.local.set({ 'currentResumeId': response.resume.id });
+                            debugLog(`Stored current resume ID: ${response.resume.id}`);
+                        } else {
+                            debugLog('Failed to get default resume:', response);
+                        }
+                    } else {
+                        debugLog('No user data available for resume fetch');
+                    }
+                } else {
+                    debugLog(`Resume ID already exists: ${resumeResult.currentResumeId}`);
+                }
+            } catch (error) {
+                debugLog('Error storing resume ID:', error);
+            }
+            
             // Try to click Easy Apply button
             await LinkedInJobInteraction.clickEasyApply();
             debugLog('Attempted to click Easy Apply');

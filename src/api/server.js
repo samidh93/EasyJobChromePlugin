@@ -848,6 +848,49 @@ app.get('/api/resumes/:resumeId/structure', async (req, res) => {
     }
 });
 
+// Get default resume for a user
+app.get('/api/users/:userId/resumes/default', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log('=== DEFAULT RESUME API DEBUG ===');
+        console.log('Requested user ID:', userId);
+        
+        // Verify user exists
+        const user = await UserService.findById(userId);
+        console.log('User found:', !!user);
+        if (!user) {
+            console.log('User not found, returning 404');
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+        
+        // Get default resume
+        console.log('Getting default resume for user...');
+        const resume = await ResumeService.getDefaultResumeByUserId(userId);
+        console.log('Default resume found:', !!resume);
+        console.log('Resume details:', resume);
+        
+        if (!resume) {
+            console.log('No default resume found, returning 404');
+            return res.status(404).json({ 
+                success: false, 
+                error: 'No default resume found for user' 
+            });
+        }
+        
+        console.log('Returning successful response with resume');
+        res.json({ 
+            success: true, 
+            resume: resume
+        });
+    } catch (error) {
+        console.error('Get default resume error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Get relevant data for AI questions
 app.get('/api/resumes/:resumeId/relevant-data', async (req, res) => {
     try {
