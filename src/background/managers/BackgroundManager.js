@@ -121,6 +121,10 @@ class BackgroundManager {
         this.currentAiSettings = state.aiSettings || null;
         this.currentUser = state.user || null;
     }
+
+
+
+
 }
 
 export default BackgroundManager; 

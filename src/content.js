@@ -3,10 +3,6 @@ import { debugLog, sendStatusUpdate, shouldStop } from './utils.js';
 
 let isAutoApplyRunning = false;
 
-// Content script initialization
-debugLog('Content script loaded and ready to receive messages');
-debugLog('Current URL:', window.location.href);
-debugLog('Document ready state:', document.readyState);
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -57,7 +53,9 @@ async function startAutoApply() {
     if (!await shouldStop(isAutoApplyRunning)) {
       debugLog('Auto-apply process completed');
       sendStatusUpdate('Auto-apply process completed!', 'success');
-      chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+      if (chrome && chrome.runtime) {
+        chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+      }
     }
   } catch (error) {
     console.error('Error in auto-apply process:', error);
@@ -67,66 +65,83 @@ async function startAutoApply() {
   }
 }
 
-// Listen for messages from background script
+// === CONTENT SCRIPT CONTEXT ANALYSIS ===
+console.log('=== CONTENT SCRIPT LOADED ===');
+console.log('URL:', window.location.href);
+console.log('Is iframe:', window !== window.top);
+console.log('Chrome APIs:', typeof chrome !== 'undefined' && !!chrome.runtime);
+console.log('Document ready state:', document.readyState);
+console.log('=== END CONTENT SCRIPT ANALYSIS ===');
+
+// Check if Chrome extension APIs are available
+if (typeof chrome === 'undefined' || !chrome.runtime) {
+    console.log('Chrome extension APIs not available - script may be running in wrong context');
+} else {
+    // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  try {
-    debugLog('Received message in content script:', message);
-    debugLog('Message sender:', sender);
-    
-    if (message.action === 'startAutoApply') {
-      if (!isAutoApplyRunning) {
-        isAutoApplyRunning = true;
-        debugLog('Starting auto-apply process with user data:', message.userData);
-        debugLog('AI settings:', message.aiSettings);
-        
-        // Store user data and AI settings for use in auto-apply process
-        window.currentUserData = message.userData;
-        window.currentAiSettings = message.aiSettings;
-        
-        debugLog('Content script: Received AI settings:', {
-          provider: message.aiSettings.provider,
-          model: message.aiSettings.model,
-          hasApiKey: !!message.aiSettings.apiKey
-        });
-        
-        startAutoApply();
-        sendResponse({ success: true, message: 'Auto apply started' });
-      } else {
-        sendResponse({ success: false, message: 'Auto apply already running' });
-      }
-    } else if (message.action === 'stopAutoApply') {
-      debugLog('Stopping auto-apply process');
-      isAutoApplyRunning = false;
-      sendResponse({ success: true, message: 'Auto apply stopped' });
-    } else if (message.action === 'GET_STATE') {
-      debugLog('Getting current state');
-      sendResponse({ isRunning: isAutoApplyRunning });
-    } else {
-      // Handle legacy message format for backward compatibility
-      if (message.action === 'START_AUTO_APPLY') {
+  debugLog('Received message in content script:', message);
+  debugLog('Message sender:', sender);
+  
+  // Handle the message asynchronously
+  (async () => {
+    try {
+      if (message.action === 'startAutoApply') {
         if (!isAutoApplyRunning) {
           isAutoApplyRunning = true;
-          debugLog('Starting auto-apply process (legacy format)');
+          debugLog('Starting auto-apply process with user data:', message.userData);
+          debugLog('AI settings:', message.aiSettings);
+          
+          // Store user data and AI settings for use in auto-apply process
+          window.currentUserData = message.userData;
+          window.currentAiSettings = message.aiSettings;
+          
+          debugLog('Content script: Received AI settings:', {
+            provider: message.aiSettings.provider,
+            model: message.aiSettings.model,
+            hasApiKey: !!message.aiSettings.apiKey
+          });
+          
+          // Start the auto-apply process
           startAutoApply();
           sendResponse({ success: true, message: 'Auto apply started' });
         } else {
           sendResponse({ success: false, message: 'Auto apply already running' });
         }
-      } else if (message.action === 'STOP_AUTO_APPLY') {
-        debugLog('Stopping auto-apply process (legacy format)');
+      } else if (message.action === 'stopAutoApply') {
+        debugLog('Stopping auto-apply process');
         isAutoApplyRunning = false;
         sendResponse({ success: true, message: 'Auto apply stopped' });
+      } else if (message.action === 'GET_STATE') {
+        debugLog('Getting current state');
+        sendResponse({ isRunning: isAutoApplyRunning });
       } else {
-        debugLog('Unknown action received:', message.action);
-        sendResponse({ success: false, message: 'Unknown action' });
+        // Handle legacy message format for backward compatibility
+        if (message.action === 'START_AUTO_APPLY') {
+          if (!isAutoApplyRunning) {
+            isAutoApplyRunning = true;
+            debugLog('Starting auto-apply process (legacy format)');
+            startAutoApply();
+            sendResponse({ success: true, message: 'Auto apply started' });
+          } else {
+            sendResponse({ success: false, message: 'Auto apply already running' });
+          }
+        } else if (message.action === 'STOP_AUTO_APPLY') {
+          debugLog('Stopping auto-apply process (legacy format)');
+          isAutoApplyRunning = false;
+          sendResponse({ success: true, message: 'Auto apply stopped' });
+        } else {
+          debugLog('Unknown action received:', message.action);
+          sendResponse({ success: false, message: 'Unknown action' });
+        }
       }
+    } catch (error) {
+      debugLog('Error handling message in content script:', error);
+      sendResponse({ success: false, error: error.message });
     }
-  } catch (error) {
-    debugLog('Error handling message in content script:', error);
-    sendResponse({ success: false, error: error.message });
-  }
+  })();
   
   // Return true to indicate we will send a response asynchronously
   return true;
 });
 
+} // End of Chrome API availability check

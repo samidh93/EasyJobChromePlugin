@@ -16,11 +16,13 @@ export function debugLog(message, data = null) {
 // Function to send status updates to popup
 export function sendStatusUpdate(text, status = 'info') {
     debugLog(`Status Update: ${status} - ${text}`);
-    chrome.runtime.sendMessage({
-        action: 'STATUS_UPDATE',
-        text,
-        status
-    });
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+        chrome.runtime.sendMessage({
+            action: 'STATUS_UPDATE',
+            text,
+            status
+        });
+    }
 }
 
 // Function to check if the process should stop
@@ -29,21 +31,25 @@ export async function shouldStop(isAutoApplyRunning) {
     if (!isAutoApplyRunning) {
         debugLog('Auto-apply process stopped by user (local check)');
         sendStatusUpdate('Auto-apply process stopped', 'info');
-        chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+            chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+        }
         return true;
     }
     
     // Also check with background script for real-time state
     try {
-        const response = await chrome.runtime.sendMessage({
-            action: 'getAutoApplyState'
-        });
-        
-        if (response && response.success && !response.isRunning) {
-            debugLog('Auto-apply process stopped by user (background check)');
-            sendStatusUpdate('Auto-apply process stopped', 'info');
-            chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
-            return true;
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+            const response = await chrome.runtime.sendMessage({
+                action: 'getAutoApplyState'
+            });
+            
+            if (response && response.success && !response.isRunning) {
+                debugLog('Auto-apply process stopped by user (background check)');
+                sendStatusUpdate('Auto-apply process stopped', 'info');
+                chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+                return true;
+            }
         }
     } catch (error) {
         // If we can't communicate with background, fall back to local check
@@ -53,15 +59,18 @@ export async function shouldStop(isAutoApplyRunning) {
     return false;
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'START_AUTO_APPLY') {
-        // Start the auto-apply process
-        startAutoApplyProcess().then(() => {
-            sendResponse({ success: true });
-        }).catch((error) => {
-            console.error('Error in auto-apply process:', error);
-            sendResponse({ success: false, error: error.message });
-        });
-        return true; // Indicate that you will send a response asynchronously
-    }
-});
+// Only set up message listener if Chrome APIs are available
+if (typeof chrome !== 'undefined' && chrome.runtime) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.action === 'START_AUTO_APPLY') {
+            // Start the auto-apply process
+            startAutoApplyProcess().then(() => {
+                sendResponse({ success: true });
+            }).catch((error) => {
+                console.error('Error in auto-apply process:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+            return true; // Indicate that you will send a response asynchronously
+        }
+    });
+}

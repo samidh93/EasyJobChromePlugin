@@ -8,8 +8,8 @@ class ApplicationTracker extends LinkedInBase {
     }
 
     // Ensure error logging methods are available
-    debugLog(message) {
-        console.log(`[ApplicationTracker] ${message}`);
+    debugLog(message, ...args) {
+        console.log(`[ApplicationTracker] ${message}`, ...args);
     }
 
     errorLog(message, error) {
@@ -26,6 +26,14 @@ class ApplicationTracker extends LinkedInBase {
     async startApplication(jobInfo, userData, aiSettings, resumeId) {
         try {
             this.debugLog('Starting application tracking...');
+            console.log('=== APPLICATION TRACKER START DEBUG ===');
+            console.log('jobInfo received:', jobInfo);
+            console.log('jobInfo type:', typeof jobInfo);
+            console.log('jobInfo keys:', jobInfo ? Object.keys(jobInfo) : 'null');
+            console.log('userData:', userData);
+            console.log('aiSettings:', aiSettings);
+            console.log('resumeId:', resumeId);
+            console.log('=== END APPLICATION TRACKER START DEBUG ===');
             
             // First, create or find company
             const company = await this.createOrFindCompany(jobInfo);
@@ -61,8 +69,11 @@ class ApplicationTracker extends LinkedInBase {
     async createOrFindCompany(jobInfo) {
         try {
             this.debugLog('Creating/finding company for job info:', jobInfo);
+            this.debugLog('Job info type:', typeof jobInfo);
+            this.debugLog('Job info keys:', jobInfo ? Object.keys(jobInfo) : 'null');
             
-            if (!jobInfo.company) {
+            if (!jobInfo || !jobInfo.company) {
+                this.debugLog('Job info or company name is missing:', { jobInfo, company: jobInfo?.company });
                 throw new Error('Company name is required');
             }
 
@@ -85,6 +96,10 @@ class ApplicationTracker extends LinkedInBase {
             
             this.debugLog('Creating new company with data:', companyData);
             const newCompany = await this.createCompany(companyData);
+
+            if (!newCompany) {
+                throw new Error('Failed to create company - API request returned null');
+            }
 
             this.debugLog(`Created new company: ${newCompany.name}`);
             return newCompany;
@@ -131,6 +146,10 @@ class ApplicationTracker extends LinkedInBase {
                 status: 'active'
             });
 
+            if (!newJob) {
+                throw new Error('Failed to create job - API request returned null');
+            }
+
             this.debugLog(`Created new job: ${newJob.title}`);
             return newJob;
         } catch (error) {
@@ -151,7 +170,7 @@ class ApplicationTracker extends LinkedInBase {
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'POST',
-                url: '/api/applications',
+                url: '/applications',
                 data: applicationData
             });
 
@@ -204,7 +223,7 @@ class ApplicationTracker extends LinkedInBase {
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'POST',
-                url: '/api/questions-answers',
+                url: '/questions-answers',
                 data: qaData
             });
 
@@ -235,7 +254,7 @@ class ApplicationTracker extends LinkedInBase {
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'PUT',
-                url: `/api/applications/${this.currentApplication.id}/status`,
+                url: `/applications/${this.currentApplication.id}/status`,
                 data: { status, notes }
             });
 
@@ -279,11 +298,14 @@ class ApplicationTracker extends LinkedInBase {
     // Helper methods for API calls
     async findCompanyByName(name) {
         try {
+            this.debugLog('Searching for company by name:', name);
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'GET',
-                url: `/companies/search?name=${encodeURIComponent(name)}`
+                url: `/companies/name/${encodeURIComponent(name)}`
             });
+            
+            this.debugLog('Company search response:', response);
             return response?.success ? response.company : null;
         } catch (error) {
             this.debugLog('Error finding company:', error);
@@ -293,13 +315,29 @@ class ApplicationTracker extends LinkedInBase {
 
     async createCompany(companyData) {
         try {
+            this.debugLog('Sending API request to create company:', companyData);
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'POST',
-                url: '/api/companies',
+                url: '/companies',
                 data: companyData
             });
-            return response?.success ? response.company : null;
+            
+            this.debugLog('Company creation API response:', response);
+            
+            if (!response) {
+                throw new Error('No response received from API');
+            }
+            
+            if (!response.success) {
+                throw new Error(`API request failed: ${response.error || 'Unknown error'}`);
+            }
+            
+            if (!response.company) {
+                throw new Error('API returned success but no company data');
+            }
+            
+            return response.company;
         } catch (error) {
             this.errorLog('Error creating company:', error);
             throw error;
@@ -308,11 +346,14 @@ class ApplicationTracker extends LinkedInBase {
 
     async findJobByPlatformId(platform, platformJobId) {
         try {
+            this.debugLog('Searching for job by platform ID:', { platform, platformJobId });
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'GET',
                 url: `/jobs/platform/${platform}/${platformJobId}`
             });
+            
+            this.debugLog('Job search response:', response);
             return response?.success ? response.job : null;
         } catch (error) {
             this.debugLog('Error finding job:', error);
@@ -322,13 +363,29 @@ class ApplicationTracker extends LinkedInBase {
 
     async createJob(jobData) {
         try {
+            this.debugLog('Sending API request to create job:', jobData);
             const response = await chrome.runtime.sendMessage({
                 action: 'apiRequest',
                 method: 'POST',
-                url: '/api/jobs',
+                url: '/jobs',
                 data: jobData
             });
-            return response?.success ? response.job : null;
+            
+            this.debugLog('Job creation API response:', response);
+            
+            if (!response) {
+                throw new Error('No response received from API');
+            }
+            
+            if (!response.success) {
+                throw new Error(`API request failed: ${response.error || 'Unknown error'}`);
+            }
+            
+            if (!response.job) {
+                throw new Error('API returned success but no job data');
+            }
+            
+            return response.job;
         } catch (error) {
             this.errorLog('Error creating job:', error);
             throw error;

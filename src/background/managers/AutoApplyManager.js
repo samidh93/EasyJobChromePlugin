@@ -55,36 +55,53 @@ class AutoApplyManager {
             const aiManager = this.backgroundManager.getManager('ai');
             await aiManager.testAiConnection(request.aiSettings);
             
-            // Send message to content script to start auto apply
+            // Get active tab
             const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tabs.length > 0) {
-                const tabId = tabs[0].id;
-                
-                // Check if we're on LinkedIn
-                if (!tabs[0].url.includes('linkedin.com')) {
-                    throw new Error('Please navigate to LinkedIn jobs page first');
-                }
-                
-                // Send message to content script
+            if (tabs.length === 0) {
+                throw new Error('No active tab found');
+            }
+            
+            const tab = tabs[0];
+            const tabId = tab.id;
+            
+            // Check if we're on LinkedIn
+            if (!tab.url.includes('linkedin.com')) {
+                throw new Error('Please navigate to LinkedIn jobs page first');
+            }
+            
+            console.log('Target tab:', { id: tabId, url: tab.url });
+            
+            // First, try to inject the content script
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['dist/content.bundle.js']
+                });
+                console.log('Content script injected successfully');
+            } catch (injectionError) {
+                console.log('Content script injection failed (might already be loaded):', injectionError);
+            }
+            
+            // Wait a moment for the script to initialize
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Now try to send the message using proper async/await pattern
+            const response = await new Promise((resolve, reject) => {
                 chrome.tabs.sendMessage(tabId, {
                     action: 'startAutoApply',
                     userData: request.loginData,
                     aiSettings: request.aiSettings
                 }, (response) => {
                     if (chrome.runtime.lastError) {
-                        console.error('Error sending message to content script:', chrome.runtime.lastError);
-                        sendResponse({ 
-                            success: false, 
-                            error: 'Failed to communicate with LinkedIn page. Please refresh the page and try again.' 
-                        });
+                        reject(new Error(chrome.runtime.lastError.message));
                     } else {
-                        console.log('Content script response:', response);
-                        sendResponse({ success: true, message: 'Auto apply started successfully' });
+                        resolve(response);
                     }
                 });
-            } else {
-                throw new Error('No active tab found');
-            }
+            });
+            
+            console.log('Content script response:', response);
+            sendResponse({ success: true, message: 'Auto apply started successfully' });
         } catch (error) {
             console.error('Error starting auto apply:', error);
             this.backgroundManager.setAutoApplyState({ isRunning: false });

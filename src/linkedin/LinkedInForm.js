@@ -215,14 +215,137 @@ class LinkedInForm extends LinkedInBase {
         }
     }
 
-    static async processForm(shouldStop) {
+    static async processForm(shouldStop, jobInfo = null) {
         try {
-            this.debugLog("=== FORM PROCESSING STARTED ===");
             this.debugLog("Starting form processing");
-            this.debugLog("About to call startApplicationTracking...");
+            
+            // === COMPREHENSIVE CONTEXT ANALYSIS ===
+            console.log('=== LINKEDIN FORM CONTEXT ANALYSIS ===');
+            console.log('Current URL:', window.location.href);
+            console.log('Is in iframe:', window !== window.top);
+            console.log('Can access parent:', window.parent !== window);
+            console.log('Chrome APIs available:', typeof chrome !== 'undefined' && !!chrome.runtime);
+            console.log('Document domain:', document.domain);
+            console.log('Window origin:', window.origin);
+            console.log('Document title:', document.title);
+            console.log('User agent:', navigator.userAgent);
+            
+            // Test localStorage
+            console.log('LocalStorage test:', (() => {
+                try { 
+                    localStorage.setItem('easyjob_test', 'test'); 
+                    const result = localStorage.getItem('easyjob_test');
+                    localStorage.removeItem('easyjob_test'); 
+                    return result === 'test' ? 'available and working' : 'available but not working'; 
+                } catch(e) { 
+                    return 'blocked: ' + e.message; 
+                }
+            })());
+            
+            // Test sessionStorage
+            console.log('SessionStorage test:', (() => {
+                try { 
+                    sessionStorage.setItem('easyjob_test', 'test'); 
+                    const result = sessionStorage.getItem('easyjob_test');
+                    sessionStorage.removeItem('easyjob_test'); 
+                    return result === 'test' ? 'available and working' : 'available but not working'; 
+                } catch(e) { 
+                    return 'blocked: ' + e.message; 
+                }
+            })());
+            
+            // Test postMessage
+            console.log('PostMessage test:', (() => {
+                try {
+                    window.postMessage({ type: 'easyjob_test', data: 'test' }, '*');
+                    return 'available (can send)';
+                } catch(e) {
+                    return 'blocked: ' + e.message;
+                }
+            })());
+            
+            // Test parent access
+            if (window.parent && window.parent !== window) {
+                console.log('Parent access test:', (() => {
+                    try {
+                        const parentUrl = window.parent.location.href;
+                        return 'can access parent URL: ' + parentUrl;
+                    } catch(e) {
+                        return 'cannot access parent: ' + e.message;
+                    }
+                })());
+                
+                console.log('Parent postMessage test:', (() => {
+                    try {
+                        window.parent.postMessage({ type: 'easyjob_test', data: 'test' }, '*');
+                        return 'can send message to parent';
+                    } catch(e) {
+                        return 'cannot send to parent: ' + e.message;
+                    }
+                })());
+            }
+            
+            // Test global variables
+            console.log('Global variable test:', (() => {
+                try {
+                    window.easyjobTest = 'test';
+                    const result = window.easyjobTest;
+                    delete window.easyjobTest;
+                    return result === 'test' ? 'can set/get global variables' : 'global variables not working';
+                } catch(e) {
+                    return 'global variables blocked: ' + e.message;
+                }
+            })());
+            
+            // Test DOM manipulation
+            console.log('DOM manipulation test:', (() => {
+                try {
+                    document.body.setAttribute('data-easyjob-test', 'test');
+                    const result = document.body.getAttribute('data-easyjob-test');
+                    document.body.removeAttribute('data-easyjob-test');
+                    return result === 'test' ? 'can manipulate DOM attributes' : 'DOM manipulation not working';
+                } catch(e) {
+                    return 'DOM manipulation blocked: ' + e.message;
+                }
+            })());
+            
+            // Check iframe sandbox attributes if in iframe
+            if (window !== window.top) {
+                console.log('Iframe sandbox analysis:', (() => {
+                    try {
+                        // Try to find the iframe element in parent
+                        const iframes = window.parent.document.querySelectorAll('iframe');
+                        for (const iframe of iframes) {
+                            if (iframe.contentWindow === window) {
+                                const sandbox = iframe.getAttribute('sandbox');
+                                const src = iframe.getAttribute('src');
+                                return {
+                                    found: true,
+                                    sandbox: sandbox || 'no sandbox attribute',
+                                    src: src || 'no src attribute',
+                                    id: iframe.id || 'no id',
+                                    className: iframe.className || 'no class'
+                                };
+                            }
+                        }
+                        return { found: false, reason: 'could not find matching iframe' };
+                    } catch(e) {
+                        return { found: false, reason: 'error accessing parent: ' + e.message };
+                    }
+                })());
+            }
+            
+            // Test specific jobInfo parameter
+            console.log('JobInfo parameter analysis:');
+            console.log('- jobInfo type:', typeof jobInfo);
+            console.log('- jobInfo value:', jobInfo);
+            console.log('- jobInfo keys:', jobInfo ? Object.keys(jobInfo) : 'null');
+            console.log('- jobInfo stringified:', JSON.stringify(jobInfo));
+            
+            console.log('=== END CONTEXT ANALYSIS ===');
 
-            // Start application tracking
-            await this.startApplicationTracking();
+            // Start application tracking with provided job info
+            await this.startApplicationTracking(jobInfo);
             
             this.debugLog("startApplicationTracking completed");
 
@@ -418,7 +541,10 @@ class LinkedInForm extends LinkedInBase {
                 }
             }
 
-            clearTimeout(formTimeout);
+                        clearTimeout(formTimeout);
+
+
+
             this.debugLog("Form processing completed");
             return true;
         } catch (error) {
@@ -430,21 +556,22 @@ class LinkedInForm extends LinkedInBase {
     /**
      * Start application tracking for the current job
      */
-    static async startApplicationTracking() {
+    static async startApplicationTracking(jobInfo = null) {
         try {
-            this.debugLog('=== STARTING APPLICATION TRACKING ===');
-            
-            // Get current job info from storage
-            const jobResult = await chrome.storage.local.get(['currentJob']);
-            this.debugLog('Job result:', jobResult);
-            if (!jobResult.currentJob) {
-                this.debugLog('No current job found, skipping application tracking');
+            this.debugLog("Starting application tracking");
+            console.log("=== APPLICATION TRACKING DEBUG ===");
+            console.log("jobInfo parameter:", jobInfo);
+            console.log("jobInfo type:", typeof jobInfo);
+            console.log("jobInfo keys:", jobInfo ? Object.keys(jobInfo) : 'null');
+            console.log("=== END APPLICATION TRACKING DEBUG ===");
+            this.debugLog("Job info:", jobInfo);
+            if (!jobInfo) {
+                this.debugLog('No job info provided, skipping application tracking');
                 return;
             }
 
             // Get current user data
             const userResult = await chrome.storage.local.get(['currentUser']);
-            this.debugLog('User result:', userResult);
             if (!userResult.currentUser) {
                 this.debugLog('No current user found, skipping application tracking');
                 return;
@@ -452,7 +579,6 @@ class LinkedInForm extends LinkedInBase {
 
             // Get current AI settings
             const aiSettings = window.currentAiSettings;
-            this.debugLog('AI settings from window:', aiSettings);
             if (!aiSettings) {
                 this.debugLog('No AI settings found, skipping application tracking');
                 return;
@@ -460,21 +586,14 @@ class LinkedInForm extends LinkedInBase {
 
             // Get current resume ID
             const resumeResult = await chrome.storage.local.get(['currentResumeId']);
-            this.debugLog('Resume result:', resumeResult);
             if (!resumeResult.currentResumeId) {
                 this.debugLog('No current resume ID found, skipping application tracking');
                 return;
             }
 
-            this.debugLog('All data found, starting application tracking...');
-            this.debugLog('Job info:', jobResult.currentJob);
-            this.debugLog('User data:', userResult.currentUser);
-            this.debugLog('AI settings:', aiSettings);
-            this.debugLog('Resume ID:', resumeResult.currentResumeId);
-
             // Start application tracking
             await applicationTracker.startApplication(
-                jobResult.currentJob,
+                jobInfo,
                 userResult.currentUser,
                 aiSettings,
                 resumeResult.currentResumeId
@@ -483,7 +602,6 @@ class LinkedInForm extends LinkedInBase {
             this.debugLog('Application tracking started successfully');
         } catch (error) {
             this.errorLog('Error starting application tracking:', error);
-            // Don't throw error to avoid breaking the form process
         }
     }
 
@@ -867,6 +985,8 @@ class LinkedInForm extends LinkedInBase {
             return { success: false };
         }
     }
+
+
 
     /**
      * Detect question type for tracking purposes

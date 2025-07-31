@@ -81,69 +81,64 @@ class LinkedInJob extends LinkedInBase {
             
             // Get job info
             const jobInfo = await LinkedInJobInfo.getAllJobInfo();
-            debugLog('Job info:', jobInfo);
-            await chrome.storage.local.set({ 'currentJob': jobInfo });
+            
+            console.log('=== JOB INFO EXTRACTION ===');
+            console.log('Extraction URL:', window.location.href);
+            console.log('Job info extracted:', jobInfo);
+            console.log('Job info type:', typeof jobInfo);
+            console.log('Job info keys:', jobInfo ? Object.keys(jobInfo) : 'null');
+            console.log('=== END JOB INFO EXTRACTION ===');
+            
+            if (!jobInfo) {
+                debugLog('ERROR: Job info is null, cannot proceed');
+                return;
+            }
             
             // Store current user data for application tracking
             if (window.currentUserData) {
                 await chrome.storage.local.set({ 'currentUser': window.currentUserData });
-                debugLog('Stored current user data for application tracking');
             }
             
             // Store current resume ID for application tracking
             try {
-                debugLog('=== RESUME ID STORAGE DEBUG ===');
                 const resumeResult = await chrome.storage.local.get(['currentResumeId']);
-                debugLog('Current resume result from storage:', resumeResult);
                 
-                if (!resumeResult.currentResumeId) {
-                    debugLog('No current resume ID found, fetching default resume...');
-                    // Get default resume for current user
-                    if (window.currentUserData) {
-                        debugLog('User data available, fetching default resume...');
-                        const response = await chrome.runtime.sendMessage({
-                            action: 'apiRequest',
-                            method: 'GET',
-                            url: `/users/${window.currentUserData.id}/resumes/default`
-                        });
-                        
-                        debugLog('Default resume API response:', response);
-                        
-                        if (response && response.success && response.resume) {
-                            await chrome.storage.local.set({ 'currentResumeId': response.resume.id });
-                            debugLog(`Stored current resume ID: ${response.resume.id}`);
-                        } else {
-                            debugLog('Failed to get default resume:', response);
-                        }
-                    } else {
-                        debugLog('No user data available for resume fetch');
+                if (!resumeResult.currentResumeId && window.currentUserData) {
+                    const response = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'GET',
+                        url: `/users/${window.currentUserData.id}/resumes/default`
+                    });
+                    
+                    if (response && response.success && response.resume) {
+                        await chrome.storage.local.set({ 'currentResumeId': response.resume.id });
                     }
-                } else {
-                    debugLog(`Resume ID already exists: ${resumeResult.currentResumeId}`);
                 }
             } catch (error) {
                 debugLog('Error storing resume ID:', error);
             }
             
-            // Try to click Easy Apply button
+            // Click Easy Apply button
             await LinkedInJobInteraction.clickEasyApply();
-            debugLog('Attempted to click Easy Apply');
+            
             // Wait for the form to load
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 3000));
             
             if (await shouldStop(isAutoApplyRunning)) {
                 this.debugLog("Stop requested before form processing");
                 return;
             }
             
-            // process form with a callback that checks the actual stop state
+            console.log('=== CALLING PROCESS FORM ===');
+            console.log('About to call processForm with jobInfo:', jobInfo);
+            console.log('Current URL before form processing:', window.location.href);
+            console.log('=== END CALLING PROCESS FORM ===');
+            
             const shouldStopCallback = async () => {
                 return await shouldStop(isAutoApplyRunning);
             };
-            await LinkedInForm.processForm(shouldStopCallback);
+            await LinkedInForm.processForm(shouldStopCallback, jobInfo);
             debugLog('Processed application form');
-            await chrome.storage.local.remove('currentJob');
-            debugLog('Removed current job from storage');
         } catch (error) {
             console.error('Error processing job:', error);
             debugLog('Error processing job:', { error: error.message, stack: error.stack });
@@ -151,6 +146,8 @@ class LinkedInJob extends LinkedInBase {
             // Keep forms open as requested by user
         }
     }
+
+
 }
 
 export default LinkedInJobPage;
