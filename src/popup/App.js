@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock } from 'lucide-react';
+import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import './App.css';
 import ResumeManagerComponent from './managers/ResumeManagerComponent.js';
 import AiManagerComponent from './managers/AiManagerComponent.js';
@@ -31,6 +31,7 @@ const App = () => {
   const [selectedCompany, setSelectedCompany] = useState('');
   const [selectedJob, setSelectedJob] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
+  const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -266,6 +267,28 @@ const App = () => {
     } catch (error) {
       console.error('App: Error loading application history:', error);
       setApplicationHistory([]);
+    }
+  };
+
+  const handleRefreshApplicationHistory = async () => {
+    if (!currentUser || isRefreshingHistory) {
+      return;
+    }
+
+    setIsRefreshingHistory(true);
+    console.log('App: Refreshing application history...');
+    
+    try {
+      await loadApplicationHistory();
+      // Reset selections to show refreshed data
+      setSelectedCompany('');
+      setSelectedJob('');
+      setSelectedApplication(null);
+      console.log('App: Application history refreshed successfully');
+    } catch (error) {
+      console.error('App: Error refreshing application history:', error);
+    } finally {
+      setIsRefreshingHistory(false);
     }
   };
 
@@ -710,7 +733,18 @@ const App = () => {
     return (
       <div className="tab-content">
         <div className="application-history-section">
-          <h2>Application History</h2>
+          <div className="history-header">
+            <h2>Application History</h2>
+            <button 
+              className={`refresh-button ${isRefreshingHistory ? 'refreshing' : ''}`}
+              onClick={handleRefreshApplicationHistory}
+              disabled={isRefreshingHistory || !currentUser}
+              title="Refresh application history"
+            >
+              <RefreshCw size={16} className={isRefreshingHistory ? 'spinning' : ''} />
+              {isRefreshingHistory ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
           
           <div className="history-filters">
             <select 
