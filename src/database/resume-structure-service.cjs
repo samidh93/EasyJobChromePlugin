@@ -107,16 +107,24 @@ class ResumeStructureService {
      */
     async getRelevantData(resumeId, questionType) {
         try {
+            console.log(`[DB SERVICE] getRelevantData called - resumeId: ${resumeId}, questionType: ${questionType}`);
+            
             const structure = await this.getResumeStructure(resumeId);
             if (!structure) return null;
 
+            console.log(`[DB SERVICE] Switch statement with questionType: "${questionType}"`);
+            
             switch (questionType) {
                 case 'language_level':
                 case 'languages':
+                case 'language_proficiency':
+                    console.log(`[DB SERVICE] Matched language case, returning languages:`, structure.languages ? 'found' : 'not found');
                     return { languages: structure.languages || [] };
                 
                 case 'skills':
                 case 'experience':
+                case 'skill_level':
+                case 'years_experience':
                     return {
                         skills: structure.skills || [],
                         experiences: structure.experiences || [],
@@ -129,6 +137,9 @@ class ResumeStructureService {
                 case 'personal':
                 case 'visa':
                 case 'salary':
+                case 'visa_status':
+                case 'availability':
+                case 'notice_period':
                     return { personal_info: structure.personal_info || {} };
                 
                 case 'certifications':
@@ -138,6 +149,7 @@ class ResumeStructureService {
                     return {}; // No specific data needed
                 
                 default:
+                    console.log(`[DB SERVICE] Hit default case for questionType: "${questionType}"`);
                     return {
                         personal_info: structure.personal_info || {},
                         summary: structure.summary || {},

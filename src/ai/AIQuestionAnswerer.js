@@ -1,5 +1,11 @@
 import AISettingsManager from './AISettingsManager.js';
+import AIQuestionClassifier from './AIQuestionClassifier.js';
+import AISmartDataRetriever from './AISmartDataRetriever.js';
 
+/**
+ * AI Question Answerer
+ * Handles answering job application questions using AI
+ */
 class AIQuestionAnswerer {
     constructor(userId = null) {
         this.userId = userId;
@@ -7,6 +13,10 @@ class AIQuestionAnswerer {
         this.formatted_text = null;
         this.aiSettingsManager = new AISettingsManager();
         this.settingsLoadPromise = null;
+        
+        // Initialize new AI components
+        this.questionClassifier = new AIQuestionClassifier(this.aiSettingsManager);
+        this.smartDataRetriever = new AISmartDataRetriever();
         
         // Load AI settings if userId is provided
         if (userId) {
@@ -94,29 +104,34 @@ class AIQuestionAnswerer {
             // Ensure AI settings are loaded
             await this.ensureSettingsLoaded();
             
-            // Try to get structured data from database if resumeId is provided
+            console.log(`AIQuestionAnswerer: Processing question: ${question}`);
+            
+            // Step 1: Use AI to classify the question and extract keywords
+            let classification = null;
             let relevantData = null;
-            if (resumeId) {
+            
+            try {
+                classification = await this.questionClassifier.classifyQuestion(question);
+                console.log('AIQuestionAnswerer: Question classified as:', classification);
+            } catch (error) {
+                console.error('AIQuestionAnswerer: Classification failed, using fallback:', error);
+                classification = { question_type: 'general', keywords: [], confidence: 0.3 };
+            }
+            
+            // Step 2: Get relevant data based on classification (if resumeId provided)
+            if (resumeId && classification) {
                 try {
-                    const questionType = this.detectQuestionType(question);
-                    
-                    const response = await chrome.runtime.sendMessage({
-                        action: 'apiRequest',
-                        method: 'GET',
-                        url: `/resumes/${resumeId}/relevant-data?questionType=${questionType}`
-                    });
-                    
-                    if (response && response.success) {
-                        relevantData = response.relevantData;
-                    }
+                    relevantData = await this.smartDataRetriever.getRelevantData(classification, resumeId);
+                    console.log('AIQuestionAnswerer: Retrieved relevant data:', relevantData ? Object.keys(relevantData) : 'null');
                 } catch (error) {
-                    console.error("Error retrieving structured data:", error);
+                    console.error('AIQuestionAnswerer: Smart data retrieval failed:', error);
                 }
             }
             
-            // Check for direct matches first (personal info)
+            // Step 3: Check for direct answers from relevant data
             const directAnswer = this.getDirectAnswer(question, relevantData);
             if (directAnswer) {
+                console.log('AIQuestionAnswerer: Found direct answer:', directAnswer);
                 // If we have options, try to match the direct answer to one of them
                 if (options && Array.isArray(options) && options.length > 0) {
                     const matchedOption = this.matchToOption(directAnswer, options);
@@ -125,7 +140,17 @@ class AIQuestionAnswerer {
                 return { success: true, answer: directAnswer };
             }
             
-            // Check if we should stop before AI processing
+            // Step 4: If no relevant data found, try intelligent fallback
+            if (!relevantData || Object.keys(relevantData).length === 0) {
+                console.log('AIQuestionAnswerer: No relevant data found, trying intelligent fallback');
+                const fallbackAnswer = this.smartDataRetriever.generateFallbackResponse(classification, options);
+                if (fallbackAnswer) {
+                    console.log('AIQuestionAnswerer: Using intelligent fallback answer:', fallbackAnswer);
+                    return { success: true, answer: fallbackAnswer };
+                }
+            }
+            
+            // Step 5: Check if we should stop before AI processing
             if (shouldStop) {
                 let stopRequested = false;
                 if (typeof shouldStop === 'function') {
@@ -136,25 +161,25 @@ class AIQuestionAnswerer {
                     stopRequested = !!shouldStop;
                 }
                 
-                            if (stopRequested) {
-                console.log("Stop requested before AI processing");
-                return { success: false, stopped: true };
-            }
+                if (stopRequested) {
+                    console.log("AIQuestionAnswerer: Stop requested before AI processing");
+                    return { success: false, stopped: true };
+                }
             }
             
-            // Build enhanced prompt with user data
-            const prompt = this.buildEnhancedPrompt(question, options, relevantData);
+            // Step 6: Build smart prompt with minimal relevant data
+            const prompt = this.buildSmartPrompt(question, options, relevantData, classification);
             
             // Debug the full prompt
-            console.log("=== FULL PROMPT BEING SENT ===");
+            console.log("=== SMART PROMPT BEING SENT ===");
             console.log(prompt);
-            console.log("=== END FULL PROMPT ===");
+            console.log("=== END SMART PROMPT ===");
             
             // Get token analysis
             const tokenAnalysis = this.aiSettingsManager.getTokenAnalysis({ prompt });
             console.log("Token Analysis:", tokenAnalysis);
             
-            // Get AI response using AISettingsManager
+            // Step 7: Get AI response using AISettingsManager
             const response = await this.aiSettingsManager.callAIWithStop({
                 prompt: prompt,
                 stream: false
@@ -174,40 +199,47 @@ class AIQuestionAnswerer {
                 // OpenAI format: { choices: [{ message: { content: "text" } }] }
                 answer = response.choices[0].message.content.trim();
             } else {
-                console.warn('Unexpected AI response format:', response);
+                console.warn('AIQuestionAnswerer: Unexpected AI response format:', response);
                 answer = "";
             }
-            
-            console.log("Raw AI response:", answer);
-            
+
+            console.log("AIQuestionAnswerer: Raw AI response:", answer);
+
             // Post-process answer to enforce minimum 5 years for experience questions
-            if (this.isYearsOfExperienceQuestion(question) && /^\d+$/.test(answer)) {
+            if (classification.question_type === 'years_experience' && /^\d+$/.test(answer)) {
                 const num = parseInt(answer);
                 if (num < 5) {
                     answer = "5";
-                    console.log(`Enforced minimum 5 years for experience question, was: ${num}`);
+                    console.log(`AIQuestionAnswerer: Enforced minimum 5 years for experience question, was: ${num}`);
                 }
             }
-            
+
             // If we have options, ensure answer matches one of them
             if (options && Array.isArray(options) && options.length > 0) {
                 answer = this.matchToOption(answer, options);
             }
-            
+
             return { 
                 success: true, 
                 answer: answer || "Information not available" 
             };
             
         } catch (error) {
-            console.error('Error in answerQuestion:', error);
+            console.error('AIQuestionAnswerer: Error in answerQuestion:', error);
             
-            // Smart fallback
-            const fallbackAnswer = options && Array.isArray(options) && options.length > 0 
-                ? (options.length > 1 ? options[1] : options[0])
-                : "Information not available";
-                
-            return { success: true, answer: fallbackAnswer };
+            // Smart fallback using classification if available
+            let fallbackAnswer = "Information not available";
+            if (classification && options) {
+                fallbackAnswer = this.smartDataRetriever.generateFallbackResponse(classification, options);
+            }
+            
+            if (!fallbackAnswer && options && Array.isArray(options) && options.length > 0) {
+                fallbackAnswer = options.length > 1 ? options[1] : options[0];
+            }
+            
+            console.log('AIQuestionAnswerer: Using fallback answer:', fallbackAnswer);
+            
+            return { success: false, answer: fallbackAnswer, error: error.message };
         }
     }
 
@@ -345,7 +377,88 @@ class AIQuestionAnswerer {
     }
     
     /**
-     * Build enhanced prompt with special handling for different question types
+     * Build smart prompt with minimal relevant data
+     * @param {string} question - The question
+     * @param {Array} options - Available options (if any)
+     * @param {Object} relevantData - Relevant data from smart retriever
+     * @param {Object} classification - Question classification
+     * @returns {string} - Formatted smart prompt
+     */
+    buildSmartPrompt(question, options, relevantData, classification) {
+        // Use relevant data if available, otherwise indicate no data
+        let contextData;
+        if (relevantData && Object.keys(relevantData).length > 0) {
+            contextData = this.formatRelevantDataAsText(relevantData);
+            console.log("AIQuestionAnswerer: Using focused relevant data for prompt");
+        } else {
+            contextData = "No specific relevant data available in resume.";
+            console.log("AIQuestionAnswerer: No relevant data - using fallback prompt");
+        }
+        
+        let prompt = `You are a job applicant filling out a job application form. Answer questions based on your resume information in first person (as "I" not "he/she").
+
+RELEVANT RESUME DATA:
+${contextData}
+
+QUESTION: ${question}
+
+IMPORTANT GENERAL RULES:
+- Answer as the job applicant (use "I", "my", "me" - NOT "he", "she", "Sami", or third person)
+- Be concise and direct
+- Only provide the specific information requested
+- Do not mention your name unless explicitly asked`;
+
+        // Add question type specific rules
+        switch (classification.question_type) {
+            case 'years_experience':
+                prompt += `
+
+IMPORTANT RULES FOR YEARS OF EXPERIENCE:
+- If asked for years of experience, provide ONLY a number between 5-99
+- MINIMUM is always 5 years - never return 0, 1, 2, 3, or 4
+- Do NOT include words like "years", "Jahre", or descriptions
+- Calculate based on work experience and skill level
+- If no specific experience found, default to 5 years minimum
+- Example: "5" not "5 years" or "5 Jahre"`;
+                break;
+                
+            case 'language_proficiency':
+                prompt += `
+
+IMPORTANT RULES FOR LANGUAGE PROFICIENCY:
+- Choose the most accurate proficiency level based on resume data
+- If no specific language data available, choose a realistic favorable level
+- Common levels: Beginner, Intermediate, Advanced, Professional, Native`;
+                break;
+                
+            case 'skill_level':
+                prompt += `
+
+IMPORTANT RULES FOR SKILL LEVELS:
+- Base skill level on experience with the technology/tool
+- If no specific experience found, choose a moderate favorable level
+- Consider years of experience and project involvement`;
+                break;
+        }
+
+        // Add option selection rules if options are provided
+        if (options && Array.isArray(options) && options.length > 0) {
+            prompt += `
+
+Available Options: ${JSON.stringify(options)}
+
+IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
+        }
+
+        prompt += `
+
+ANSWER:`;
+
+        return prompt;
+    }
+    
+    /**
+     * Build enhanced prompt with special handling for different question types (Legacy method)
      * @param {string} question - The question
      * @param {Array} options - Available options (if any)
      * @param {Object} relevantData - Optional structured data for context

@@ -887,8 +887,13 @@ app.get('/api/resumes/:resumeId/relevant-data', async (req, res) => {
             });
         }
         
+        // Debug logging
+        console.log(`[RELEVANT-DATA API] resumeId: ${resumeId}, questionType: ${questionType}`);
+        
         // Get relevant data based on question type
         const relevantData = await ResumeStructureService.getRelevantData(resumeId, questionType);
+        
+        console.log(`[RELEVANT-DATA API] Retrieved data keys:`, relevantData ? Object.keys(relevantData) : 'null');
         
         if (!relevantData) {
             return res.status(404).json({ 
