@@ -172,8 +172,28 @@ class ApplicationTracker extends LinkedInBase {
                 this.debugLog(`Application created: ${response.application.id}`);
                 return response.application;
             } else {
-                this.debugLog(`Failed to create application: ${response?.error}`);
-                throw new Error(response?.error || 'Failed to create application');
+                // Check if this is a duplicate key error
+                if (response?.error && response.error.includes('duplicate key value violates unique constraint "applications_user_id_job_id_key"')) {
+                    this.debugLog('Application already exists, fetching existing application...');
+                    
+                    // Fetch the existing application instead of creating a new one
+                    const existingResponse = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'GET',
+                        url: `/applications/user/${applicationData.user_id}/job/${applicationData.job_id}`
+                    });
+                    
+                    if (existingResponse && existingResponse.success) {
+                        this.debugLog(`Found existing application: ${existingResponse.application.id}`);
+                        return existingResponse.application;
+                    } else {
+                        this.debugLog('Failed to fetch existing application, falling back to error');
+                        throw new Error(response?.error || 'Failed to create application');
+                    }
+                } else {
+                    this.debugLog(`Failed to create application: ${response?.error}`);
+                    throw new Error(response?.error || 'Failed to create application');
+                }
             }
         } catch (error) {
             this.errorLog('Error creating application:', error);

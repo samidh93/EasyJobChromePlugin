@@ -1066,6 +1066,30 @@ app.get('/api/applications/recent', async (req, res) => {
     }
 });
 
+// Get application by user ID and job ID
+app.get('/api/applications/user/:userId/job/:jobId', async (req, res) => {
+    try {
+        const { userId, jobId } = req.params;
+        
+        const application = await ApplicationService.getApplicationByUserAndJob(userId, jobId);
+        
+        if (!application) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Application not found' 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            application: application 
+        });
+    } catch (error) {
+        console.error('Get application by user and job error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Get a specific application by ID
 app.get('/api/applications/:applicationId', async (req, res) => {
     try {
