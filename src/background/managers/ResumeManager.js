@@ -44,28 +44,16 @@ class ResumeManager {
                 return;
             }
 
-            // Debug logging
-            console.log('Upload debug - fileData.buffer type:', typeof fileData.buffer);
-            console.log('Upload debug - fileData.buffer length:', fileData.buffer.length);
-            console.log('Upload debug - first 10 bytes:', fileData.buffer.slice(0, 10));
-
             // Create FormData for file upload
             const uploadData = new FormData();
             
             // Convert array back to Uint8Array and then to Blob/File
             const uint8Array = new Uint8Array(fileData.buffer);
-            console.log('Upload debug - uint8Array:', uint8Array.slice(0, 10));
-            
             const fileBlob = new Blob([uint8Array], { type: fileData.type });
-            console.log('Upload debug - blob size:', fileBlob.size);
-            console.log('Upload debug - blob type:', fileBlob.type);
-            
             const file = new File([fileBlob], fileData.name, {
                 type: fileData.type,
                 lastModified: fileData.lastModified
             });
-            console.log('Upload debug - file size:', file.size);
-            console.log('Upload debug - file type:', file.type);
             
             uploadData.append('resume', file);
             uploadData.append('name', formData.name || '');

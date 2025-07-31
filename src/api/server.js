@@ -703,15 +703,7 @@ app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (re
         const { userId } = req.params;
         const { name, short_description, is_default } = req.body;
         
-        console.log('=== UPLOAD DEBUG ===');
-        console.log('userId:', userId);
-        console.log('req.file:', req.file ? {
-            originalname: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: req.file.size,
-            path: req.file.path
-        } : 'No file');
-        console.log('req.body:', req.body);
+
         
         if (!req.file) {
             return res.status(400).json({ 
@@ -771,10 +763,7 @@ app.post('/api/users/:userId/resumes/upload', upload.single('resume'), async (re
         if (req.body.structured_data) {
             try {
                 structuredData = JSON.parse(req.body.structured_data);
-                console.log('Parsed structured data keys:', Object.keys(structuredData));
-                console.log('Personal info keys:', Object.keys(structuredData.personal_info || {}));
-                console.log('Skills count:', structuredData.skills?.length || 0);
-                console.log('Processing structured data for resume:', newResume.id);
+
                 
                 // Save structured data to resume_structure table
                 await ResumeStructureService.saveResumeStructure(newResume.id, structuredData);
@@ -857,9 +846,7 @@ app.get('/api/users/:userId/resumes/default', async (req, res) => {
         
         // Verify user exists
         const user = await UserService.findById(userId);
-        console.log('User found:', !!user);
         if (!user) {
-            console.log('User not found, returning 404');
             return res.status(404).json({ 
                 success: false, 
                 error: 'User not found' 
@@ -867,13 +854,9 @@ app.get('/api/users/:userId/resumes/default', async (req, res) => {
         }
         
         // Get default resume
-        console.log('Getting default resume for user...');
         const resume = await ResumeService.getDefaultResumeByUserId(userId);
-        console.log('Default resume found:', !!resume);
-        console.log('Resume details:', resume);
         
         if (!resume) {
-            console.log('No default resume found, returning 404');
             return res.status(404).json({ 
                 success: false, 
                 error: 'No default resume found for user' 

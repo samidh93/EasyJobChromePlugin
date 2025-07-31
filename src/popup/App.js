@@ -301,7 +301,7 @@ const App = () => {
     }
 
     if (!hasAiSettings) {
-      setStatusMessage('Please configure AI settings first');
+      setStatusMessage('Please configure AI settings first. AI is required for auto-apply and resume parsing.');
       setTimeout(() => setStatusMessage(''), 3000);
       return;
     }
@@ -365,11 +365,15 @@ const App = () => {
       // Fallback to local storage if no database settings
       if (!aiSettings) {
         const result = await chrome.storage.local.get(['aiProvider', 'aiModel', 'apiKey']);
-        aiSettings = {
-          provider: result.aiProvider || 'ollama',
-          model: result.aiModel || 'qwen2.5:3b',
-          apiKey: result.apiKey || null
-        };
+        if (result.aiProvider && result.aiModel) {
+          // Only use local storage if user has explicitly configured AI
+          aiSettings = {
+            provider: result.aiProvider,
+            model: result.aiModel,
+            apiKey: result.apiKey || null
+          };
+        }
+        // If no AI configured anywhere, aiSettings remains null - user must configure AI first
       }
 
       // Use current user data instead of form login data
@@ -646,11 +650,11 @@ const App = () => {
                   </div>
                 ) : !hasAiSettings ? (
                   <div className="warning-message">
-                    <span>⚠️ Please configure AI settings in the "AI Settings" tab to start applying</span>
+                    <span>⚠️ AI configuration required. Please set up AI in the "AI Settings" tab to enable auto-apply and resume parsing.</span>
                   </div>
                 ) : (
                   <div className="success-message">
-                    <span>✅ Resume and AI settings configured - ready for applications</span>
+                    <span>✅ Resume and AI settings configured - ready for auto-apply</span>
                   </div>
                 )}
               </div>

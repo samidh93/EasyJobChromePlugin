@@ -40,8 +40,9 @@ class AutoApplyManager {
                 throw new Error('Login data required');
             }
             
+            // AI settings are required for auto-apply functionality
             if (!request.aiSettings || !request.aiSettings.provider || !request.aiSettings.model) {
-                throw new Error('AI settings required');
+                throw new Error('AI settings are required for auto-apply. Please configure AI settings first.');
             }
             
             // Store the current session data
@@ -54,6 +55,7 @@ class AutoApplyManager {
             // Test AI connection first
             const aiManager = this.backgroundManager.getManager('ai');
             await aiManager.testAiConnection(request.aiSettings);
+            console.log('AI connection verified - auto-apply ready');
             
             // Get active tab
             const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

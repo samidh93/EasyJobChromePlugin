@@ -17,8 +17,6 @@ class AISettingsManager {
     async loadAISettings(userId) {
         try {
             console.log('AISettingsManager: Loading AI settings for user:', userId);
-            console.log('AISettingsManager: User ID type:', typeof userId);
-            console.log('AISettingsManager: User ID length:', userId ? userId.length : 'null');
             
             // Validate userId is a proper UUID
             if (!userId || typeof userId !== 'string' || userId.length !== 36) {
@@ -34,13 +32,9 @@ class AISettingsManager {
                 url: `/users/${userId}/ai-settings/default`
             });
 
-            console.log('AISettingsManager: API response received:', response);
-
             if (response && response.success) {
                 this.currentSettings = response.ai_settings;
-                console.log('AISettingsManager: Successfully loaded AI settings:', this.currentSettings);
-                console.log('AISettingsManager: Provider:', this.currentSettings.ai_provider);
-                console.log('AISettingsManager: Model:', this.currentSettings.ai_model);
+                console.log('AISettingsManager: Successfully loaded AI settings');
                 return this.currentSettings;
             } else {
                 console.warn('AISettingsManager: No AI settings found, using default');
@@ -54,25 +48,22 @@ class AISettingsManager {
     }
 
     /**
-     * Get default AI settings
-     * @returns {Object} - Default settings object
+     * Get default AI settings - user must explicitly configure AI
+     * @returns {null} - No automatic defaults, forces explicit setup
      */
     getDefaultSettings() {
-        return {
-            provider: 'ollama',
-            model: this.defaultModel,
-            apiKey: null,
-            baseUrl: 'http://localhost:11434',
-            is_default: true
-        };
+        // Return null to force users to explicitly configure AI
+        // This prevents automatic connection attempts to any provider
+        console.log('AISettingsManager: No AI settings configured - user must set up AI first');
+        return null;
     }
 
     /**
      * Get current AI settings
-     * @returns {Object} - Current settings or default
+     * @returns {Object|null} - Current settings or null if not configured
      */
     getCurrentSettings() {
-        return this.currentSettings || this.getDefaultSettings();
+        return this.currentSettings;  // Don't fallback to defaults, return null if not configured
     }
 
     /**
@@ -86,30 +77,37 @@ class AISettingsManager {
 
     /**
      * Get the current model name
-     * @returns {string} - Model name
+     * @returns {string|null} - Model name or null if no AI configured
      */
     getModel() {
         const settings = this.getCurrentSettings();
-        // Handle both ai_model (from database) and model (from default settings)
-        return settings.ai_model || settings.model || this.defaultModel;
+        if (!settings) return null;
+        // Handle both ai_model (from database) and model (from settings)
+        return settings.ai_model || settings.model || null;
     }
 
     /**
      * Get the current provider
-     * @returns {string} - Provider name
+     * @returns {string|null} - Provider name or null if no AI configured
      */
     getProvider() {
         const settings = this.getCurrentSettings();
-        // Handle both ai_provider (from database) and provider (from default settings)
-        return settings.ai_provider || settings.provider || 'ollama';
+        if (!settings) return null;
+        // Handle both ai_provider (from database) and provider (from settings)
+        return settings.ai_provider || settings.provider || null;
     }
 
     /**
      * Get the decrypted API key for the current settings
-     * @returns {Promise<string>} - Decrypted API key
+     * @returns {Promise<string|null>} - Decrypted API key or null if no AI configured
      */
     async getDecryptedApiKey() {
         const settings = this.getCurrentSettings();
+        
+        // Return null if no AI settings configured
+        if (!settings) {
+            return null;
+        }
         
         // If we already have a decrypted API key, return it
         if (settings.apiKey && settings.apiKey !== 'encrypted') {
@@ -192,26 +190,12 @@ class AISettingsManager {
             const provider = this.getProvider();
             const model = this.getModel();
             
-            // Debug logging for prompt and tokens
-            console.log('=== AI API CALL DEBUG ===');
-            console.log('Provider:', provider);
-            console.log('Model:', model);
-            console.log('Request Data:', {
-                prompt: requestData.prompt,
-                messages: requestData.messages,
-                max_tokens: requestData.max_tokens,
-                temperature: requestData.temperature,
-                stream: requestData.stream
-            });
-            
-            // Calculate approximate input tokens
+            // Calculate approximate input tokens for monitoring
             let inputTokens = 0;
             if (requestData.prompt) {
                 inputTokens = this.estimateTokens(requestData.prompt);
-                console.log('Input tokens (prompt):', inputTokens);
             } else if (requestData.messages) {
                 inputTokens = this.estimateTokensFromMessages(requestData.messages);
-                console.log('Input tokens (messages):', inputTokens);
             }
             
             if (provider === 'ollama') {
@@ -220,8 +204,6 @@ class AISettingsManager {
                     ...requestData,
                     model: model
                 };
-
-                console.log('Sending Ollama request:', requestBody);
 
                 const response = await chrome.runtime.sendMessage({
                     action: 'callOllama',
@@ -232,12 +214,6 @@ class AISettingsManager {
                 if (response.success === false) {
                     throw new Error(response.error || 'Unknown error from Ollama API');
                 }
-                
-                // Calculate output tokens
-                const outputTokens = this.estimateTokens(response.data.response || '');
-                console.log('Output tokens:', outputTokens);
-                console.log('Total tokens:', inputTokens + outputTokens);
-                console.log('=== END AI API CALL DEBUG ===');
                 
                 return response.data;
             } else if (provider === 'openai') {
@@ -268,15 +244,7 @@ class AISettingsManager {
                     throw new Error(response.error || 'Unknown error from OpenAI API');
                 }
                 
-                // Calculate output tokens from OpenAI response
-                const outputTokens = response.data.usage?.completion_tokens || 0;
-                const totalTokens = response.data.usage?.total_tokens || 0;
-                console.log('OpenAI Token Usage:', {
-                    prompt_tokens: response.data.usage?.prompt_tokens || 0,
-                    completion_tokens: outputTokens,
-                    total_tokens: totalTokens
-                });
-                console.log('=== END AI API CALL DEBUG ===');
+
                 
                 return response.data;
             } else {

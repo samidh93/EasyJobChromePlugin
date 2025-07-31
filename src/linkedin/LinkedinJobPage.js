@@ -82,12 +82,7 @@ class LinkedInJob extends LinkedInBase {
             // Get job info
             const jobInfo = await LinkedInJobInfo.getAllJobInfo();
             
-            console.log('=== JOB INFO EXTRACTION ===');
-            console.log('Extraction URL:', window.location.href);
-            console.log('Job info extracted:', jobInfo);
-            console.log('Job info type:', typeof jobInfo);
-            console.log('Job info keys:', jobInfo ? Object.keys(jobInfo) : 'null');
-            console.log('=== END JOB INFO EXTRACTION ===');
+
             
             if (!jobInfo) {
                 debugLog('ERROR: Job info is null, cannot proceed');

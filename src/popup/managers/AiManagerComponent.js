@@ -18,8 +18,8 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
     
     // Form state for adding/editing AI settings
     const [settingsForm, setSettingsForm] = useState({
-        ai_provider: 'ollama',
-        ai_model: 'qwen2.5:3b',
+        ai_provider: 'openai',
+        ai_model: 'gpt-4o-mini',
         api_key: '',
         is_default: false
     });
@@ -77,7 +77,8 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
     useEffect(() => {
         if (settingsForm.ai_provider === 'ollama') {
             setSettingsForm(prev => ({ ...prev, ai_model: 'qwen2.5:3b' }));
-            loadOllamaModels();
+            // Only load Ollama models when user explicitly selects Ollama in the form
+            // Don't auto-load on component initialization
         } else {
             const provider = AI_PROVIDERS[settingsForm.ai_provider];
             if (provider && provider.models) {
@@ -104,9 +105,12 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
                 setTimeout(() => setStatusMessage(''), 3000);
             }
         } catch (error) {
-            console.error('Error loading Ollama models:', error);
-            setStatusMessage('Error connecting to Ollama. Make sure it\'s running on localhost:11434.');
-            setTimeout(() => setStatusMessage(''), 3000);
+            console.error('AiManager: Failed to load Ollama models:', error);
+            // Don't show error message unless user is actively trying to use Ollama
+            if (settingsForm.ai_provider === 'ollama') {
+                setStatusMessage('Error connecting to Ollama. Make sure it\'s running on localhost:11434.');
+                setTimeout(() => setStatusMessage(''), 5000);
+            }
         } finally {
             setIsLoadingModels(false);
         }
@@ -119,6 +123,11 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
             api_key: '', // Clear API key when changing provider
             ai_model: '' // Will be set by useEffect
         }));
+        
+        // If user explicitly selects Ollama in the form, load models
+        if (provider === 'ollama' && showAddForm) {
+            loadOllamaModels();
+        }
     };
 
     const handleSaveSettings = async () => {
@@ -150,8 +159,8 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
                 setStatusMessage('AI settings saved successfully!');
                 setShowAddForm(false);
                 setSettingsForm({
-                    ai_provider: 'ollama',
-                    ai_model: 'qwen2.5:3b',
+                    ai_provider: 'openai',
+                    ai_model: 'gpt-4o-mini',
                     api_key: '',
                     is_default: false
                 });
@@ -358,7 +367,13 @@ const AiManagerComponent = ({ currentUser, onAiSettingsUpdate }) => {
                         </button>
                         <button 
                             className="primary-button"
-                            onClick={() => setShowAddForm(true)}
+                            onClick={() => {
+                                setShowAddForm(true);
+                                // If form defaults to Ollama, load models when form opens
+                                if (settingsForm.ai_provider === 'ollama') {
+                                    loadOllamaModels();
+                                }
+                            }}
                             disabled={loading}
                         >
                             <Plus size={16} />

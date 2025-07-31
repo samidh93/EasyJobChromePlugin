@@ -109,6 +109,11 @@ class AIManager {
     async testAiConnection(aiSettings) {
         console.log('Testing AI connection:', aiSettings);
         
+        // Handle null/undefined aiSettings
+        if (!aiSettings) {
+            throw new Error('No AI settings provided');
+        }
+        
         if (aiSettings.provider === 'ollama') {
             const result = await this.testOllamaConnection();
             if (!result.success) {
@@ -186,28 +191,10 @@ class AIManager {
      */
     async callOllamaAPI(endpoint, data) {
         try {
-            console.log('=== OLLAMA API CALL DEBUG ===');
-            console.log(`Making Ollama API call to ${endpoint}:`, {
-                model: data.model,
-                prompt: data.prompt?.substring(0, 100) + '...',
-                messages: data.messages?.length || 0,
-                stream: data.stream
-            });
-            
             const port = 11434;
-            console.log(`Using Ollama port: ${port}`);
             
             // Ensure stream is false for consistent behavior
             const requestData = { ...data, stream: false };
-            
-            console.log('Final request data:', {
-                ...requestData,
-                prompt: requestData.prompt?.substring(0, 200) + (requestData.prompt?.length > 200 ? '...' : ''),
-                messages: requestData.messages?.map(msg => ({
-                    role: msg.role,
-                    content: msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : '')
-                }))
-            });
             
             const response = await fetch(`http://localhost:${port}/api/${endpoint}`, {
                 method: 'POST',
@@ -257,11 +244,7 @@ class AIManager {
                 }
             }
             
-            console.log(`Ollama API call successful:`, {
-                model: result.model,
-                response: result.response?.substring(0, 100) + '...',
-                message: result.message?.content?.substring(0, 100) + '...'
-            });
+
             
             // Validate response based on endpoint type
             if (endpoint === 'chat') {
@@ -322,11 +305,9 @@ class AIManager {
                 }
             }
             
-            console.log('=== END OLLAMA API CALL DEBUG ===');
             return { success: true, data: result };
         } catch (error) {
             console.error(`Ollama API call failed (${endpoint}):`, error);
-            console.log('=== END OLLAMA API CALL DEBUG ===');
             
             // Provide helpful troubleshooting info
             let troubleshooting = "Please make sure Ollama is running on your computer. Try running 'ollama serve' in your terminal.";
@@ -438,15 +419,6 @@ class AIManager {
      */
     async callOpenAIAPI(data) {
         try {
-            console.log('=== OPENAI API CALL DEBUG ===');
-            console.log('Making OpenAI API call:', { 
-                model: data.model, 
-                prompt: data.prompt?.substring(0, 100) + '...',
-                messages: data.messages?.length || 0,
-                max_tokens: data.max_tokens,
-                temperature: data.temperature
-            });
-            
             const { apiKey, model, prompt, messages, max_tokens = 1000, temperature = 0.7 } = data;
             
             if (!apiKey) {
@@ -463,7 +435,6 @@ class AIManager {
             // Handle both prompt (for generate) and messages (for chat) formats
             if (messages) {
                 requestBody.messages = messages;
-                console.log('Using messages format:', messages);
             } else if (prompt) {
                 // Convert prompt to chat format for consistency
                 requestBody.messages = [
@@ -472,18 +443,9 @@ class AIManager {
                         content: prompt
                     }
                 ];
-                console.log('Converted prompt to messages format');
             } else {
                 throw new Error('Either prompt or messages must be provided');
             }
-            
-            console.log('Final request body:', {
-                ...requestBody,
-                messages: requestBody.messages.map(msg => ({
-                    role: msg.role,
-                    content: msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : '')
-                }))
-            });
             
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
@@ -514,18 +476,9 @@ class AIManager {
 
             const result = await response.json();
             
-            console.log('OpenAI API call successful:', {
-                model: result.model,
-                usage: result.usage,
-                responseLength: result.choices[0]?.message?.content?.length || 0,
-                response: result.choices[0]?.message?.content?.substring(0, 100) + '...'
-            });
-            
-            console.log('=== END OPENAI API CALL DEBUG ===');
             return { success: true, data: result };
         } catch (error) {
             console.error('OpenAI API call failed:', error);
-            console.log('=== END OPENAI API CALL DEBUG ===');
             
             let troubleshooting = "Please check your OpenAI API key and make sure it's valid.";
             

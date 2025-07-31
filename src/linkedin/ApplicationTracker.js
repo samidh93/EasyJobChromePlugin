@@ -26,14 +26,6 @@ class ApplicationTracker extends LinkedInBase {
     async startApplication(jobInfo, userData, aiSettings, resumeId) {
         try {
             this.debugLog('Starting application tracking...');
-            console.log('=== APPLICATION TRACKER START DEBUG ===');
-            console.log('jobInfo received:', jobInfo);
-            console.log('jobInfo type:', typeof jobInfo);
-            console.log('jobInfo keys:', jobInfo ? Object.keys(jobInfo) : 'null');
-            console.log('userData:', userData);
-            console.log('aiSettings:', aiSettings);
-            console.log('resumeId:', resumeId);
-            console.log('=== END APPLICATION TRACKER START DEBUG ===');
             
             // First, create or find company
             const company = await this.createOrFindCompany(jobInfo);

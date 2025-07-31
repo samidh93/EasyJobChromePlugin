@@ -94,18 +94,11 @@ class AIQuestionAnswerer {
             // Ensure AI settings are loaded
             await this.ensureSettingsLoaded();
             
-            console.log("=== AI QUESTION ANSWERING DEBUG ===");
-            console.log("Question:", question);
-            console.log("Using AI model:", this.aiSettingsManager.getModel());
-            console.log("Options:", options);
-            console.log("Resume ID:", resumeId);
-            
             // Try to get structured data from database if resumeId is provided
             let relevantData = null;
             if (resumeId) {
                 try {
                     const questionType = this.detectQuestionType(question);
-                    console.log("Detected question type:", questionType);
                     
                     const response = await chrome.runtime.sendMessage({
                         action: 'apiRequest',
@@ -115,9 +108,6 @@ class AIQuestionAnswerer {
                     
                     if (response && response.success) {
                         relevantData = response.relevantData;
-                        console.log("Retrieved relevant data from database:", relevantData);
-                    } else {
-                        console.log("No structured data found, falling back to user context");
                     }
                 } catch (error) {
                     console.error("Error retrieving structured data:", error);
@@ -127,17 +117,11 @@ class AIQuestionAnswerer {
             // Check for direct matches first (personal info)
             const directAnswer = this.getDirectAnswer(question, relevantData);
             if (directAnswer) {
-                console.log("Found direct answer:", directAnswer);
-                
                 // If we have options, try to match the direct answer to one of them
                 if (options && Array.isArray(options) && options.length > 0) {
                     const matchedOption = this.matchToOption(directAnswer, options);
-                    console.log("Matched direct answer to option:", matchedOption);
-                    console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                     return { success: true, answer: matchedOption };
                 }
-                
-                console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                 return { success: true, answer: directAnswer };
             }
             
@@ -152,15 +136,14 @@ class AIQuestionAnswerer {
                     stopRequested = !!shouldStop;
                 }
                 
-                if (stopRequested) {
-                    console.log("Stop requested before AI processing");
-                    console.log("=== END AI QUESTION ANSWERING DEBUG ===");
-                    return { success: false, stopped: true };
-                }
+                            if (stopRequested) {
+                console.log("Stop requested before AI processing");
+                return { success: false, stopped: true };
+            }
             }
             
             // Build enhanced prompt with user data
-            const prompt = this.buildEnhancedPrompt(question, options);
+            const prompt = this.buildEnhancedPrompt(question, options, relevantData);
             
             // Debug the full prompt
             console.log("=== FULL PROMPT BEING SENT ===");
@@ -179,7 +162,6 @@ class AIQuestionAnswerer {
             
             // Check if the response indicates stopping
             if (response && response.stopped) {
-                console.log("=== END AI QUESTION ANSWERING DEBUG ===");
                 return { success: false, stopped: true };
             }
             
@@ -212,8 +194,6 @@ class AIQuestionAnswerer {
                 answer = this.matchToOption(answer, options);
             }
             
-            console.log("Final answer:", answer);
-            console.log("=== END AI QUESTION ANSWERING DEBUG ===");
             return { 
                 success: true, 
                 answer: answer || "Information not available" 
@@ -221,7 +201,6 @@ class AIQuestionAnswerer {
             
         } catch (error) {
             console.error('Error in answerQuestion:', error);
-            console.log("=== END AI QUESTION ANSWERING DEBUG ===");
             
             // Smart fallback
             const fallbackAnswer = options && Array.isArray(options) && options.length > 0 
@@ -369,11 +348,21 @@ class AIQuestionAnswerer {
      * Build enhanced prompt with special handling for different question types
      * @param {string} question - The question
      * @param {Array} options - Available options (if any)
+     * @param {Object} relevantData - Optional structured data for context
      * @returns {string} - Formatted prompt
      */
-    buildEnhancedPrompt(question, options) {
-        // Convert user data to text format
-        const userData = this.formatUserDataAsText();
+    buildEnhancedPrompt(question, options, relevantData = null) {
+        // Use relevant data if available, otherwise fall back to full resume
+        let userData;
+        if (relevantData && Object.keys(relevantData).length > 0) {
+            // Format relevant data for the prompt
+            userData = this.formatRelevantDataAsText(relevantData);
+            console.log("Using relevant data sections for prompt");
+        } else {
+            // Fall back to full resume
+            userData = this.formatUserDataAsText();
+            console.log("Using full resume for prompt (no relevant data available)");
+        }
         
         let prompt = `You are a job applicant filling out a job application form. Answer questions based on your resume information in first person (as "I" not "he/she").
 
@@ -588,6 +577,25 @@ ANSWER:`;
         
         // Format object as readable text
         return this.formatObject(this.user_data, 0);
+    }
+
+    /**
+     * Format relevant data sections for the prompt
+     * @param {Object} relevantData - Structured data from database
+     * @returns {string} - Formatted relevant data
+     */
+    formatRelevantDataAsText(relevantData) {
+        let result = "";
+        for (const sectionName in relevantData) {
+            if (Object.prototype.hasOwnProperty.call(relevantData, sectionName)) {
+                const sectionData = relevantData[sectionName];
+                if (sectionData && Object.keys(sectionData).length > 0) {
+                    result += `\n${sectionName.toUpperCase().replace(/_/g, ' ')}:\n`;
+                    result += this.formatObject(sectionData, 1);
+                }
+            }
+        }
+        return result || "No relevant data available.";
     }
     
     /**

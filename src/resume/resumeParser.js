@@ -85,19 +85,12 @@ class ResumeParser {
             
             // Use global jsyaml if available (loaded via script tag)
             const yamlParser = window.jsyaml || window.YAML;
-            console.log('ResumeParser: YAML parser available:', !!yamlParser);
-            console.log('ResumeParser: YAML parser type:', typeof yamlParser);
-            
             if (!yamlParser) {
                 throw new Error('YAML parser not available. Please include js-yaml library.');
             }
             
             const structuredData = yamlParser.load(fileContents);
-            console.log('ResumeParser: Parsed YAML data:', structuredData);
-            console.log('ResumeParser: YAML data keys:', structuredData ? Object.keys(structuredData) : []);
-            
             const formattedText = this._formatStructuredData(structuredData);
-            console.log('ResumeParser: Formatted text length:', formattedText.length);
             
             const result = {
                 structured: structuredData,
@@ -150,7 +143,7 @@ class ResumeParser {
             console.log('ResumeParser: Starting PDF parsing...');
             console.log('ResumeParser: File name:', file.name);
             console.log('ResumeParser: File size:', file.size);
-            console.log('ResumeParser: File type:', file.type);
+    
             
             // Check if PDF.js is available
             if (!window.pdfjsLib) {

@@ -131,10 +131,6 @@ class ResumeManager {
                     const parsedData = await parser.parseResume(fileData);
                     
                     console.log('ResumeManager: Resume parsing completed');
-                    console.log('ResumeManager: Parsed data type:', parsedData.type);
-                    console.log('ResumeManager: Has structured data:', !!parsedData.structured);
-                    console.log('ResumeManager: Formatted text length:', parsedData.formatted?.length || 0);
-                    console.log('ResumeManager: Metadata:', parsedData.metadata);
                     
                     // Check for PDF-specific issues
                     if (parsedData.type === 'pdf' && parsedData.metadata) {
@@ -485,7 +481,7 @@ experiences:
     convertToStructuredFormat(parsedData) {
         console.log('ResumeManager: Converting parsed data to structured format...');
         console.log('ResumeManager: Input parsed data:', parsedData);
-        console.log('ResumeManager: Input data keys:', parsedData ? Object.keys(parsedData) : []);
+
         
         // Handle both flat structure (from AI) and nested structure (from YAML/JSON)
         let personalInfo = {};
@@ -532,8 +528,7 @@ experiences:
         };
         
         console.log('ResumeManager: Converted structured data:', result);
-        console.log('ResumeManager: Structured data keys:', Object.keys(result));
-        console.log('ResumeManager: Personal info keys:', Object.keys(result.personal_info));
+
         console.log('ResumeManager: Personal info values:', result.personal_info);
         console.log('ResumeManager: Experiences count:', result.experiences.length);
         console.log('ResumeManager: Skills count:', result.skills.length);

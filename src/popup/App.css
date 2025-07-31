@@ -324,6 +324,12 @@
   border: 1px solid #22c55e;
 }
 
+.info-message {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #60a5fa;
+}
+
 .action-buttons {
   display: flex;
   gap: 12px;
