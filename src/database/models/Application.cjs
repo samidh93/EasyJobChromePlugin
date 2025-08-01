@@ -79,7 +79,20 @@ class Application {
         `;
         try {
             const result = await pool.query(query, [userId]);
-            return result.rows.map(row => new Application(row));
+            const applications = result.rows.map(row => new Application(row));
+            
+            // Load questions/answers for each application
+            for (const app of applications) {
+                const qaQuery = `
+                    SELECT * FROM questions_answers 
+                    WHERE application_id = $1 
+                    ORDER BY created_at ASC
+                `;
+                const qaResult = await pool.query(qaQuery, [app.id]);
+                app.questions_answers = qaResult.rows;
+            }
+            
+            return applications;
         } catch (error) {
             throw new Error(`Failed to find applications by user ID: ${error.message}`);
         }

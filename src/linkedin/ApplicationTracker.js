@@ -40,7 +40,7 @@ class ApplicationTracker extends LinkedInBase {
                 ai_settings_id: aiSettings.id,
                 resume_id: resumeId,
                 status: 'applied',
-                notes: 'Application submitted successfully via EasyJob extension'
+                notes: null
             });
             
             this.debugLog(`Successful application saved: ${application.id}`);

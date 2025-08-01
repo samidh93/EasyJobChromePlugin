@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock, RefreshCw } from 'lucide-react';
+import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock, RefreshCw, Download } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import './App.css';
 import ResumeManagerComponent from './managers/ResumeManagerComponent.js';
 import AiManagerComponent from './managers/AiManagerComponent.js';
 import { authManager, applicationsManager, aiManager, resumeManager } from './managers/index.js';
 import { formatLocalTime, formatBerlinTime, getUserTimezone } from './utils/timezone.js';
+
+
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('login');
@@ -32,6 +35,7 @@ const App = () => {
   const [selectedJob, setSelectedJob] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -344,6 +348,178 @@ const App = () => {
       console.error('App: Error refreshing application history:', error);
     } finally {
       setIsRefreshingHistory(false);
+    }
+  };
+
+  const handleDownloadApplicationHistoryPdf = async () => {
+    if (!currentUser || isDownloadingPdf || applicationHistory.length === 0) {
+      return;
+    }
+
+    setIsDownloadingPdf(true);
+    
+    try {
+      
+      const doc = new jsPDF();
+      let yPosition = 20;
+      const pageHeight = doc.internal.pageSize.height;
+      const margin = 20;
+      
+      // Helper function to extract name from username
+      const extractNameFromUsername = (username) => {
+        if (!username) return 'Unknown User';
+        
+        // Split by dots and filter out common suffixes
+        const parts = username.split('.')
+          .filter(part => part && part.toLowerCase() !== 'x')
+          .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
+        
+        return parts.length > 0 ? parts.join(' ') : username;
+      };
+      
+      // Title
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.text('Application History Report', margin, yPosition);
+      yPosition += 15;
+      
+      // User info
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'normal');
+      const displayName = extractNameFromUsername(currentUser.username) || currentUser.email;
+      doc.text(`Generated for: ${displayName}`, margin, yPosition);
+      yPosition += 8;
+      doc.text(`Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, margin, yPosition);
+      yPosition += 8;
+      doc.text(`Total Applications: ${applicationHistory.length}`, margin, yPosition);
+      yPosition += 15;
+      
+      // Applications
+      for (let i = 0; i < applicationHistory.length; i++) {
+        const app = applicationHistory[i];
+        
+        // Check if we need a new page
+        if (yPosition > pageHeight - 60) {
+          doc.addPage();
+          yPosition = margin;
+        }
+        
+        // Application header
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${i + 1}. ${app.job_title} at ${app.company_name}`, margin, yPosition);
+        yPosition += 10;
+        
+        // Application details
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.text(`Location: ${app.job_location || 'Not specified'}`, margin + 5, yPosition);
+        yPosition += 6;
+        doc.text(`Applied: ${formatLocalTime(app.created_at)}`, margin + 5, yPosition);
+        yPosition += 6;
+        doc.text(`Status: ${app.status}`, margin + 5, yPosition);
+        yPosition += 6;
+        if (app.notes) {
+          doc.text(`Notes: ${app.notes}`, margin + 5, yPosition);
+          yPosition += 6;
+        }
+        
+        // Questions and Answers
+        if (app.questions_answers && app.questions_answers.length > 0) {
+          yPosition += 3;
+          doc.setFont(undefined, 'bold');
+          doc.text(`Questions & Answers (${app.questions_answers.length}):`, margin + 5, yPosition);
+          yPosition += 8;
+          
+          app.questions_answers.forEach((qa, qaIndex) => {
+            // Check if we need a new page
+            if (yPosition > pageHeight - 40) {
+              doc.addPage();
+              yPosition = margin;
+            }
+            
+            doc.setFont(undefined, 'normal');
+            // Question
+            const questionText = `Q${qaIndex + 1}: ${qa.question}`;
+            const questionLines = doc.splitTextToSize(questionText, 170);
+            doc.text(questionLines, margin + 10, yPosition);
+            yPosition += questionLines.length * 5;
+            
+            // Answer
+            const answerText = `A: ${qa.answer}`;
+            const answerLines = doc.splitTextToSize(answerText, 170);
+            doc.text(answerLines, margin + 10, yPosition);
+            yPosition += answerLines.length * 5;
+            
+            // Question metadata
+            if (qa.question_type || qa.ai_model_used) {
+              doc.setFontSize(8);
+              doc.setTextColor(100, 100, 100);
+              const metadata = `Type: ${qa.question_type || 'general'} | AI Model: ${qa.ai_model_used || 'unknown'}`;
+              doc.text(metadata, margin + 10, yPosition);
+              yPosition += 4;
+              doc.setFontSize(10);
+              doc.setTextColor(0, 0, 0);
+            }
+            
+            yPosition += 3;
+          });
+        }
+        
+        yPosition += 10;
+      }
+      
+      // Summary page
+      if (applicationHistory.length > 0) {
+        doc.addPage();
+        yPosition = margin;
+        
+        doc.setFontSize(16);
+        doc.setFont(undefined, 'bold');
+        doc.text('Summary Statistics', margin, yPosition);
+        yPosition += 15;
+        
+        // Calculate statistics
+        const totalApps = applicationHistory.length;
+        const appliedApps = applicationHistory.filter(app => app.status === 'applied').length;
+        const companies = [...new Set(applicationHistory.map(app => app.company_name))];
+        const totalQuestions = applicationHistory.reduce((sum, app) => 
+          sum + (app.questions_answers ? app.questions_answers.length : 0), 0);
+        
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.text(`Total Applications: ${totalApps}`, margin, yPosition);
+        yPosition += 8;
+        doc.text(`Successfully Applied: ${appliedApps}`, margin, yPosition);
+        yPosition += 8;
+        doc.text(`Unique Companies: ${companies.length}`, margin, yPosition);
+        yPosition += 15;
+        
+        // Company breakdown
+        if (companies.length > 0) {
+          doc.setFont(undefined, 'bold');
+          doc.text('Companies Applied To:', margin, yPosition);
+          yPosition += 10;
+          
+          doc.setFont(undefined, 'normal');
+          companies.forEach(company => {
+            const companyApps = applicationHistory.filter(app => app.company_name === company).length;
+            doc.text(`• ${company} (${companyApps} application${companyApps > 1 ? 's' : ''})`, margin + 5, yPosition);
+            yPosition += 6;
+          });
+        }
+      }
+      
+      // Save the PDF
+      const fileName = `Applications_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      
+      console.log('App: PDF generated and downloaded successfully');
+    } catch (error) {
+      console.error('App: Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    } finally {
+      setIsDownloadingPdf(false);
     }
   };
 
@@ -790,15 +966,26 @@ const App = () => {
         <div className="application-history-section">
           <div className="history-header">
             <h2>Application History</h2>
-            <button 
-              className={`refresh-button ${isRefreshingHistory ? 'refreshing' : ''}`}
-              onClick={handleRefreshApplicationHistory}
-              disabled={isRefreshingHistory || !currentUser}
-              title="Refresh application history"
-            >
-              <RefreshCw size={16} className={isRefreshingHistory ? 'spinning' : ''} />
-              {isRefreshingHistory ? 'Refreshing...' : 'Refresh'}
-            </button>
+            <div className="history-actions">
+              <button 
+                className={`download-pdf-button ${isDownloadingPdf ? 'downloading' : ''}`}
+                onClick={handleDownloadApplicationHistoryPdf}
+                disabled={isDownloadingPdf || !currentUser || applicationHistory.length === 0}
+                title="Download application history as PDF"
+              >
+                <Download size={16} className={isDownloadingPdf ? 'spinning' : ''} />
+                {isDownloadingPdf ? 'Generating...' : 'Download PDF'}
+              </button>
+              <button 
+                className={`refresh-button ${isRefreshingHistory ? 'refreshing' : ''}`}
+                onClick={handleRefreshApplicationHistory}
+                disabled={isRefreshingHistory || !currentUser}
+                title="Refresh application history"
+              >
+                <RefreshCw size={16} className={isRefreshingHistory ? 'spinning' : ''} />
+                {isRefreshingHistory ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
           </div>
           
           <div className="history-filters">

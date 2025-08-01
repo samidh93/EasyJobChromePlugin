@@ -67,12 +67,16 @@ class ApplicationsManager {
                     id: app.id,
                     jobTitle: app.job_title,
                     company: app.company_name,
+                    company_name: app.company_name, // For PDF compatibility
+                    job_title: app.job_title, // For PDF compatibility
+                    job_location: app.location, // For PDF compatibility
                     status: app.status,
                     appliedAt: app.applied_at,
+                    created_at: app.applied_at, // For PDF compatibility
                     location: app.location,
                     isRemote: app.is_remote,
                     notes: app.notes,
-                    questionsAnswers: [] // Will be loaded when application is selected
+                    questions_answers: app.questions_answers || [] // Now includes actual Q&A data
                 }));
                 
                 this.applications = transformedApplications;
