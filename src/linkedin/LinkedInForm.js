@@ -219,11 +219,13 @@ class LinkedInForm extends LinkedInBase {
         try {
             this.debugLog("Starting form processing");
 
-
-            // Start application tracking with provided job info
-            await this.startApplicationTracking(jobInfo);
+            // Store job info for later use when application is successful
+            this.currentJobInfo = jobInfo;
             
-            this.debugLog("startApplicationTracking completed");
+            // Initialize array to collect questions/answers during form processing
+            this.collectedQuestionsAnswers = [];
+            
+            this.debugLog("Job info stored for successful completion");
 
             // Set timeout for form processing (3 minutes)
             const formTimeout = setTimeout(async () => {
@@ -323,8 +325,8 @@ class LinkedInForm extends LinkedInBase {
 
                         await this.clickDismissAfterSubmit();
 
-                        // Complete application tracking successfully
-                        await applicationTracker.completeApplication(true);
+                        // Create and save successful application
+                        await this.saveSuccessfulApplication();
 
                         this.debugLog("Clicked submit button after review");
                         clearTimeout(reviewTimeout);
@@ -401,8 +403,8 @@ class LinkedInForm extends LinkedInBase {
 
                         await this.clickDismissAfterSubmit();
 
-                        // Complete application tracking successfully
-                        await applicationTracker.completeApplication(true);
+                        // Create and save successful application
+                        await this.saveSuccessfulApplication();
 
                         break;
                     }
@@ -417,10 +419,9 @@ class LinkedInForm extends LinkedInBase {
                 }
             }
 
-                        clearTimeout(formTimeout);
+            clearTimeout(formTimeout);
 
-
-
+            // No need to track failures - only successful applications are saved
             this.debugLog("Form processing completed");
             return true;
         } catch (error) {
@@ -430,50 +431,50 @@ class LinkedInForm extends LinkedInBase {
     }
 
     /**
-     * Start application tracking for the current job
+     * Save successful application to database
      */
-    static async startApplicationTracking(jobInfo = null) {
+    static async saveSuccessfulApplication() {
         try {
-            this.debugLog("Starting application tracking");
+            this.debugLog("Saving successful application");
 
-            this.debugLog("Job info:", jobInfo);
-            if (!jobInfo) {
-                this.debugLog('No job info provided, skipping application tracking');
+            if (!this.currentJobInfo) {
+                this.debugLog('No job info available, skipping application save');
                 return;
             }
 
             // Get current user data
             const userResult = await chrome.storage.local.get(['currentUser']);
             if (!userResult.currentUser) {
-                this.debugLog('No current user found, skipping application tracking');
+                this.debugLog('No current user found, skipping application save');
                 return;
             }
 
             // Get current AI settings
             const aiSettings = window.currentAiSettings;
             if (!aiSettings) {
-                this.debugLog('No AI settings found, skipping application tracking');
+                this.debugLog('No AI settings found, skipping application save');
                 return;
             }
 
             // Get current resume ID
             const resumeResult = await chrome.storage.local.get(['currentResumeId']);
             if (!resumeResult.currentResumeId) {
-                this.debugLog('No current resume ID found, skipping application tracking');
+                this.debugLog('No current resume ID found, skipping application save');
                 return;
             }
 
-            // Start application tracking
-            await applicationTracker.startApplication(
-                jobInfo,
+            // Create successful application record with collected questions/answers
+            await applicationTracker.createSuccessfulApplication(
+                this.currentJobInfo,
                 userResult.currentUser,
                 aiSettings,
-                resumeResult.currentResumeId
+                resumeResult.currentResumeId,
+                this.collectedQuestionsAnswers || []
             );
 
-            this.debugLog('Application tracking started successfully');
+            this.debugLog(`Successful application saved with ${this.collectedQuestionsAnswers?.length || 0} questions/answers`);
         } catch (error) {
-            this.errorLog('Error starting application tracking:', error);
+            this.errorLog('Error saving successful application:', error);
         }
     }
 
@@ -785,21 +786,24 @@ class LinkedInForm extends LinkedInBase {
             const answer = result.answer;
             this.debugLog(`AI Answer: ${answer}`);
 
-            // Track question and answer in application tracker
+            // Collect question and answer for later saving (only if application is successful)
             try {
                 const questionType = this.detectQuestionType(question);
                 const aiModel = window.currentAiSettings?.model || 'unknown';
                 const isSkipped = this.shouldSkipQuestion(question);
                 
-                await applicationTracker.addQuestionAnswer(
-                    question,
-                    answer,
-                    questionType,
-                    aiModel,
-                    isSkipped
-                );
+                this.collectedQuestionsAnswers.push({
+                    question: question,
+                    answer: answer,
+                    question_type: questionType,
+                    ai_model_used: aiModel,
+                    confidence_score: 0.95, // Default confidence
+                    is_skipped: isSkipped
+                });
+                
+                this.debugLog(`Collected question/answer (${this.collectedQuestionsAnswers.length} total)`);
             } catch (error) {
-                this.errorLog('Error tracking question/answer:', error);
+                this.errorLog('Error collecting question/answer:', error);
                 // Don't throw error to avoid breaking the form process
             }
 

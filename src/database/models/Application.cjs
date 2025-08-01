@@ -304,6 +304,8 @@ class Application {
         }
     }
 
+
+
     // Delete application and related data
     async delete() {
         const query = 'DELETE FROM applications WHERE id = $1';

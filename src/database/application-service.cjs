@@ -239,6 +239,8 @@ class ApplicationService {
             throw new Error(`Failed to get AI settings applications: ${error.message}`);
         }
     }
+
+
 }
 
 module.exports = ApplicationService; 

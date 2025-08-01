@@ -3,8 +3,7 @@ import LinkedInBase from './LinkedInBase.js';
 class ApplicationTracker extends LinkedInBase {
     constructor() {
         super();
-        this.currentApplication = null;
-        this.questionsAnswers = [];
+        // No state tracking needed - we only save successful applications
     }
 
     // Ensure error logging methods are available
@@ -17,15 +16,16 @@ class ApplicationTracker extends LinkedInBase {
     }
 
     /**
-     * Start tracking a new application
+     * Create a successful application record (only called after form submission)
      * @param {Object} jobInfo - Job information from LinkedIn
      * @param {Object} userData - Current user data
      * @param {Object} aiSettings - AI settings used
      * @param {string} resumeId - Resume ID used for application
+     * @param {Array} questionsAnswers - Array of questions/answers collected during form processing
      */
-    async startApplication(jobInfo, userData, aiSettings, resumeId) {
+    async createSuccessfulApplication(jobInfo, userData, aiSettings, resumeId, questionsAnswers = []) {
         try {
-            this.debugLog('Starting application tracking...');
+            this.debugLog('Creating successful application record...');
             
             // First, create or find company
             const company = await this.createOrFindCompany(jobInfo);
@@ -33,23 +33,67 @@ class ApplicationTracker extends LinkedInBase {
             // Then, create or find job
             const job = await this.createOrFindJob(jobInfo, company.id);
             
-            // Finally, create application
-            this.currentApplication = await this.createApplication({
+            // Create application with 'applied' status since it was successfully submitted
+            const application = await this.createApplication({
                 user_id: userData.id,
                 job_id: job.id,
                 ai_settings_id: aiSettings.id,
                 resume_id: resumeId,
                 status: 'applied',
-                notes: 'Applied via EasyJob extension'
+                notes: 'Application submitted successfully via EasyJob extension'
             });
             
-            this.questionsAnswers = [];
-            this.debugLog(`Application tracking started: ${this.currentApplication.id}`);
+            this.debugLog(`Successful application saved: ${application.id}`);
             
-            return this.currentApplication;
+            // Now save all collected questions/answers for this successful application
+            if (questionsAnswers && questionsAnswers.length > 0) {
+                this.debugLog(`Saving ${questionsAnswers.length} questions/answers for application ${application.id}`);
+                await this.saveQuestionsAnswers(application.id, questionsAnswers);
+            }
+            
+            return application;
         } catch (error) {
-            this.errorLog('Error starting application tracking:', error);
+            this.errorLog('Error creating successful application:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Save questions and answers for a successful application
+     * @param {string} applicationId - The application ID
+     * @param {Array} questionsAnswers - Array of questions/answers to save
+     */
+    async saveQuestionsAnswers(applicationId, questionsAnswers) {
+        try {
+            for (const qa of questionsAnswers) {
+                const qaData = {
+                    application_id: applicationId,
+                    question: qa.question,
+                    answer: qa.answer,
+                    question_type: qa.question_type || 'general',
+                    ai_model_used: qa.ai_model_used || 'unknown',
+                    confidence_score: qa.confidence_score || 0.95,
+                    is_skipped: qa.is_skipped || false
+                };
+
+                const response = await chrome.runtime.sendMessage({
+                    action: 'apiRequest',
+                    method: 'POST',
+                    url: '/questions-answers',
+                    data: qaData
+                });
+
+                if (response && response.success) {
+                    this.debugLog(`Question/answer saved: ${response.question_answer.id}`);
+                } else {
+                    this.debugLog(`Failed to save question/answer: ${response?.error}`);
+                }
+            }
+            
+            this.debugLog(`Successfully saved ${questionsAnswers.length} questions/answers for application ${applicationId}`);
+        } catch (error) {
+            this.errorLog('Error saving questions/answers:', error);
+            // Don't throw error to avoid breaking the application creation process
         }
     }
 
@@ -201,111 +245,7 @@ class ApplicationTracker extends LinkedInBase {
         }
     }
 
-    /**
-     * Add a question and answer to the current application
-     * @param {string} question - The question text
-     * @param {string} answer - The AI-generated answer
-     * @param {string} questionType - Type of question
-     * @param {string} aiModel - AI model used
-     * @param {boolean} isSkipped - Whether question was skipped
-     */
-    async addQuestionAnswer(question, answer, questionType, aiModel, isSkipped = false) {
-        try {
-            if (!this.currentApplication) {
-                this.debugLog('No current application, skipping question/answer save');
-                return;
-            }
 
-            // Validate inputs
-            if (!question || !answer) {
-                this.debugLog('Invalid question or answer, skipping save');
-                return;
-            }
-
-            const qaData = {
-                application_id: this.currentApplication.id,
-                question: question,
-                answer: answer,
-                question_type: questionType || 'general',
-                ai_model_used: aiModel || 'unknown',
-                confidence_score: 0.95, // Default confidence
-                is_skipped: isSkipped
-            };
-
-            const response = await chrome.runtime.sendMessage({
-                action: 'apiRequest',
-                method: 'POST',
-                url: '/questions-answers',
-                data: qaData
-            });
-
-            if (response && response.success) {
-                this.questionsAnswers.push(response.question_answer);
-                this.debugLog(`Question/answer saved: ${response.question_answer.id}`);
-            } else {
-                this.debugLog(`Failed to save question/answer: ${response?.error}`);
-            }
-        } catch (error) {
-            this.errorLog('Error adding question/answer:', error);
-            // Don't throw error to avoid breaking the application process
-        }
-    }
-
-    /**
-     * Update application status
-     * @param {string} status - New status
-     * @param {string} notes - Optional notes
-     */
-    async updateApplicationStatus(status, notes = null) {
-        try {
-            if (!this.currentApplication) {
-                this.debugLog('No current application to update');
-                return;
-            }
-
-            const response = await chrome.runtime.sendMessage({
-                action: 'apiRequest',
-                method: 'PUT',
-                url: `/applications/${this.currentApplication.id}/status`,
-                data: { status, notes }
-            });
-
-            if (response && response.success) {
-                this.currentApplication = response.application;
-                this.debugLog(`Application status updated to: ${status}`);
-            } else {
-                this.debugLog(`Failed to update application status: ${response?.error}`);
-            }
-        } catch (error) {
-            this.errorLog('Error updating application status:', error);
-        }
-    }
-
-    /**
-     * Complete the application tracking
-     * @param {boolean} success - Whether application was successful
-     */
-    async completeApplication(success = true) {
-        try {
-            if (!this.currentApplication) {
-                this.debugLog('No current application to complete');
-                return;
-            }
-
-            const status = success ? 'applied' : 'failed';
-            const notes = success ? 'Application submitted successfully' : 'Application failed or was cancelled';
-            
-            await this.updateApplicationStatus(status, notes);
-            
-            this.debugLog(`Application tracking completed: ${status}`);
-            
-            // Reset tracking state
-            this.currentApplication = null;
-            this.questionsAnswers = [];
-        } catch (error) {
-            this.errorLog('Error completing application:', error);
-        }
-    }
 
     // Helper methods for API calls
     async findCompanyByName(name) {
