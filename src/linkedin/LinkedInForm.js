@@ -814,8 +814,15 @@ class LinkedInForm extends LinkedInBase {
                         case 'text':
                         case 'tel':
                         case 'email':
-                            inputField.value = answer;
-                            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                            // Check if this is a typeahead/autocomplete field
+                            if (inputField.getAttribute('role') === 'combobox' && 
+                                inputField.getAttribute('aria-autocomplete') === 'list') {
+                                this.debugLog(`Detected typeahead field for question: ${question}`);
+                                await this.handleTypeaheadField(inputField, answer, element);
+                            } else {
+                                inputField.value = answer;
+                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
                             break;
 
                         case 'radio':
@@ -890,6 +897,165 @@ class LinkedInForm extends LinkedInBase {
             return 'certifications';
         } else {
             return 'general';
+        }
+    }
+
+    /**
+     * Handle typeahead/autocomplete fields (like city selection)
+     * @param {HTMLInputElement} inputField - The input field element
+     * @param {string} answer - The answer to input
+     * @param {HTMLElement} element - The parent element containing the field
+     */
+    static async handleTypeaheadField(inputField, answer, element) {
+        try {
+            this.debugLog(`Handling typeahead field with answer: ${answer}`);
+            
+            // Clear any existing value and focus the field
+            inputField.value = '';
+            inputField.focus();
+            
+            // Type the answer to trigger suggestions
+            inputField.value = answer;
+            
+            // Trigger multiple events to ensure the typeahead activates
+            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+            inputField.dispatchEvent(new Event('keyup', { bubbles: true }));
+            inputField.dispatchEvent(new KeyboardEvent('keydown', { key: answer.slice(-1), bubbles: true }));
+            
+            // Also try focus and click events in case they're needed
+            inputField.dispatchEvent(new Event('focus', { bubbles: true }));
+            inputField.dispatchEvent(new Event('click', { bubbles: true }));
+            
+            // Wait for suggestions to appear with adaptive timing
+            this.debugLog('Waiting for suggestions to appear...');
+            let attempts = 0;
+            let suggestionsContainer = null;
+            
+            // Try multiple times with increasing wait times
+            while (attempts < 5 && !suggestionsContainer) {
+                await this.wait(300 + (attempts * 200)); // 300ms, 500ms, 700ms, 900ms, 1100ms
+                
+                const listboxId = inputField.getAttribute('aria-owns') || inputField.getAttribute('aria-controls');
+                if (listboxId) {
+                    suggestionsContainer = document.getElementById(listboxId);
+                }
+                
+                if (!suggestionsContainer) {
+                    suggestionsContainer = element.querySelector('[role="listbox"]') ||
+                                        element.parentElement.querySelector('[role="listbox"]') ||
+                                        document.querySelector('[role="listbox"]');
+                }
+                
+                if (suggestionsContainer && suggestionsContainer.querySelectorAll('[role="option"]').length > 0) {
+                    break;
+                }
+                
+                suggestionsContainer = null; // Reset if no options found
+                attempts++;
+                
+                if (attempts < 5) {
+                    this.debugLog(`Attempt ${attempts}: No suggestions found, retrying...`);
+                    // Re-trigger events
+                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+            
+            // suggestionsContainer is already found from the retry loop above
+            
+            if (suggestionsContainer) {
+                this.debugLog('Found suggestions container');
+                
+                // Find all suggestion options
+                const suggestions = suggestionsContainer.querySelectorAll('[role="option"]');
+                this.debugLog(`Found ${suggestions.length} suggestions`);
+                
+                if (suggestions.length > 0) {
+                    // Look for the best matching suggestion
+                    let bestMatch = null;
+                    const answerLower = answer.toLowerCase();
+                    
+                    // First, try to find exact match with the input country/city
+                    for (const suggestion of suggestions) {
+                        const suggestionText = suggestion.textContent.trim().toLowerCase();
+                        
+                        // Check if suggestion starts with our answer and contains common countries
+                        if (suggestionText.startsWith(answerLower)) {
+                            // Prioritize suggestions with common countries for job applications
+                            if (suggestionText.includes('germany') || 
+                                suggestionText.includes('united states') || 
+                                suggestionText.includes('united kingdom') || 
+                                suggestionText.includes('canada') || 
+                                suggestionText.includes('france') || 
+                                suggestionText.includes('netherlands') ||
+                                suggestionText.includes('switzerland') ||
+                                suggestionText.includes('austria')) {
+                                bestMatch = suggestion;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If no Germany match, just take the first suggestion that starts with our answer
+                    if (!bestMatch) {
+                        for (const suggestion of suggestions) {
+                            const suggestionText = suggestion.textContent.trim().toLowerCase();
+                            if (suggestionText.startsWith(answerLower)) {
+                                bestMatch = suggestion;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If still no match, take the first suggestion
+                    if (!bestMatch) {
+                        bestMatch = suggestions[0];
+                    }
+                    
+                    if (bestMatch) {
+                        const selectedText = bestMatch.textContent.trim();
+                        this.debugLog(`Selecting suggestion: ${selectedText}`);
+                        
+                        // Scroll into view if needed
+                        bestMatch.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        
+                        // Add visual highlight to show selection
+                        bestMatch.style.backgroundColor = '#e6f3ff';
+                        
+                        // Try multiple click methods to ensure it works
+                        bestMatch.click();
+                        bestMatch.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        
+                        // Wait for the selection to be processed
+                        await this.wait(500);
+                        
+                        // Verify the input field was updated
+                        this.debugLog(`Input field value after selection: "${inputField.value}"`);
+                        
+                        // Trigger additional events to ensure the selection is registered
+                        inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                        inputField.dispatchEvent(new Event('blur', { bubbles: true }));
+                        
+                        return { success: true, selectedValue: selectedText };
+                    }
+                }
+            } else {
+                this.debugLog('No suggestions container found, falling back to normal input');
+                // If no suggestions found, treat as normal input
+                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                inputField.dispatchEvent(new Event('blur', { bubbles: true }));
+            }
+            
+            return { success: true };
+            
+        } catch (error) {
+            this.errorLog('Error handling typeahead field:', error);
+            
+            // Fallback to normal input handling
+            inputField.value = answer;
+            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            return { success: false, error: error.message };
         }
     }
 
