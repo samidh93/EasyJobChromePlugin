@@ -44,13 +44,34 @@ const App = () => {
       checkLibrariesLoaded();
     }
     
-    loadUserData();
-    loadCurrentUser(); // Load current user from database
-    loadApplicationHistory();
-    loadResumeData();
+    // Load essential data first, then check if auto-apply is running before loading other data
+    const initializePopup = async () => {
+      // Load critical user data first
+      await loadUserData();
+      await loadCurrentUser();
+      
+      // Check auto-apply state before loading heavy data
+      const autoApplyResponse = await checkAutoApplyState();
+      
+      // If auto-apply is running, defer heavy data loading to avoid interference
+      if (autoApplyResponse && autoApplyResponse.isRunning) {
+        console.log('Auto-apply is running, deferring heavy data loading');
+        // Load data with delay to avoid interference
+        setTimeout(() => {
+          loadApplicationHistory();
+          loadResumeData();
+        }, 1000);
+      } else {
+        // Auto-apply not running, safe to load all data immediately
+        loadApplicationHistory();
+        loadResumeData();
+      }
+    };
     
-    // Start periodic state sync
-    const stateCheckInterval = setInterval(checkAutoApplyState, 2000);
+    initializePopup();
+    
+    // Start periodic state sync with reduced frequency to avoid interference
+    const stateCheckInterval = setInterval(checkAutoApplyState, 5000);
     
     return () => {
       clearInterval(stateCheckInterval);
@@ -60,10 +81,41 @@ const App = () => {
   // Load resume data, AI settings, and application history when currentUser changes
   useEffect(() => {
     if (currentUser) {
-      console.log('App: Current user changed, loading resume data, AI settings, and application history');
-      loadResumeData();
-      loadAiSettingsStatus();
-      loadApplicationHistory();
+      console.log('App: Current user changed, checking if safe to load data');
+      
+      // Check if auto-apply is running before loading data to avoid interference
+      const loadUserSpecificData = async () => {
+        try {
+          const autoApplyResponse = await chrome.runtime.sendMessage({
+            action: 'getAutoApplyState'
+          });
+          
+          if (autoApplyResponse && autoApplyResponse.isRunning) {
+            console.log('Auto-apply is running, deferring user-specific data loading');
+            // Defer loading to avoid interference with auto-apply
+            setTimeout(() => {
+              loadResumeData();
+              loadAiSettingsStatus();
+              loadApplicationHistory();
+            }, 2000);
+          } else {
+            // Safe to load immediately
+            loadResumeData();
+            loadAiSettingsStatus();
+            loadApplicationHistory();
+          }
+        } catch (error) {
+          console.error('Error checking auto-apply state, loading data anyway:', error);
+          // If we can't check state, load with a small delay to be safe
+          setTimeout(() => {
+            loadResumeData();
+            loadAiSettingsStatus();
+            loadApplicationHistory();
+          }, 500);
+        }
+      };
+      
+      loadUserSpecificData();
     } else {
       // Reset states when user logs out
       setIsResumeLoaded(false);
@@ -177,9 +229,12 @@ const App = () => {
           setIsApplying(response.isRunning);
         }
       }
+      
+      return response; // Return response for use in initialization
     } catch (error) {
       // Silently ignore errors in state checking to avoid spam
       console.debug('Error checking auto apply state:', error);
+      return null;
     }
   };
 

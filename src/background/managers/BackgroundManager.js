@@ -116,10 +116,19 @@ class BackgroundManager {
      * Set auto apply state
      */
     setAutoApplyState(state) {
-        this.isAutoApplyRunning = state.isRunning || false;
-        this.currentUserData = state.userData || null;
-        this.currentAiSettings = state.aiSettings || null;
-        this.currentUser = state.user || null;
+        // Only update properties that are explicitly provided to preserve existing state
+        if (state.hasOwnProperty('isRunning')) {
+            this.isAutoApplyRunning = state.isRunning;
+        }
+        if (state.hasOwnProperty('userData')) {
+            this.currentUserData = state.userData;
+        }
+        if (state.hasOwnProperty('aiSettings')) {
+            this.currentAiSettings = state.aiSettings;
+        }
+        if (state.hasOwnProperty('user')) {
+            this.currentUser = state.user;
+        }
     }
 
 

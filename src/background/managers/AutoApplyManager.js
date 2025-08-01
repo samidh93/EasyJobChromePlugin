@@ -73,18 +73,11 @@ class AutoApplyManager {
             
             console.log('Target tab:', { id: tabId, url: tab.url });
             
-            // First, try to inject the content script
-            try {
-                await chrome.scripting.executeScript({
-                    target: { tabId: tabId },
-                    files: ['dist/content.bundle.js']
-                });
-                console.log('Content script injected successfully');
-            } catch (injectionError) {
-                console.log('Content script injection failed (might already be loaded):', injectionError);
-            }
+            // Content script is already auto-injected via manifest.json
+            // No need for manual injection - it would reset the isAutoApplyRunning variable
+            console.log('Using auto-injected content script from manifest');
             
-            // Wait a moment for the script to initialize
+            // Wait a moment for any pending page operations to complete
             await new Promise(resolve => setTimeout(resolve, 500));
             
             // Now try to send the message using proper async/await pattern
