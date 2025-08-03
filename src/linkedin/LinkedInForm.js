@@ -110,19 +110,39 @@ class LinkedInForm extends LinkedInBase {
             // Try the aria-label approach first
             let doneButton = document.querySelector('button[aria-label="Done"]');
 
-            // If not found, try finding by class and text content
+            // If not found, look for the specific structure after form submission
             if (!doneButton) {
-                // use the span and class to find the button
-                //<span class="artdeco-button__text">Done</span>
-                doneButton = document.querySelector('button.artdeco-button span.artdeco-button__text');
-                this.debugLog("Found done button", doneButton);
+                // Look for button in modal actionbar with Done text
+                doneButton = document.querySelector('.artdeco-modal__actionbar button.artdeco-button--primary');
+                if (doneButton) {
+                    const spanText = doneButton.querySelector('span.artdeco-button__text');
+                    if (!spanText || spanText.textContent.trim() !== 'Done') {
+                        doneButton = null;
+                    } else {
+                        this.debugLog("Found Done button in modal actionbar");
+                    }
+                }
+            }
+
+            // If still not found, try broader search
+            if (!doneButton) {
+                const buttons = document.querySelectorAll('button.artdeco-button.artdeco-button--primary');
+                for (const button of buttons) {
+                    const spanText = button.querySelector('span.artdeco-button__text');
+                    if (spanText && spanText.textContent.trim() === 'Done') {
+                        doneButton = button;
+                        this.debugLog("Found Done button by primary button search");
+                        break;
+                    }
+                }
             }
 
             if (doneButton) {
+                this.debugLog("Clicking Done button to complete submission");
                 doneButton.click();
-                this.debugLog("Clicked on Done button");
+                this.debugLog("Successfully clicked Done button");
             } else {
-                this.debugLog("Done button not found");
+                this.debugLog("Done button not found - may not be required for this form type");
             }
         } catch (error) {
             this.errorLog("Error clicking on Done button", error);
@@ -216,6 +236,8 @@ class LinkedInForm extends LinkedInBase {
     }
 
     static async processForm(shouldStop, jobInfo = null) {
+        let formTimeout = null;
+        
         try {
             this.debugLog("Starting form processing");
 
@@ -225,12 +247,25 @@ class LinkedInForm extends LinkedInBase {
             // Initialize array to collect questions/answers during form processing
             this.collectedQuestionsAnswers = [];
             
+            // Initialize progress tracking for form processing timeout safety
+            this.lastProgressTime = Date.now();
+            this.noProgressCount = 0;
+            
             this.debugLog("Job info stored for successful completion");
 
             // Set timeout for form processing (3 minutes)
-            const formTimeout = setTimeout(async () => {
-                this.debugLog("Form processing timeout reached");
-                // For async callbacks, we can't set .value, so we'll let the while loop handle it
+            formTimeout = setTimeout(async () => {
+                this.debugLog("Form processing timeout reached - closing form automatically");
+                try {
+                    await this.closeForm(false); // Close and discard
+                    this.debugLog("Form closed due to timeout");
+                } catch (error) {
+                    this.errorLog("Error closing form after timeout:", error);
+                }
+                // Set stop flag to exit the processing loop
+                if (typeof shouldStop === 'object' && shouldStop.hasOwnProperty('value')) {
+                    shouldStop.value = true;
+                }
             }, 3 * 60 * 1000);
 
             let currentPageProcessed = false;
@@ -256,6 +291,9 @@ class LinkedInForm extends LinkedInBase {
 
                     if (reviewButton) {
                         this.debugLog("Found review button");
+                        // Reset progress tracking - we found a button
+                        this.lastProgressTime = Date.now();
+                        this.noProgressCount = 0;
 
                         // Set timeout for review processing (1 minute)
                         const reviewTimeout = setTimeout(() => {
@@ -323,6 +361,11 @@ class LinkedInForm extends LinkedInBase {
                         // Wait for potential Done button popup and handle it
                         await this.wait(2000);
 
+                        // First click Done button if it appears
+                        await this.clickDoneAfterSubmit();
+                        
+                        // Wait a bit more and then click Dismiss to close any remaining modal
+                        await this.wait(1000);
                         await this.clickDismissAfterSubmit();
 
                         // Create and save successful application
@@ -337,6 +380,9 @@ class LinkedInForm extends LinkedInBase {
                     const formElements = document.querySelectorAll("div.fb-dash-form-element");
                     if (formElements.length > 0 && !currentPageProcessed) {
                         this.debugLog("Found form questions, processing...");
+                        // Reset progress tracking - we found form elements
+                        this.lastProgressTime = Date.now();
+                        this.noProgressCount = 0;
                         const result = await this.processFormQuestions(shouldStop);
                         if (result.stopped) {
                             this.debugLog("Form questions processing stopped by user");
@@ -354,6 +400,9 @@ class LinkedInForm extends LinkedInBase {
                     const nextButton = await this.findNextButton();
                     if (nextButton) {
                         this.debugLog("Found next button, moving to next page");
+                        // Reset progress tracking - we found a button
+                        this.lastProgressTime = Date.now();
+                        this.noProgressCount = 0;
 
                         await this.clickNextPage();
                         await this.wait(2000);
@@ -381,6 +430,9 @@ class LinkedInForm extends LinkedInBase {
                     const submitButton = await this.findSubmitButton();
                     if (submitButton) {
                         this.debugLog("Found submit button, submitting application");
+                        // Reset progress tracking - we found a button
+                        this.lastProgressTime = Date.now();
+                        this.noProgressCount = 0;
 
                         // Check if we should stop before final submit
                         if (typeof shouldStop === 'function') {
@@ -401,6 +453,11 @@ class LinkedInForm extends LinkedInBase {
                         // Wait for potential Done button popup and handle it
                         await this.wait(2000);
 
+                        // First click Done button if it appears
+                        await this.clickDoneAfterSubmit();
+                        
+                        // Wait a bit more and then click Dismiss to close any remaining modal
+                        await this.wait(1000);
                         await this.clickDismissAfterSubmit();
 
                         // Create and save successful application
@@ -412,6 +469,26 @@ class LinkedInForm extends LinkedInBase {
                     // If no buttons found, wait and try again
                     this.debugLog("No navigation buttons found, waiting...");
                     await this.wait(1000);
+                    
+                    // Add safety mechanism - if we've been waiting too long without progress, close form
+                    if (!this.lastProgressTime) {
+                        this.lastProgressTime = Date.now();
+                        this.noProgressCount = 0;
+                    } else {
+                        this.noProgressCount = (this.noProgressCount || 0) + 1;
+                        
+                        // If no progress for 30 seconds (30 iterations), close form
+                        if (this.noProgressCount >= 30) {
+                            this.debugLog("No progress for 30 seconds - closing form automatically");
+                            try {
+                                await this.closeForm(false); // Close and discard
+                                this.debugLog("Form closed due to no progress");
+                            } catch (error) {
+                                this.errorLog("Error closing form after no progress:", error);
+                            }
+                            break;
+                        }
+                    }
 
                 } catch (error) {
                     this.errorLog("Error in form processing loop", error);
@@ -421,11 +498,32 @@ class LinkedInForm extends LinkedInBase {
 
             clearTimeout(formTimeout);
 
+            // Clean up progress tracking
+            this.lastProgressTime = null;
+            this.noProgressCount = 0;
+
             // No need to track failures - only successful applications are saved
-            this.debugLog("Form processing completed");
+            this.debugLog("Form processing completed successfully");
             return true;
         } catch (error) {
             this.errorLog("Error processing form", error);
+            
+            // Clean up timeout and progress tracking
+            if (formTimeout) {
+                clearTimeout(formTimeout);
+            }
+            this.lastProgressTime = null;
+            this.noProgressCount = 0;
+            
+            // Close form on critical processing error
+            this.debugLog("Closing form due to critical processing error");
+            try {
+                await this.closeForm(false); // Close and discard
+                this.debugLog("Form closed due to processing error");
+            } catch (closeError) {
+                this.errorLog("Error closing form after processing error:", closeError);
+            }
+            
             return false;
         }
     }
@@ -558,6 +656,49 @@ class LinkedInForm extends LinkedInBase {
 
 
 
+    /**
+     * Get hardcoded answers for common questions that don't need AI processing
+     * @param {string} question - The question text
+     * @param {Array} options - Available options for the question
+     * @returns {string|null} - Hardcoded answer or null if no hardcoded answer exists
+     */
+    static getHardcodedAnswer(question, options = []) {
+        const questionLower = question.toLowerCase();
+        
+        // Commuting questions - always answer "Yes"
+        if (questionLower.includes('comfortable commuting') || 
+            questionLower.includes('commute to this') ||
+            questionLower.includes('willing to commute') ||
+            questionLower.includes('able to commute') ||
+            questionLower.includes('commuting to this job') ||
+            questionLower.includes('travel to this location') ||
+            questionLower.includes('comfortable traveling') ||
+            (questionLower.includes('commut') && questionLower.includes('location')) ||
+            (questionLower.includes('travel') && questionLower.includes('job') && questionLower.includes('location'))) {
+            
+            // Check if "Yes" is in the options
+            for (const option of options) {
+                if (option.toLowerCase().trim() === 'yes' || 
+                    option.toLowerCase().trim() === 'ja' ||
+                    option.toLowerCase().trim() === 'oui' ||
+                    option.toLowerCase().trim() === 'sí') {
+                    return option.trim();
+                }
+            }
+            
+            // If no options or "Yes" not found in options, return "Yes"
+            return "Yes";
+        }
+        
+        // Add more hardcoded answers here as needed
+        // Example: Remote work questions
+        // if (questionLower.includes('work remotely') || questionLower.includes('remote work')) {
+        //     return "Yes";
+        // }
+        
+        return null; // No hardcoded answer for this question
+    }
+
     static async processFormQuestions(shouldStop = null) {
         try {
             this.debugLog("Processing form questions");
@@ -656,6 +797,48 @@ class LinkedInForm extends LinkedInBase {
 
     static async answerQuestion(question, options = [], inputField, element, shouldStop = null) {
         try {
+            // Check for hardcoded answers to common questions
+            const hardcodedAnswer = this.getHardcodedAnswer(question, options);
+            if (hardcodedAnswer) {
+                this.debugLog(`Using hardcoded answer for question: ${question} -> ${hardcodedAnswer}`);
+                
+                // Fill the field with hardcoded answer
+                await this.fillFieldWithAnswer(inputField, element, hardcodedAnswer, question);
+                
+                // Collect question and answer for tracking
+                try {
+                    const questionType = this.detectQuestionType(question);
+                    const isSkipped = this.shouldSkipQuestion(question);
+                    
+                    this.collectedQuestionsAnswers.push({
+                        question: question,
+                        answer: hardcodedAnswer,
+                        question_type: questionType,
+                        ai_model_used: 'hardcoded',
+                        confidence_score: 1.0,
+                        is_skipped: isSkipped
+                    });
+                    
+                    this.debugLog(`Collected hardcoded question/answer (${this.collectedQuestionsAnswers.length} total)`);
+                } catch (error) {
+                    this.errorLog('Error collecting hardcoded question/answer:', error);
+                }
+                
+                // Wait for potential validation errors to appear
+                await this.wait(1500);
+                
+                // Check for validation errors and retry if needed
+                const retryResult = await this.handleValidationErrorsWithRetry(
+                    question, options, inputField, element, shouldStop, null, hardcodedAnswer
+                );
+                
+                if (retryResult.stopped) {
+                    return { stopped: true };
+                }
+                
+                return { success: retryResult.success };
+            }
+            
             // Get current AI settings from window.currentAiSettings
             let aiSettings = null;
             if (window.currentAiSettings) {
@@ -814,6 +997,7 @@ class LinkedInForm extends LinkedInBase {
                         case 'text':
                         case 'tel':
                         case 'email':
+                        case 'number':
                             // Check if this is a typeahead/autocomplete field
                             if (inputField.getAttribute('role') === 'combobox' && 
                                 inputField.getAttribute('aria-autocomplete') === 'list') {
@@ -861,8 +1045,19 @@ class LinkedInForm extends LinkedInBase {
                     break;
             }
 
-            await this.wait(500);
-            return { success: true };
+            // Wait for potential validation errors to appear
+            await this.wait(1500);
+            
+            // Check for validation errors and retry if needed
+            const retryResult = await this.handleValidationErrorsWithRetry(
+                question, options, inputField, element, shouldStop, resumeId, answer
+            );
+            
+            if (retryResult.stopped) {
+                return { stopped: true };
+            }
+            
+            return { success: retryResult.success };
         } catch (error) {
             this.errorLog(`Error answering question "${question}"`, error);
             return { success: false };
@@ -870,6 +1065,400 @@ class LinkedInForm extends LinkedInBase {
     }
 
 
+
+    /**
+     * Detect validation errors in form fields
+     * @param {HTMLElement} element - The form element to check for validation errors
+     * @returns {Object} - Object with hasError boolean and errorMessage string
+     */
+    static async detectValidationError(element) {
+        try {
+            // Look for LinkedIn's validation error elements
+            const errorSelectors = [
+                '.artdeco-inline-feedback--error[role="alert"]',
+                '.artdeco-inline-feedback.artdeco-inline-feedback--error',
+                '[role="alert"][class*="error"]',
+                '.fb-dash-form-element__error-text',
+                '.error-message'
+            ];
+            
+            let errorElement = null;
+            for (const selector of errorSelectors) {
+                errorElement = element.querySelector(selector);
+                if (errorElement) {
+                    this.debugLog(`Found error element with selector: ${selector}`);
+                    break;
+                }
+            }
+            
+            if (!errorElement) {
+                // Also check in parent elements and document
+                const parentElement = element.parentElement;
+                if (parentElement) {
+                    for (const selector of errorSelectors) {
+                        errorElement = parentElement.querySelector(selector);
+                        if (errorElement) {
+                            this.debugLog(`Found error element in parent with selector: ${selector}`);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (errorElement) {
+                // Extract error message from various possible locations
+                const messageSelectors = [
+                    '.artdeco-inline-feedback__message',
+                    '.error-message-text',
+                    '.fb-dash-form-element__error-text',
+                    'span[class*="message"]',
+                    'span[class*="error"]'
+                ];
+                
+                let errorMessage = '';
+                for (const selector of messageSelectors) {
+                    const messageElement = errorElement.querySelector(selector);
+                    if (messageElement && messageElement.textContent.trim()) {
+                        errorMessage = messageElement.textContent.trim();
+                        break;
+                    }
+                }
+                
+                // If no specific message element found, use the error element's text content
+                if (!errorMessage && errorElement.textContent.trim()) {
+                    errorMessage = errorElement.textContent.trim();
+                }
+                
+                if (errorMessage) {
+                    this.debugLog(`Validation error detected: ${errorMessage}`);
+                    return {
+                        hasError: true,
+                        errorMessage: errorMessage,
+                        errorType: 'validation'
+                    };
+                }
+            }
+            
+            return { hasError: false };
+        } catch (error) {
+            this.errorLog('Error detecting validation error:', error);
+            return { hasError: false };
+        }
+    }
+    
+    /**
+     * Handle validation errors with retry logic
+     * @param {string} question - Original question
+     * @param {Array} options - Available options
+     * @param {HTMLElement} inputField - Input field element
+     * @param {HTMLElement} element - Parent form element
+     * @param {Function|Object} shouldStop - Stop condition
+     * @param {string} resumeId - Resume ID
+     * @param {string} originalAnswer - The original answer that caused validation error
+     * @returns {Object} - Result object with success/stopped status
+     */
+    static async handleValidationErrorsWithRetry(question, options, inputField, element, shouldStop, resumeId, originalAnswer) {
+        try {
+            const maxRetries = 3;
+            let retryCount = 0;
+            
+            while (retryCount < maxRetries) {
+                // Check for validation errors
+                const validationResult = await this.detectValidationError(element);
+                
+                if (!validationResult.hasError) {
+                    this.debugLog('No validation errors detected, field filled successfully');
+                    return { success: true };
+                }
+                
+                // Validation error detected, prepare for retry
+                retryCount++;
+                this.debugLog(`Validation error attempt ${retryCount}/${maxRetries}: ${validationResult.errorMessage}`);
+                
+                if (retryCount >= maxRetries) {
+                    this.errorLog(`Max retries (${maxRetries}) reached for question: ${question}`);
+                    this.errorLog(`Final validation error: ${validationResult.errorMessage}`);
+                    this.debugLog("Closing form due to validation retry exhaustion");
+                    
+                    try {
+                        await this.closeForm(false); // Close and discard
+                        this.debugLog("Form closed due to validation failure");
+                    } catch (error) {
+                        this.errorLog("Error closing form after validation failure:", error);
+                    }
+                    
+                    return { success: false, formClosed: true };
+                }
+                
+                // Check if we should stop before retry
+                if (shouldStop) {
+                    let stopRequested = false;
+                    if (typeof shouldStop === 'function') {
+                        stopRequested = await shouldStop();
+                    } else if (shouldStop && shouldStop.value !== undefined) {
+                        stopRequested = shouldStop.value;
+                    } else {
+                        stopRequested = !!shouldStop;
+                    }
+                    
+                    if (stopRequested) {
+                        this.debugLog("Stop requested during validation retry");
+                        return { stopped: true };
+                    }
+                }
+                
+                // Create enhanced retry prompt with validation constraints
+                const retryPrompt = this.createRetryPrompt(question, validationResult.errorMessage, originalAnswer, retryCount);
+                this.debugLog(`Retry attempt ${retryCount} with enhanced prompt: ${retryPrompt}`);
+                
+                // Get new answer from AI
+                const userId = await this.getCurrentUserId();
+                const ai = new AIQuestionAnswerer(userId);
+                
+                // Set AI settings if available
+                if (window.currentAiSettings) {
+                    const settings = {
+                        ai_provider: window.currentAiSettings.provider,
+                        ai_model: window.currentAiSettings.model,
+                        apiKey: window.currentAiSettings.apiKey,
+                        is_default: true
+                    };
+                    ai.aiSettingsManager.setSettings(settings);
+                }
+                
+                // Load user context
+                await this.loadUserContextForAI(ai);
+                
+                // Get retry answer
+                const retryResult = await ai.answerQuestion(retryPrompt, options, shouldStop, resumeId);
+                
+                if (retryResult.stopped) {
+                    return { stopped: true };
+                }
+                
+                if (!retryResult.success || !retryResult.answer) {
+                    this.debugLog(`Retry attempt ${retryCount} failed - no answer generated`);
+                    continue;
+                }
+                
+                const newAnswer = retryResult.answer;
+                this.debugLog(`Retry attempt ${retryCount} - AI answer: ${newAnswer}`);
+                
+                // Clear field and fill with new answer
+                await this.fillFieldWithAnswer(inputField, element, newAnswer, question);
+                
+                // Wait for validation
+                await this.wait(1500);
+            }
+            
+            return { success: false };
+        } catch (error) {
+            this.errorLog('Error in validation retry logic:', error);
+            
+            // Close form on validation retry error
+            this.debugLog("Closing form due to validation retry error");
+            try {
+                await this.closeForm(false); // Close and discard
+                this.debugLog("Form closed due to validation retry error");
+            } catch (closeError) {
+                this.errorLog("Error closing form after validation retry error:", closeError);
+            }
+            
+            return { success: false, formClosed: true };
+        }
+    }
+    
+    /**
+     * Create an enhanced retry prompt based on validation error
+     * @param {string} originalQuestion - Original question
+     * @param {string} errorMessage - Validation error message
+     * @param {string} originalAnswer - Original answer that failed
+     * @param {number} retryCount - Current retry attempt
+     * @returns {string} - Enhanced prompt for retry
+     */
+    static createRetryPrompt(originalQuestion, errorMessage, originalAnswer, retryCount) {
+        // Extract specific constraints from error message
+        let constraint = '';
+        const errorLower = errorMessage.toLowerCase();
+        
+        // Number range constraints
+        if (errorLower.includes('zwischen') || errorLower.includes('between')) {
+            const rangeMatch = errorMessage.match(/(\d+)\s*(?:und|and|to|-)\s*(\d+)/);
+            if (rangeMatch) {
+                constraint = `Provide only a number between ${rangeMatch[1]} and ${rangeMatch[2]}.`;
+            }
+        }
+        
+        // Whole number constraints
+        if (errorLower.includes('whole') || errorLower.includes('ganze') || errorLower.includes('integer')) {
+            constraint += ' Use only whole numbers (no decimals or text).';
+        }
+        
+        // Decimal number constraints
+        if (errorLower.includes('decimal number')) {
+            constraint += ' Provide a decimal number (with decimals allowed).';
+        }
+        
+        // Minimum value constraints
+        if (errorLower.includes('larger than') || errorLower.includes('greater than') || errorLower.includes('above')) {
+            const minMatch = errorMessage.match(/(?:larger than|greater than|above)\s*(\d+(?:\.\d+)?)/i);
+            if (minMatch) {
+                constraint += ` The number must be larger than ${minMatch[1]}.`;
+            }
+        }
+        
+        // Maximum value constraints  
+        if (errorLower.includes('smaller than') || errorLower.includes('less than') || errorLower.includes('below')) {
+            const maxMatch = errorMessage.match(/(?:smaller than|less than|below)\s*(\d+(?:\.\d+)?)/i);
+            if (maxMatch) {
+                constraint += ` The number must be smaller than ${maxMatch[1]}.`;
+            }
+        }
+        
+        // Positive number constraints
+        if (errorLower.includes('positive') || (errorLower.includes('larger than') && errorLower.includes('0'))) {
+            constraint += ' Provide only positive numbers (greater than 0).';
+        }
+        
+        // Format constraints
+        if (errorLower.includes('format') || errorLower.includes('invalid')) {
+            constraint += ' Follow the exact format required.';
+        }
+        
+        // Date constraints
+        if (errorLower.includes('date') || errorLower.includes('datum')) {
+            constraint += ' Provide date in the correct format.';
+        }
+        
+        // Email constraints
+        if (errorLower.includes('email') || errorLower.includes('e-mail')) {
+            constraint += ' Provide a valid email format.';
+        }
+        
+        // If no specific constraint detected, use the error message directly
+        if (!constraint) {
+            constraint = `Follow this requirement: ${errorMessage}`;
+        }
+        
+        // Create retry prompt
+        let retryPrompt = `${constraint} Answer this question with ONLY the required value, no extra text: ${originalQuestion}`;
+        
+        // Add context about previous failure for multiple retries
+        if (retryCount > 1) {
+            retryPrompt += ` (Previous answer "${originalAnswer}" was rejected - provide a different answer that meets the requirements)`;
+        }
+        
+        return retryPrompt;
+    }
+    
+    /**
+     * Helper method to get current user ID
+     * @returns {string|null} - User ID or null
+     */
+    static async getCurrentUserId() {
+        try {
+            const userResult = await chrome.storage.local.get(['currentUser']);
+            return userResult.currentUser?.id || null;
+        } catch (error) {
+            this.errorLog('Error getting current user ID:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Helper method to load user context for AI
+     * @param {AIQuestionAnswerer} ai - AI instance
+     */
+    static async loadUserContextForAI(ai) {
+        try {
+            const result = await chrome.storage.local.get(['userResumeData', 'userResumeText', 'userResumeType']);
+            if (result && (result.userResumeData || result.userResumeText)) {
+                if (result.userResumeData) {
+                    await ai.setUserContext(result.userResumeData, result.userResumeText);
+                } else {
+                    await ai.setUserContext(result.userResumeText);
+                }
+            }
+        } catch (error) {
+            this.errorLog('Error loading user context for AI:', error);
+        }
+    }
+    
+    /**
+     * Helper method to fill field with answer
+     * @param {HTMLElement} inputField - Input field element
+     * @param {HTMLElement} element - Parent form element
+     * @param {string} answer - Answer to fill
+     * @param {string} question - Question for logging
+     */
+    static async fillFieldWithAnswer(inputField, element, answer, question) {
+        try {
+            // Clear existing value first
+            inputField.value = '';
+            inputField.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Wait a moment
+            await this.wait(300);
+            
+            // Fill with new answer using the same logic as original answerQuestion
+            switch (inputField.tagName.toLowerCase()) {
+                case 'input':
+                    switch (inputField.type) {
+                        case 'text':
+                        case 'tel':
+                        case 'email':
+                        case 'number':
+                            // Check if this is a typeahead/autocomplete field
+                            if (inputField.getAttribute('role') === 'combobox' && 
+                                inputField.getAttribute('aria-autocomplete') === 'list') {
+                                await this.handleTypeaheadField(inputField, answer, element);
+                            } else {
+                                inputField.value = answer;
+                                inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            break;
+
+                        case 'radio':
+                            const radioOptions = element.querySelectorAll('input[type="radio"]');
+                            for (const radio of radioOptions) {
+                                const radioLabel = element.querySelector(`label[for="${radio.id}"]`);
+                                if (radioLabel && radioLabel.textContent.trim() === answer) {
+                                    radio.click();
+                                    this.debugLog(`Selected radio option: ${answer}`);
+                                    break;
+                                }
+                            }
+                            break;
+
+                        case 'checkbox':
+                            inputField.checked = true;
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            break;
+                    }
+                    break;
+
+                case 'textarea':
+                    inputField.value = answer;
+                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                    inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                    break;
+
+                case 'select':
+                    for (let i = 0; i < inputField.options.length; i++) {
+                        if (inputField.options[i].text.trim() === answer) {
+                            inputField.selectedIndex = i;
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            this.debugLog(`Selected option: ${answer}`);
+                            break;
+                        }
+                    }
+                    break;
+            }
+        } catch (error) {
+            this.errorLog(`Error filling field with retry answer "${answer}":`, error);
+        }
+    }
 
     /**
      * Detect question type for tracking purposes
