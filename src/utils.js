@@ -27,7 +27,17 @@ export function sendStatusUpdate(text, status = 'info') {
 
 // Function to check if the process should stop
 export async function shouldStop(isAutoApplyRunning) {
-    // First check the local variable
+    // First check immediate stop flag (for emergency stops like daily limit)
+    if (typeof window !== 'undefined' && window.isStopRequested && window.isStopRequested()) {
+        debugLog('Auto-apply process stopped by immediate request');
+        sendStatusUpdate('Auto-apply process stopped', 'info');
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+            chrome.runtime.sendMessage({ action: 'PROCESS_COMPLETE' });
+        }
+        return true;
+    }
+    
+    // Then check the local variable
     if (!isAutoApplyRunning) {
         debugLog('Auto-apply process stopped by user (local check)');
         sendStatusUpdate('Auto-apply process stopped', 'info');

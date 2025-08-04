@@ -2,6 +2,18 @@ import { LinkedInJobSearch,LinkedInForm, LinkedInJobPage } from './linkedin/inde
 import { debugLog, sendStatusUpdate, shouldStop } from './utils.js';
 
 let isAutoApplyRunning = false;
+let stopRequested = false; // Immediate stop flag for emergencies like daily limit
+
+// Make stop function and flag globally accessible
+window.requestAutoApplyStop = function(reason = 'manual') {
+  debugLog(`Immediate stop requested: ${reason}`);
+  stopRequested = true;
+  isAutoApplyRunning = false;
+};
+
+window.isStopRequested = function() {
+  return stopRequested;
+};
 
 
 // Main auto-apply function
@@ -28,9 +40,16 @@ async function startAutoApply() {
       if (await shouldStop(isAutoApplyRunning)) return;
       const pageProcessed = await LinkedInJobPage.processJobPage(page, totalPages, searchElement, isAutoApplyRunning);
       
-      // If page processing failed (e.g., couldn't navigate to next page), stop the process
+      // If page processing failed (e.g., couldn't navigate to next page or stop was requested), stop the process
       if (pageProcessed === false) {
+        debugLog('Page processing returned false - stopping auto-apply');
         break;
+      }
+      
+      // Additional stop check after each page
+      if (await shouldStop(isAutoApplyRunning)) {
+        debugLog('Stop requested after page processing - exiting main loop');
+        return;
       }
     }
     if (!await shouldStop(isAutoApplyRunning)) {
@@ -59,6 +78,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === 'startAutoApply') {
         if (!isAutoApplyRunning) {
           isAutoApplyRunning = true;
+          stopRequested = false; // Clear any previous stop requests
           
           // Store user data and AI settings for use in auto-apply process
           window.currentUserData = message.userData;
@@ -71,7 +91,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: false, message: 'Auto apply already running' });
         }
       } else if (message.action === 'stopAutoApply') {
-        isAutoApplyRunning = false;
+        window.requestAutoApplyStop('background_request');
         sendResponse({ success: true, message: 'Auto apply stopped' });
       } else if (message.action === 'GET_STATE') {
         sendResponse({ isRunning: isAutoApplyRunning });

@@ -1490,6 +1490,107 @@ class LinkedInForm extends LinkedInBase {
     }
 
     /**
+     * Check if LinkedIn's Easy Apply daily limit message is displayed
+     * @returns {Object} - Object with hasLimit boolean and message string
+     */
+    static async checkEasyApplyLimit() {
+        try {
+            this.debugLog("Checking for Easy Apply daily limit message...");
+            
+            // First check if we previously detected a daily limit today (cached check)
+            this.debugLog("Checking cached daily limit info...");
+            try {
+                const result = await chrome.storage.local.get(['dailyLimitReached', 'dailyLimitMessage', 'dailyLimitTime']);
+                
+                if (result.dailyLimitReached) {
+                    const limitTime = new Date(result.dailyLimitTime);
+                    const now = new Date();
+                    
+                    // Check if the limit was set today (reset daily limits at midnight)
+                    const isToday = limitTime.toDateString() === now.toDateString();
+                    
+                    if (isToday) {
+                        this.debugLog("Easy Apply daily limit detected from cached info (previously detected today)");
+                        return {
+                            hasLimit: true,
+                            message: result.dailyLimitMessage,
+                            type: 'cached_daily_limit'
+                        };
+                    } else {
+                        // Limit was from a previous day, clear it
+                        await chrome.storage.local.remove(['dailyLimitReached', 'dailyLimitMessage', 'dailyLimitTime']);
+                        this.debugLog("Cleared old daily limit info from previous day");
+                    }
+                } else {
+                    this.debugLog("No cached daily limit info found, checking DOM...");
+                }
+            } catch (storageError) {
+                this.debugLog("Error checking cached daily limit info:", storageError);
+                // Continue with DOM check
+            }
+            
+            // Then check for the error message container in DOM
+            this.debugLog("Checking DOM for daily limit messages...");
+            const errorElements = document.querySelectorAll('.artdeco-inline-feedback--error[role="alert"]');
+            this.debugLog(`Found ${errorElements.length} error elements in DOM`);
+            
+            for (const errorElement of errorElements) {
+                const messageElement = errorElement.querySelector('.artdeco-inline-feedback__message');
+                if (messageElement) {
+                    const messageText = messageElement.textContent.trim();
+                    this.debugLog(`Found error message: ${messageText}`);
+                    
+                    // Check for Easy Apply limit indicators
+                    if (messageText.toLowerCase().includes('easy apply limit') ||
+                        messageText.toLowerCase().includes('daily submissions') ||
+                        messageText.toLowerCase().includes('reached today\'s') ||
+                        messageText.toLowerCase().includes('continue applying tomorrow')) {
+                        
+                        this.debugLog("Easy Apply daily limit detected from DOM!");
+                        return {
+                            hasLimit: true,
+                            message: messageText,
+                            type: 'dom_daily_limit'
+                        };
+                    }
+                }
+            }
+            
+            // Also check if Easy Apply button is disabled
+            const easyApplyButton = document.querySelector('.jobs-s-apply button');
+            if (easyApplyButton && easyApplyButton.disabled) {
+                this.debugLog("Easy Apply button is disabled - may indicate limit reached");
+                
+                // Look for nearby error messages
+                const nearbyError = easyApplyButton.closest('.jobs-s-apply')?.querySelector('.artdeco-inline-feedback--error');
+                if (nearbyError) {
+                    const nearbyMessage = nearbyError.querySelector('.artdeco-inline-feedback__message')?.textContent.trim();
+                    if (nearbyMessage) {
+                        return {
+                            hasLimit: true,
+                            message: nearbyMessage,
+                            type: 'button_disabled'
+                        };
+                    }
+                }
+                
+                return {
+                    hasLimit: true,
+                    message: 'Easy Apply button is disabled',
+                    type: 'button_disabled'  
+                };
+            }
+            
+            this.debugLog("No Easy Apply limit detected (checked both cached info and DOM)");
+            return { hasLimit: false };
+            
+        } catch (error) {
+            this.errorLog('Error checking Easy Apply limit:', error);
+            return { hasLimit: false };
+        }
+    }
+
+    /**
      * Handle typeahead/autocomplete fields (like city selection)
      * @param {HTMLInputElement} inputField - The input field element
      * @param {string} answer - The answer to input

@@ -36,6 +36,7 @@ const App = () => {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [dailyLimitInfo, setDailyLimitInfo] = useState(null);
 
   // Load data on component mount
   useEffect(() => {
@@ -64,21 +65,47 @@ const App = () => {
         setTimeout(() => {
           loadApplicationHistory();
           loadResumeData();
+          loadDailyLimitInfo();
         }, 1000);
       } else {
         // Auto-apply not running, safe to load all data immediately
         loadApplicationHistory();
         loadResumeData();
+        loadDailyLimitInfo();
       }
     };
     
     initializePopup();
     
-    // Start periodic state sync with reduced frequency to avoid interference
-    const stateCheckInterval = setInterval(checkAutoApplyState, 5000);
+    // Start periodic state sync with more frequent checks
+    const stateCheckInterval = setInterval(async () => {
+      await checkAutoApplyState();
+      // Also check for daily limit updates during auto-apply
+      await loadDailyLimitInfo();
+    }, 2000); // Check every 2 seconds for more responsive UI
+    
+    // Add real-time storage listener for daily limit changes
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'local' && 
+          (changes.dailyLimitReached || changes.dailyLimitMessage || changes.dailyLimitTime)) {
+        console.log('Daily limit storage changed, refreshing UI');
+        loadDailyLimitInfo();
+        
+        // If daily limit was reached, auto-apply should have stopped - update UI state
+        if (changes.dailyLimitReached && changes.dailyLimitReached.newValue === true) {
+          console.log('Daily limit reached, updating isApplying state to false');
+          setIsApplying(false);
+          // Also do an immediate state check to confirm
+          setTimeout(() => checkAutoApplyState(), 100);
+        }
+      }
+    };
+    
+    chrome.storage.onChanged.addListener(handleStorageChange);
     
     return () => {
       clearInterval(stateCheckInterval);
+      chrome.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
 
@@ -101,12 +128,14 @@ const App = () => {
               loadResumeData();
               loadAiSettingsStatus();
               loadApplicationHistory();
+              loadDailyLimitInfo();
             }, 2000);
           } else {
             // Safe to load immediately
             loadResumeData();
             loadAiSettingsStatus();
             loadApplicationHistory();
+            loadDailyLimitInfo();
           }
         } catch (error) {
           console.error('Error checking auto-apply state, loading data anyway:', error);
@@ -115,6 +144,7 @@ const App = () => {
             loadResumeData();
             loadAiSettingsStatus();
             loadApplicationHistory();
+            loadDailyLimitInfo();
           }, 500);
         }
       };
@@ -226,11 +256,22 @@ const App = () => {
       if (response && typeof response.isRunning === 'boolean') {
         // Only update state if it's different from current state
         if (response.isRunning !== isApplying) {
-          console.log('Auto apply state sync:', { 
+          console.log('Auto apply state sync - updating UI:', { 
             currentUI: isApplying, 
             actualState: response.isRunning 
           });
           setIsApplying(response.isRunning);
+          
+          // If auto-apply just stopped, refresh daily limit info in case it was due to daily limit
+          if (!response.isRunning && isApplying) {
+            console.log('Auto-apply stopped, checking for daily limit updates');
+            setTimeout(() => loadDailyLimitInfo(), 500); // Small delay to let storage settle
+          }
+        } else {
+          console.log('Auto apply state already in sync:', { 
+            currentUI: isApplying, 
+            actualState: response.isRunning 
+          });
         }
       }
       
@@ -326,6 +367,41 @@ const App = () => {
     } catch (error) {
       console.error('App: Error loading application history:', error);
       setApplicationHistory([]);
+    }
+  };
+
+  const loadDailyLimitInfo = async () => {
+    try {
+      const result = await chrome.storage.local.get(['dailyLimitReached', 'dailyLimitMessage', 'dailyLimitTime']);
+      console.log('App: Loading daily limit info:', result);
+      
+      if (result.dailyLimitReached) {
+        const limitTime = new Date(result.dailyLimitTime);
+        const now = new Date();
+        
+        // Check if the limit was set today (reset daily limits at midnight)
+        const isToday = limitTime.toDateString() === now.toDateString();
+        
+        if (isToday) {
+          console.log('App: Setting daily limit info in UI');
+          setDailyLimitInfo({
+            reached: true,
+            message: result.dailyLimitMessage,
+            time: limitTime
+          });
+        } else {
+          // Limit was from a previous day, clear it
+          console.log('App: Clearing old daily limit info');
+          await chrome.storage.local.remove(['dailyLimitReached', 'dailyLimitMessage', 'dailyLimitTime']);
+          setDailyLimitInfo(null);
+        }
+      } else {
+        console.log('App: No daily limit info found, clearing UI');
+        setDailyLimitInfo(null);
+      }
+    } catch (error) {
+      console.error('App: Error loading daily limit info:', error);
+      setDailyLimitInfo(null);
     }
   };
 
@@ -560,6 +636,12 @@ const App = () => {
       return;
     }
 
+    if (dailyLimitInfo && dailyLimitInfo.reached) {
+      setStatusMessage('Easy Apply limit reached - try again tomorrow');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+
     setIsApplying(true);
     setStatusMessage('Starting auto apply...');
     
@@ -645,6 +727,8 @@ const App = () => {
 
       if (response.success) {
         setStatusMessage('Auto apply started successfully!');
+        // Refresh daily limit info after starting auto-apply
+        setTimeout(() => loadDailyLimitInfo(), 1000);
       } else {
         setIsApplying(false);
         setStatusMessage(response.error || 'Failed to start auto apply');
@@ -666,11 +750,15 @@ const App = () => {
       if (response.success) {
         setIsApplying(false);
         setStatusMessage('Auto apply stopped');
+        // Force an immediate state check to ensure UI is in sync
+        setTimeout(() => checkAutoApplyState(), 100);
       } else {
         setStatusMessage('Failed to stop auto apply');
       }
     } catch (error) {
       setStatusMessage('Error stopping auto apply: ' + error.message);
+      // Even on error, ensure UI state is updated
+      setIsApplying(false);
     }
     
     setTimeout(() => setStatusMessage(''), 3000);
@@ -913,12 +1001,53 @@ const App = () => {
                 )}
               </div>
               
+              {dailyLimitInfo && dailyLimitInfo.reached && (
+                <div className="apply-status">
+                  <div className="info-message" style={{ position: 'relative' }}>
+                    <span>ℹ️ You have reached your Easy Apply limit on LinkedIn. Try again tomorrow.</span>
+                    <button 
+                      onClick={async () => {
+                        const confirmed = window.confirm(
+                          'Are you sure you want to override the daily limit warning?\n\n' +
+                          'LinkedIn has blocked Easy Apply for today. Continuing may:\n' +
+                          '• Waste time trying to apply to jobs\n' +
+                          '• Not result in successful applications\n' +
+                          '• Potentially impact your LinkedIn account\n\n' +
+                          'Click OK to override (not recommended) or Cancel to keep protection.'
+                        );
+                        
+                        if (confirmed) {
+                          await chrome.storage.local.remove(['dailyLimitReached', 'dailyLimitMessage', 'dailyLimitTime']);
+                          setDailyLimitInfo(null);
+                          console.log('Daily limit override: Cleared storage and UI state');
+                        }
+                      }}
+                      className="icon-button"
+                      style={{ 
+                        position: 'absolute', 
+                        top: '4px', 
+                        right: '4px', 
+                        padding: '2px',
+                        minWidth: 'auto',
+                        width: '20px',
+                        height: '20px',
+                        color: '#dc2626'
+                      }}
+                      title="Override daily limit warning (not recommended)"
+                    >
+                      ⚠
+                    </button>
+                  </div>
+                </div>
+              )}
+              
               <div className="action-buttons">
                 <button 
                   onClick={handleStartApply} 
                   className="primary-button" 
-                  disabled={isApplying || !isResumeLoaded || !hasAiSettings || !librariesLoaded || isLoadingAiSettings}
+                  disabled={isApplying || !isResumeLoaded || !hasAiSettings || !librariesLoaded || isLoadingAiSettings || (dailyLimitInfo && dailyLimitInfo.reached)}
                   title={
+                    (dailyLimitInfo && dailyLimitInfo.reached) ? "Easy Apply limit reached - try again tomorrow" :
                     !isResumeLoaded ? "Please upload a resume first" : 
                     !hasAiSettings ? "Please configure AI settings first" : 
                     "Start automatic job applications"

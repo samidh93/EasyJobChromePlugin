@@ -40,6 +40,11 @@ class LinkedInJobInteraction extends LinkedInBase {
         try {
             const applyButton = document.querySelector('.jobs-s-apply button');
             if (applyButton) {
+                // Check if button is disabled (may indicate limit reached)
+                if (applyButton.disabled) {
+                    this.debugLog("easy apply button found but disabled");
+                    return false;
+                }
                 this.debugLog("found easy apply button");
                 return true;
             }
@@ -48,7 +53,7 @@ class LinkedInJobInteraction extends LinkedInBase {
                 return false;
             }
         } catch (error) {
-            console.error("easy apply button not found error", error);
+            this.errorLog("Error checking easy apply button availability", error);
             return false;
         }
     }
