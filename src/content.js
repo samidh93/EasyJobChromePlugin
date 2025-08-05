@@ -1,4 +1,4 @@
-import { LinkedInJobSearch,LinkedInForm, LinkedInJobPage } from './linkedin/index.js';
+import PlatformFactory from './platform/PlatformFactory.js';
 import { debugLog, sendStatusUpdate, shouldStop } from './utils.js';
 
 let isAutoApplyRunning = false;
@@ -18,40 +18,31 @@ window.isStopRequested = function() {
 
 // Main auto-apply function
 async function startAutoApply() {
+  let platform = null;
+  
   try {
     if (await shouldStop(isAutoApplyRunning)) return;
 
-    const searchElement = document.querySelector(".scaffold-layout.jobs-search-two-pane__layout");
-
-    if (!searchElement) {
-      sendStatusUpdate('Could not find jobs list. Please make sure you are on LinkedIn jobs page.', 'error');
+    // Check if we're on a supported platform
+    if (!PlatformFactory.isSupportedPage()) {
+      sendStatusUpdate('This page is not supported. Please navigate to a job search page on LinkedIn, Indeed, or StepStone.', 'error');
       return;
     }
 
-    // Get total jobs count
-    const totalJobs = await LinkedInJobSearch.getTotalJobsSearchCount(searchElement);
-    sendStatusUpdate(`Found ${totalJobs} jobs to process`, 'info');
-
-    // Get available pages
-    const totalPages = await LinkedInJobSearch.getAvailablePages(searchElement, totalJobs);
-
-    // Process each page
-    for (let page = 1; page <= totalPages; page++) {
-      if (await shouldStop(isAutoApplyRunning)) return;
-      const pageProcessed = await LinkedInJobPage.processJobPage(page, totalPages, searchElement, isAutoApplyRunning);
-      
-      // If page processing failed (e.g., couldn't navigate to next page or stop was requested), stop the process
-      if (pageProcessed === false) {
-        debugLog('Page processing returned false - stopping auto-apply');
-        break;
-      }
-      
-      // Additional stop check after each page
-      if (await shouldStop(isAutoApplyRunning)) {
-        debugLog('Stop requested after page processing - exiting main loop');
-        return;
-      }
+    // Create platform instance based on current URL
+    try {
+      platform = await PlatformFactory.createPlatform();
+      debugLog(`Platform detected: ${platform.getPlatformName()}`);
+      sendStatusUpdate(`Starting auto-apply on ${platform.getPlatformName()}`, 'info');
+    } catch (error) {
+      debugLog(`Failed to create platform: ${error.message}`);
+      sendStatusUpdate(`Unsupported platform or failed to initialize: ${error.message}`, 'error');
+      return;
     }
+
+    // Use platform-specific auto-apply logic
+    await platform.startAutoApply();
+    
     if (!await shouldStop(isAutoApplyRunning)) {
       sendStatusUpdate('Auto-apply process completed!', 'success');
       if (chrome && chrome.runtime) {
@@ -60,7 +51,17 @@ async function startAutoApply() {
     }
   } catch (error) {
     console.error('Error in auto-apply process:', error);
-    sendStatusUpdate('Error in auto-apply process', 'error');
+    sendStatusUpdate(`Error in auto-apply process: ${error.message}`, 'error');
+    
+    // Try platform-specific error handling if platform is available
+    if (platform && typeof platform.handleError === 'function') {
+      try {
+        await platform.handleError(error, 'main_auto_apply');
+      } catch (handleError) {
+        debugLog(`Platform error handling failed: ${handleError.message}`);
+      }
+    }
+    
     // Keep forms open as requested by user
   }
 }
