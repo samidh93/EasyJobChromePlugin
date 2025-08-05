@@ -79,6 +79,8 @@ class BackgroundManager {
                 await this.managers.get('resume').handleMessage(request, sendResponse);
             } else if (action === 'apiRequest') {
                 await this.managers.get('api').handleMessage(request, sendResponse);
+            } else if (action === 'getPlatformInfo') {
+                await this.handleGetPlatformInfo(request, sendResponse);
             } else if (action === 'STATUS_UPDATE' || action === 'PROCESS_COMPLETE') {
                 // Handle status updates and process completion
                 console.log('Received status update:', request);
@@ -131,8 +133,91 @@ class BackgroundManager {
         }
     }
 
+    /**
+     * Handle get platform info from current tab
+     */
+    async handleGetPlatformInfo(request, sendResponse) {
+        try {
+            // Get the active tab
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tabs.length === 0) {
+                sendResponse({ success: false, error: 'No active tab found' });
+                return;
+            }
 
+            const tab = tabs[0];
+            const url = tab.url;
+            const title = tab.title;
 
+            // Platform detection logic (matching our PlatformDetector)
+            const detectPlatform = (url) => {
+                const normalizedUrl = url.toLowerCase();
+                
+                if (/linkedin\.com/i.test(normalizedUrl) || /linkedin\.[a-z]{2,3}/i.test(normalizedUrl)) {
+                    return 'linkedin';
+                }
+                if (/indeed\.com/i.test(normalizedUrl) || /indeed\.[a-z]{2,3}/i.test(normalizedUrl) || /indeed\.[a-z]{2,3}\.[a-z]{2,3}/i.test(normalizedUrl)) {
+                    return 'indeed';
+                }
+                if (/stepstone\.de/i.test(normalizedUrl) || /stepstone\.com/i.test(normalizedUrl) || /stepstone\.[a-z]{2,3}/i.test(normalizedUrl)) {
+                    return 'stepstone';
+                }
+                return 'unknown';
+            };
+
+            // Job search page detection
+            const isJobSearchPage = (url, platform) => {
+                const normalizedUrl = url.toLowerCase();
+                switch (platform) {
+                    case 'linkedin':
+                        return normalizedUrl.includes('/jobs/') || normalizedUrl.includes('/job/');
+                    case 'indeed':
+                        return normalizedUrl.includes('/jobs') || 
+                               normalizedUrl.includes('/viewjob') ||
+                               normalizedUrl.includes('q=') ||
+                               normalizedUrl.includes('/job/');
+                    case 'stepstone':
+                        return normalizedUrl.includes('/jobs') || 
+                               normalizedUrl.includes('/job/') ||
+                               normalizedUrl.includes('/stellenangebote') ||
+                               normalizedUrl.includes('/stellenanzeige');
+                    default:
+                        return false;
+                }
+            };
+
+            const platform = detectPlatform(url);
+            const isJobPage = isJobSearchPage(url, platform);
+            const isSupported = ['linkedin', 'indeed', 'stepstone'].includes(platform);
+
+            // Get platform display name
+            const getDisplayName = (platform) => {
+                const displayNames = {
+                    linkedin: 'LinkedIn',
+                    indeed: 'Indeed', 
+                    stepstone: 'StepStone'
+                };
+                return displayNames[platform] || 'Unknown Platform';
+            };
+
+            const platformInfo = {
+                platform: platform,
+                displayName: getDisplayName(platform),
+                isSupported: isSupported,
+                isJobSearchPage: isJobPage,
+                url: url,
+                title: title,
+                tabId: tab.id
+            };
+
+            console.log('Platform info:', platformInfo);
+            sendResponse({ success: true, platformInfo: platformInfo });
+
+        } catch (error) {
+            console.error('Error getting platform info:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
 
 }
 

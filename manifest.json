@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "EasyApply",
   "version": "1.0",
-  "description": "Use AI to Apply for jobs on LinkedIn.",
+  "description": "Use AI to Apply for jobs on LinkedIn, Indeed, and StepStone.",
   "icons": {
     "16": "assets/icon.png",
     "48": "assets/icon.png",
@@ -49,7 +49,15 @@
       "matches": [
         "https://www.linkedin.com/jobs/*",
         "https://www.linkedin.com/apply/*",
-        "https://*.linkedin.com/*"
+        "https://*.linkedin.com/*",
+        "https://www.indeed.com/jobs*",
+        "https://www.indeed.com/viewjob*",
+        "https://*.indeed.com/*",
+        "https://www.stepstone.de/jobs*",
+        "https://www.stepstone.de/stellenangebote*",
+        "https://www.stepstone.com/*",
+        "https://*.stepstone.de/*",
+        "https://*.stepstone.com/*"
       ],
       "js": [
         "dist/content.bundle.js"

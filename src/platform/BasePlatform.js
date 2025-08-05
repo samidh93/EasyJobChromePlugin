@@ -5,7 +5,7 @@
 class BasePlatform {
     constructor(platformName) {
         this.platformName = platformName;
-        this.isAutoApplyRunning = false;
+        this._isAutoApplyRunning = false;
         this.stopRequested = false;
     }
 
@@ -136,7 +136,15 @@ class BasePlatform {
      * @param {boolean} running - Whether auto-apply is running
      */
     setAutoApplyRunning(running) {
-        this.isAutoApplyRunning = running;
+        this._isAutoApplyRunning = running;
+    }
+
+    /**
+     * Get auto-apply running state
+     * @returns {boolean}
+     */
+    isAutoApplyRunning() {
+        return this._isAutoApplyRunning;
     }
 
     /**
@@ -146,7 +154,7 @@ class BasePlatform {
     requestStop(reason = 'manual') {
         this.debugLog(`Stop requested: ${reason}`);
         this.stopRequested = true;
-        this.isAutoApplyRunning = false;
+        this._isAutoApplyRunning = false;
     }
 
     /**

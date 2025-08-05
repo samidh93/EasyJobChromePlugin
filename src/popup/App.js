@@ -37,6 +37,10 @@ const App = () => {
   const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [dailyLimitInfo, setDailyLimitInfo] = useState(null);
+  
+  // Platform detection state
+  const [platformInfo, setPlatformInfo] = useState(null);
+  const [isLoadingPlatform, setIsLoadingPlatform] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -82,7 +86,9 @@ const App = () => {
       await checkAutoApplyState();
       // Also check for daily limit updates during auto-apply
       await loadDailyLimitInfo();
-    }, 2000); // Check every 2 seconds for more responsive UI
+      // Check platform info periodically in case user navigates
+      await loadPlatformInfo();
+    }, 3000); // Check every 3 seconds for more responsive UI
     
     // Add real-time storage listener for daily limit changes
     const handleStorageChange = (changes, areaName) => {
@@ -131,11 +137,12 @@ const App = () => {
               loadDailyLimitInfo();
             }, 2000);
           } else {
-            // Safe to load immediately
-            loadResumeData();
-            loadAiSettingsStatus();
-            loadApplicationHistory();
-            loadDailyLimitInfo();
+                      // Safe to load immediately
+          loadResumeData();
+          loadAiSettingsStatus();
+          loadApplicationHistory();
+          loadDailyLimitInfo();
+          loadPlatformInfo();
           }
         } catch (error) {
           console.error('Error checking auto-apply state, loading data anyway:', error);
@@ -145,6 +152,7 @@ const App = () => {
             loadAiSettingsStatus();
             loadApplicationHistory();
             loadDailyLimitInfo();
+            loadPlatformInfo();
           }, 500);
         }
       };
@@ -402,6 +410,30 @@ const App = () => {
     } catch (error) {
       console.error('App: Error loading daily limit info:', error);
       setDailyLimitInfo(null);
+    }
+  };
+
+  const loadPlatformInfo = async () => {
+    try {
+      setIsLoadingPlatform(true);
+      console.log('App: Loading platform info...');
+      
+      const response = await chrome.runtime.sendMessage({
+        action: 'getPlatformInfo'
+      });
+      
+      if (response && response.success) {
+        console.log('App: Platform info loaded:', response.platformInfo);
+        setPlatformInfo(response.platformInfo);
+      } else {
+        console.error('App: Failed to load platform info:', response?.error);
+        setPlatformInfo(null);
+      }
+    } catch (error) {
+      console.error('App: Error loading platform info:', error);
+      setPlatformInfo(null);
+    } finally {
+      setIsLoadingPlatform(false);
     }
   };
 
@@ -1227,6 +1259,29 @@ const App = () => {
 
   return (
     <div className="app">
+      {/* Platform Indicator */}
+      {platformInfo && (
+        <div className={`platform-indicator ${platformInfo.isSupported ? 'supported' : 'unsupported'}`}>
+          <div className="platform-info">
+            <div className="platform-name">
+              {isLoadingPlatform ? (
+                <RefreshCw size={14} className="loading-icon" />
+              ) : (
+                <div className={`platform-dot ${platformInfo.platform}`}></div>
+              )}
+              <span>{platformInfo.displayName}</span>
+            </div>
+            <div className="platform-status">
+              {platformInfo.isJobSearchPage ? (
+                <span className="status-ready">✓ Job search page</span>
+              ) : (
+                <span className="status-warning">! Navigate to job search</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="tabs">
         <button 
           className={`tab-button ${activeTab === 'login' ? 'active' : ''}`}

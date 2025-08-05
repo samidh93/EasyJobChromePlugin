@@ -34,6 +34,12 @@ class PlatformDetector {
      * @returns {string} - Platform identifier ('linkedin', 'indeed', 'stepstone')
      */
     static detectPlatform(url = window.location.href) {
+        // Handle special cases first - don't default to linkedin for these
+        if (url === 'about:blank' || url === 'chrome://newtab/' || url.startsWith('chrome://')) {
+            console.log(`[PlatformDetector] Special URL detected: ${url}, returning 'unknown'`);
+            return 'unknown';
+        }
+
         // Normalize URL to lowercase for case-insensitive matching
         const normalizedUrl = url.toLowerCase();
 
@@ -48,8 +54,8 @@ class PlatformDetector {
         }
 
         // Log warning if no platform detected
-        console.warn(`[PlatformDetector] No platform detected from URL: ${url}, defaulting to ${this.DEFAULT_PLATFORM}`);
-        return this.DEFAULT_PLATFORM;
+        console.warn(`[PlatformDetector] No platform detected from URL: ${url}, returning 'unknown'`);
+        return 'unknown';
     }
 
     /**
@@ -67,7 +73,7 @@ class PlatformDetector {
      */
     static isSupportedPlatform(url = window.location.href) {
         const platform = this.detectPlatform(url);
-        return Object.keys(this.PLATFORM_PATTERNS).includes(platform);
+        return platform !== 'unknown' && Object.keys(this.PLATFORM_PATTERNS).includes(platform);
     }
 
     /**
@@ -136,6 +142,12 @@ class PlatformDetector {
      */
     static isJobSearchPage(url = window.location.href) {
         const platform = this.detectPlatform(url);
+        
+        // Handle special cases
+        if (platform === 'unknown') {
+            return false;
+        }
+        
         const normalizedUrl = url.toLowerCase();
 
         switch (platform) {

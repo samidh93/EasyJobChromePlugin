@@ -1,8 +1,10 @@
 import PlatformFactory from './platform/PlatformFactory.js';
 import { debugLog, sendStatusUpdate, shouldStop } from './utils.js';
 
+// Global state to prevent multiple instances
 let isAutoApplyRunning = false;
 let stopRequested = false; // Immediate stop flag for emergencies like daily limit
+let isInitialized = false; // Prevent multiple initializations
 
 // Make stop function and flag globally accessible
 window.requestAutoApplyStop = function(reason = 'manual') {
@@ -15,6 +17,20 @@ window.isStopRequested = function() {
   return stopRequested;
 };
 
+// Test function to verify content script is working
+window.testContentScript = function() {
+  console.log('[Content Script Test] Content script is working!');
+  console.log('[Content Script Test] Current URL:', window.location.href);
+  console.log('[Content Script Test] Platform detection:', PlatformFactory.isSupportedPage());
+  console.log('[Content Script Test] Auto-apply running:', isAutoApplyRunning);
+  return {
+    url: window.location.href,
+    isSupported: PlatformFactory.isSupportedPage(),
+    isAutoApplyRunning: isAutoApplyRunning,
+    isInitialized: isInitialized
+  };
+};
+
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -25,6 +41,13 @@ async function startAutoApply() {
 
     // Check if we're on a supported platform
     if (!PlatformFactory.isSupportedPage()) {
+      // Don't show error for special URLs like about:blank
+      const currentUrl = window.location.href;
+      if (currentUrl === 'about:blank' || currentUrl.startsWith('chrome://')) {
+        debugLog(`Skipping auto-apply on special URL: ${currentUrl}`);
+        return;
+      }
+      
       sendStatusUpdate('This page is not supported. Please navigate to a job search page on LinkedIn, Indeed, or StepStone.', 'error');
       return;
     }
@@ -71,12 +94,21 @@ async function startAutoApply() {
 if (typeof chrome === 'undefined' || !chrome.runtime) {
     console.log('Chrome extension APIs not available - script may be running in wrong context');
 } else {
-    // Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Handle the message asynchronously
-  (async () => {
-    try {
-      if (message.action === 'startAutoApply') {
+    // Prevent multiple initializations
+    if (isInitialized) {
+        console.log('[Content Script] Already initialized, skipping duplicate setup');
+    } else {
+        isInitialized = true;
+        console.log('[Content Script] Initializing on:', window.location.href);
+        
+        // Listen for messages from background script
+        console.log('[Content Script] Message listener set up, ready to receive messages');
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+            console.log('[Content Script] Received message:', message.action, 'from:', sender);
+            // Handle the message asynchronously
+            (async () => {
+                try {
+                          if (message.action === 'startAutoApply') {
         if (!isAutoApplyRunning) {
           isAutoApplyRunning = true;
           stopRequested = false; // Clear any previous stop requests
@@ -89,38 +121,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           startAutoApply();
           sendResponse({ success: true, message: 'Auto apply started' });
         } else {
+          debugLog('Auto apply already running, ignoring duplicate start request');
           sendResponse({ success: false, message: 'Auto apply already running' });
         }
-      } else if (message.action === 'stopAutoApply') {
-        window.requestAutoApplyStop('background_request');
-        sendResponse({ success: true, message: 'Auto apply stopped' });
-      } else if (message.action === 'GET_STATE') {
-        sendResponse({ isRunning: isAutoApplyRunning });
-      } else {
-        // Handle legacy message format for backward compatibility
-        if (message.action === 'START_AUTO_APPLY') {
-          if (!isAutoApplyRunning) {
-            isAutoApplyRunning = true;
-            startAutoApply();
-            sendResponse({ success: true, message: 'Auto apply started' });
-          } else {
-            sendResponse({ success: false, message: 'Auto apply already running' });
-          }
-        } else if (message.action === 'STOP_AUTO_APPLY') {
-          isAutoApplyRunning = false;
-          sendResponse({ success: true, message: 'Auto apply stopped' });
-        } else {
-          sendResponse({ success: false, message: 'Unknown action' });
-        }
-      }
-    } catch (error) {
-      console.error('Error handling message in content script:', error);
-      sendResponse({ success: false, error: error.message });
+                    } else if (message.action === 'stopAutoApply') {
+                        window.requestAutoApplyStop('background_request');
+                        sendResponse({ success: true, message: 'Auto apply stopped' });
+                    } else if (message.action === 'GET_STATE') {
+                        sendResponse({ isRunning: isAutoApplyRunning });
+                    } else {
+                        // Handle legacy message format for backward compatibility
+                        if (message.action === 'START_AUTO_APPLY') {
+                            if (!isAutoApplyRunning) {
+                                isAutoApplyRunning = true;
+                                startAutoApply();
+                                sendResponse({ success: true, message: 'Auto apply started' });
+                            } else {
+                                sendResponse({ success: false, message: 'Auto apply already running' });
+                            }
+                        } else if (message.action === 'STOP_AUTO_APPLY') {
+                            isAutoApplyRunning = false;
+                            sendResponse({ success: true, message: 'Auto apply stopped' });
+                        } else {
+                            sendResponse({ success: false, message: 'Unknown action' });
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error handling message in content script:', error);
+                    sendResponse({ success: false, error: error.message });
+                }
+            })();
+            
+            // Return true to indicate we will send a response asynchronously
+            return true;
+        });
     }
-  })();
-  
-  // Return true to indicate we will send a response asynchronously
-  return true;
-});
-
 } // End of Chrome API availability check
