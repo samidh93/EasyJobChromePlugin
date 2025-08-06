@@ -221,6 +221,14 @@ class LinkedInPlatform extends BasePlatform {
     }
 
     /**
+     * Check if platform supports multi-tab workflow
+     * @returns {boolean}
+     */
+    supportsMultiTabWorkflow() {
+        return false; // LinkedIn uses single-tab with modals
+    }
+
+    /**
      * Track application for LinkedIn
      */
     async trackApplication(jobData, success, reason) {

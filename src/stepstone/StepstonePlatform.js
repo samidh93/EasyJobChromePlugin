@@ -241,6 +241,14 @@ class StepstonePlatform extends BasePlatform {
     }
 
     /**
+     * Check if platform supports multi-tab workflow
+     * @returns {boolean}
+     */
+    supportsMultiTabWorkflow() {
+        return true; // StepStone opens job details in new tabs
+    }
+
+    /**
      * Track application for StepStone
      */
     async trackApplication(jobData, success, reason) {

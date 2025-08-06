@@ -23,14 +23,32 @@ window.testContentScript = function() {
   console.log('[Content Script Test] Current URL:', window.location.href);
   console.log('[Content Script Test] Platform detection:', PlatformFactory.isSupportedPage());
   console.log('[Content Script Test] Auto-apply running:', isAutoApplyRunning);
-  return {
-    url: window.location.href,
-    isSupported: PlatformFactory.isSupportedPage(),
-    isAutoApplyRunning: isAutoApplyRunning,
-    isInitialized: isInitialized
-  };
+  
+  // Test platform creation and multi-tab support
+  return PlatformFactory.createPlatform().then(platform => {
+    const result = {
+      url: window.location.href,
+      isSupported: PlatformFactory.isSupportedPage(),
+      isAutoApplyRunning: isAutoApplyRunning,
+      isInitialized: isInitialized,
+      platformName: platform.getPlatformName(),
+      supportsMultiTab: platform.supportsMultiTabWorkflow()
+    };
+    console.log('[Content Script Test] Platform info:', result);
+    return result;
+  });
 };
 
+
+// Handle multi-tab auto-apply workflow
+async function handleMultiTabAutoApply(platform) {
+  debugLog('Starting multi-tab auto-apply workflow');
+  
+  // For now, fall back to standard auto-apply
+  // TODO: Implement full multi-tab coordination
+  debugLog('Multi-tab workflow not yet implemented, falling back to standard workflow');
+  await platform.startAutoApply();
+}
 
 // Main auto-apply function
 async function startAutoApply() {
@@ -63,8 +81,17 @@ async function startAutoApply() {
       return;
     }
 
-    // Use platform-specific auto-apply logic
-    await platform.startAutoApply();
+    // Check if platform supports multi-tab workflow
+    const supportsMultiTab = platform.supportsMultiTabWorkflow();
+    debugLog(`Platform ${platform.getPlatformName()} multi-tab support: ${supportsMultiTab}`);
+    
+    if (supportsMultiTab) {
+      debugLog('Platform supports multi-tab workflow - using enhanced auto-apply');
+      await handleMultiTabAutoApply(platform);
+    } else {
+      debugLog('Platform uses single-tab workflow - using standard auto-apply');
+      await platform.startAutoApply();
+    }
     
     if (!await shouldStop(isAutoApplyRunning)) {
       sendStatusUpdate('Auto-apply process completed!', 'success');

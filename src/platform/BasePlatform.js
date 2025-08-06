@@ -88,6 +88,40 @@ class BasePlatform {
         return false; // Default: no optional features
     }
 
+    /**
+     * Check if platform supports multi-tab workflow
+     * @returns {boolean}
+     */
+    supportsMultiTabWorkflow() {
+        return false; // Default: single-tab workflow
+    }
+
+    /**
+     * Handle job link click (for platforms that open new tabs)
+     * @param {Element} jobElement - The job listing element
+     * @returns {Promise<Object>} - Job data and action taken
+     */
+    async handleJobLinkClick(jobElement) {
+        // Default: no special handling (LinkedIn uses modals)
+        return { action: 'none', jobData: null };
+    }
+
+    /**
+     * Check if current page is a job details page
+     * @returns {Promise<boolean>}
+     */
+    async isJobDetailsPage() {
+        return false; // Default: not a job details page
+    }
+
+    /**
+     * Get job URL from current page
+     * @returns {Promise<string|null>}
+     */
+    async getCurrentJobUrl() {
+        return null; // Default: no job URL
+    }
+
     // ================================
     // SHARED UTILITIES (Available to all platforms)
     // ================================
