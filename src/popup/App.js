@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock, RefreshCw, Download } from 'lucide-react';
+import { User, Settings, History, Eye, EyeOff, Play, Square, Key, Server, Brain, Upload, FileText, CheckCircle, Clock, RefreshCw, Download, Filter } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import './App.css';
 import ResumeManagerComponent from './managers/ResumeManagerComponent.js';
 import AiManagerComponent from './managers/AiManagerComponent.js';
-import { authManager, applicationsManager, aiManager, resumeManager } from './managers/index.js';
+import FiltersComponent from './managers/FiltersComponent.js';
+import { authManager, applicationsManager, aiManager, resumeManager, filtersManager } from './managers/index.js';
 import { formatLocalTime, formatBerlinTime, getUserTimezone } from './utils/timezone.js';
 
 
@@ -1267,6 +1268,16 @@ const App = () => {
     />
   );
 
+  const renderFiltersTab = () => (
+    <FiltersComponent 
+      currentUser={currentUser} 
+      onFiltersUpdate={() => {
+        // Handle filters update if needed
+        console.log('Filters updated');
+      }}
+    />
+  );
+
   return (
     <div className="app">
       {/* Platform Indicator */}
@@ -1326,6 +1337,13 @@ const App = () => {
           AI Settings
         </button>
         <button 
+          className={`tab-button ${activeTab === 'filters' ? 'active' : ''}`}
+          onClick={() => setActiveTab('filters')}
+        >
+          <Filter size={16} />
+          Filters
+        </button>
+        <button 
           className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
@@ -1352,6 +1370,7 @@ const App = () => {
         </div>
       )}
       {activeTab === 'ai-settings' && renderAiSettingsTab()}
+      {activeTab === 'filters' && renderFiltersTab()}
       {activeTab === 'history' && renderApplicationHistoryTab()}
 
       {statusMessage && (
