@@ -204,6 +204,16 @@ const App = () => {
     return unsubscribe;
   }, []);
 
+  // Redirect from resumes tab if AI settings are not available
+  useEffect(() => {
+    if (activeTab === 'resumes' && !hasAiSettings && currentUser) {
+      console.log('Redirecting from resumes tab - AI settings not configured');
+      setActiveTab('ai-settings');
+      setStatusMessage('Please configure AI settings first to access resumes');
+      setTimeout(() => setStatusMessage(''), 3000);
+    }
+  }, [activeTab, hasAiSettings, currentUser]);
+
   // Check if libraries are loaded
   const checkLibrariesLoaded = () => {
     let attempts = 0;
@@ -1291,11 +1301,22 @@ const App = () => {
           Login
         </button>
         <button 
-          className={`tab-button ${activeTab === 'resumes' ? 'active' : ''}`}
-          onClick={() => setActiveTab('resumes')}
+          className={`tab-button ${activeTab === 'resumes' ? 'active' : ''} ${!hasAiSettings ? 'disabled' : ''}`}
+          onClick={() => {
+            if (hasAiSettings) {
+              setActiveTab('resumes');
+            } else {
+              setActiveTab('ai-settings');
+              setStatusMessage('Please configure AI settings first to access resumes');
+              setTimeout(() => setStatusMessage(''), 3000);
+            }
+          }}
+          title={!hasAiSettings ? 'Configure AI settings first to access resumes' : 'Manage your resumes'}
+          disabled={!hasAiSettings}
         >
           <FileText size={16} />
           Resumes
+          {!hasAiSettings && <span className="lock-indicator">🔒</span>}
         </button>
         <button 
           className={`tab-button ${activeTab === 'ai-settings' ? 'active' : ''}`}
@@ -1314,7 +1335,22 @@ const App = () => {
       </div>
 
       {activeTab === 'login' && renderLoginTab()}
-      {activeTab === 'resumes' && renderResumeTab()}
+      {activeTab === 'resumes' && hasAiSettings && renderResumeTab()}
+      {activeTab === 'resumes' && !hasAiSettings && (
+        <div className="tab-content-placeholder">
+          <div className="placeholder-message">
+            <Settings size={48} className="placeholder-icon" />
+            <h3>AI Settings Required</h3>
+            <p>Please configure your AI settings first to access the resumes tab.</p>
+            <button 
+              className="primary-button"
+              onClick={() => setActiveTab('ai-settings')}
+            >
+              Go to AI Settings
+            </button>
+          </div>
+        </div>
+      )}
       {activeTab === 'ai-settings' && renderAiSettingsTab()}
       {activeTab === 'history' && renderApplicationHistoryTab()}
 

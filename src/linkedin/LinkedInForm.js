@@ -665,6 +665,23 @@ class LinkedInForm extends LinkedInBase {
     static getHardcodedAnswer(question, options = []) {
         const questionLower = question.toLowerCase();
         
+        // Date/start availability questions → return a concrete date (mm/dd/yyyy)
+        const dateTerms = [
+            'start date', 'starting date', 'ideal starting date', 'available to start', 'availability to start', 'earliest start date',
+            'when can you start', 'availability date',
+            // German
+            'startdatum', 'verfügbar ab', 'beginn', 'frühestes startdatum',
+            // French
+            'date de début', 'disponible pour commencer',
+            // Spanish
+            'fecha de inicio', 'disponible para comenzar',
+            // Italian
+            'data di inizio', 'disponibile a iniziare'
+        ];
+        if (dateTerms.some(term => questionLower.includes(term))) {
+            return this.computePreferredStartDateMMDDYYYY();
+        }
+
         // Commuting questions - always answer "Yes"
         if (questionLower.includes('comfortable commuting') || 
             questionLower.includes('commute to this') ||
@@ -697,6 +714,30 @@ class LinkedInForm extends LinkedInBase {
         // }
         
         return null; // No hardcoded answer for this question
+    }
+
+    /**
+     * Compute preferred start date as two months from today in mm/dd/yyyy
+     * @returns {string}
+     */
+    static computePreferredStartDateMMDDYYYY() {
+        const today = new Date();
+        const target = new Date(today);
+        // Add 2 months per preference [[memory:3199149]]
+        target.setMonth(target.getMonth() + 2);
+        return this.formatDateMMDDYYYY(target);
+    }
+
+    /**
+     * Format a Date object as mm/dd/yyyy
+     * @param {Date} date
+     * @returns {string}
+     */
+    static formatDateMMDDYYYY(date) {
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const yyyy = date.getFullYear();
+        return `${mm}/${dd}/${yyyy}`;
     }
 
     static async processFormQuestions(shouldStop = null) {
@@ -969,6 +1010,18 @@ class LinkedInForm extends LinkedInBase {
             const answer = result.answer;
             this.debugLog(`AI Answer: ${answer}`);
 
+            // If this looks like a cover letter prompt, sanitize placeholders and signature
+            let finalAnswer = answer;
+            try {
+                if (this.isCoverLetterQuestion(question)) {
+                    const fullName = await this.getUserFullName();
+                    finalAnswer = this.sanitizeCoverLetter(answer, fullName);
+                    this.debugLog('Sanitized cover letter answer');
+                }
+            } catch (e) {
+                this.errorLog('Error during cover letter sanitization', e);
+            }
+
             // Collect question and answer for later saving (only if application is successful)
             try {
                 const questionType = this.detectQuestionType(question);
@@ -977,7 +1030,7 @@ class LinkedInForm extends LinkedInBase {
                 
                 this.collectedQuestionsAnswers.push({
                     question: question,
-                    answer: answer,
+                    answer: finalAnswer,
                     question_type: questionType,
                     ai_model_used: aiModel,
                     confidence_score: 0.95, // Default confidence
@@ -1002,9 +1055,9 @@ class LinkedInForm extends LinkedInBase {
                             if (inputField.getAttribute('role') === 'combobox' && 
                                 inputField.getAttribute('aria-autocomplete') === 'list') {
                                 this.debugLog(`Detected typeahead field for question: ${question}`);
-                                await this.handleTypeaheadField(inputField, answer, element);
+                                await this.handleTypeaheadField(inputField, finalAnswer, element);
                             } else {
-                                inputField.value = answer;
+                                inputField.value = finalAnswer;
                                 inputField.dispatchEvent(new Event('input', { bubbles: true }));
                             }
                             break;
@@ -1029,16 +1082,16 @@ class LinkedInForm extends LinkedInBase {
                     break;
 
                 case 'textarea':
-                    inputField.value = answer;
+                    inputField.value = finalAnswer;
                     inputField.dispatchEvent(new Event('input', { bubbles: true }));
                     break;
 
                 case 'select':
                     for (let i = 0; i < inputField.options.length; i++) {
-                        if (inputField.options[i].text.trim() === answer) {
+                        if (inputField.options[i].text.trim() === finalAnswer) {
                             inputField.selectedIndex = i;
                             inputField.dispatchEvent(new Event('change', { bubbles: true }));
-                            this.debugLog(`Selected option: ${answer}`);
+                            this.debugLog(`Selected option: ${finalAnswer}`);
                             break;
                         }
                     }
@@ -1062,6 +1115,94 @@ class LinkedInForm extends LinkedInBase {
             this.errorLog(`Error answering question "${question}"`, error);
             return { success: false };
         }
+    }
+
+    /**
+     * Detect cover letter questions by common phrases (multi-language)
+     * @param {string} question
+     * @returns {boolean}
+     */
+    static isCoverLetterQuestion(question) {
+        const q = (question || '').toLowerCase();
+        const terms = [
+            'cover letter',
+            'anschreiben',
+            'motivationsschreiben',
+            'motivation letter',
+            'anschreiben hochladen',
+            'anschreiben eingeben',
+            'anschreiben text'
+        ];
+        return terms.some(t => q.includes(t));
+    }
+
+    /**
+     * Try to get the user's full name from storage/user context
+     * @returns {Promise<string>} Full name or empty string
+     */
+    static async getUserFullName() {
+        try {
+            const result = await chrome.storage.local.get(['currentUser', 'userResumeData']);
+            const user = result.currentUser || {};
+            // Prefer explicit fullName, then first+last, then username
+            if (user.fullName && typeof user.fullName === 'string') return user.fullName.trim();
+            if (user.firstName || user.lastName) return `${user.firstName || ''} ${user.lastName || ''}`.trim();
+            // Try resume data common shapes
+            const resume = result.userResumeData || {};
+            if (resume.name && typeof resume.name === 'string') return resume.name.trim();
+            if (resume.basics && resume.basics.name) return String(resume.basics.name).trim();
+            if (user.username) return String(user.username).trim();
+        } catch (_) {}
+        return '';
+    }
+
+    /**
+     * Sanitize AI-generated cover letter text: remove headings, placeholders, and ensure proper signature
+     * @param {string} text
+     * @param {string} fullName
+     * @returns {string}
+     */
+    static sanitizeCoverLetter(text, fullName = '') {
+        if (!text || typeof text !== 'string') return text;
+        let cleaned = text.replace(/\r\n/g, '\n');
+
+        // Remove duplicate leading headings like "Cover letter"
+        cleaned = cleaned
+            .split('\n')
+            .filter((line, idx) => !(idx <= 2 && /^\s*cover\s*letter\s*$/i.test(line)))
+            .join('\n')
+            .trim();
+
+        // Replace common placeholders for name with actual full name, or remove if not available
+        const placeholderPatterns = [
+            /\[\s*your\s*name\s*\]/gi,
+            /\[\s*name\s*\]/gi,
+            /<\s*your\s*name\s*>/gi,
+            /\{\s*your\s*name\s*\}/gi,
+            /your name/gi,
+            /YOUR NAME/gi
+        ];
+
+        for (const re of placeholderPatterns) {
+            cleaned = cleaned.replace(re, fullName || '');
+        }
+
+        // If we ended up with trailing placeholder artifacts, clean multiple blank lines
+        cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+        // Optionally enforce signature policy: do not auto-append signature if name is unknown
+        // If the last non-empty line is a bare placeholder, drop it
+        const lines = cleaned.split('\n');
+        while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+        if (lines.length > 0) {
+            const last = lines[lines.length - 1].trim();
+            if (/^\[.*name.*\]$/.test(last.toLowerCase())) {
+                lines.pop();
+            }
+        }
+        cleaned = lines.join('\n');
+
+        return cleaned.trim();
     }
 
 
@@ -1327,7 +1468,13 @@ class LinkedInForm extends LinkedInBase {
         
         // Date constraints
         if (errorLower.includes('date') || errorLower.includes('datum')) {
-            constraint += ' Provide date in the correct format.';
+            // Detect explicit format hints like mm/dd/yyyy
+            const formatMatch = errorMessage.match(/m+\/?d+\/?y+/i);
+            if (formatMatch) {
+                constraint += ` Provide the date in ${formatMatch[0]} format.`;
+            } else {
+                constraint += ' Provide date in the correct format.';
+            }
         }
         
         // Email constraints

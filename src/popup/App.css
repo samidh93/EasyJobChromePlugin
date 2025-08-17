@@ -122,6 +122,22 @@
   background: white;
 }
 
+.tab-button.disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.tab-button.disabled:hover {
+  color: #9ca3af;
+  background: #f8fafc;
+}
+
+.lock-indicator {
+  font-size: 12px;
+  margin-left: 4px;
+}
+
 /* Tab Content */
 .tab-content {
   flex: 1;
@@ -130,6 +146,38 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* Tab Content Placeholder */
+.tab-content-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.placeholder-message {
+  text-align: center;
+  max-width: 300px;
+}
+
+.placeholder-message h3 {
+  margin: 16px 0 8px 0;
+  color: #374151;
+  font-size: 18px;
+}
+
+.placeholder-message p {
+  margin: 0 0 20px 0;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.placeholder-icon {
+  color: #9ca3af;
+  margin-bottom: 8px;
 }
 
 /* Login Section */
