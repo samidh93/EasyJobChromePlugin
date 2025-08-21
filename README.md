@@ -4,11 +4,42 @@ A Chrome extension that uses AI to automate LinkedIn job applications with a mod
 
 ## Features
 
-- **React Popup Dashboard**: Modern, responsive interface built with React 18
-- **AI-Powered Responses**: Uses Ollama for generating personalized job application responses
-- **Profile Management**: YAML-based profile configuration
-- **Conversation History**: Track AI conversations and responses
-- **LinkedIn Integration**: Seamless integration with LinkedIn job pages
+- **Smart Job Application Automation**: Automatically fills LinkedIn job application forms using AI-generated responses
+- **AI-Powered Resume Analysis**: Intelligent resume parsing and optimization for better job matching
+- **Advanced Job Filtering**: Set up custom filters using keywords, location, experience level, and company preferences
+- **Application Tracking**: Complete history of all applications sent with company details and status tracking
+- **AI Model Configuration**: Customize AI settings, choose models, and fine-tune response generation
+- **Profile Management**: YAML-based profile configuration for consistent application data
+- **Multi-Platform Support**: Works with LinkedIn, Indeed, and Stepstone job platforms
+- **Modern React Interface**: Responsive, user-friendly popup dashboard built with React 18
+
+## User Interface
+
+EasyJob provides an intuitive interface through several key tabs, each designed to streamline your job application process:
+
+### 🚀 Extension Dashboard
+![Extension Interface](assets/extension.jpeg)
+*The main extension popup that appears after successful installation, providing quick access to all features.*
+
+### 🔐 Login & Auto Apply
+![Login Interface](assets/login.jpeg)
+*Start your automated job application journey here. Configure your credentials and begin the auto-apply process with just one click.*
+
+### 📄 Resume Management
+![Resume Interface](assets/resume.jpeg)
+*Upload and manage your resume. The AI analyzes your resume to optimize job matching and application responses.*
+
+### ⚙️ AI Settings & Configuration
+![AI Settings Interface](assets/ai_settings.jpeg)
+*Configure AI models, customize response generation, and fine-tune the automation behavior to match your preferences.*
+
+### 🔍 Job Filters
+![Filters Interface](assets/filters.jpeg)
+*Set up intelligent job filters using keywords, location preferences, experience requirements, and company criteria to find the perfect opportunities.*
+
+### 📊 Applications History
+![Applications Interface](assets/applications.jpeg)
+*Track all your applications, view company information, and monitor the status of your job applications in one organized dashboard.*
 
 ## Project Structure
 
