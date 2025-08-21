@@ -59,7 +59,7 @@ EasyJob provides an intuitive interface through several key tabs, each designed 
 *Upload and manage your resume. The AI analyzes your resume to optimize job matching and application responses.*
 
 ### ⚙️ AI Settings & Configuration
-![AI Settings Interface](assets/ai_settings.jpeg)
+![AI Settings Interface](assets/Ai_settings.jpeg)
 *Configure AI models, customize response generation, and fine-tune the automation behavior to match your preferences.*
 
 ### 🔍 Job Filters
