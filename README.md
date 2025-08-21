@@ -5,7 +5,7 @@ A comprehensive Chrome extension that automates job applications across multiple
 ## 🚀 Features
 
 - **Multi-Platform Support**: Works with LinkedIn, Indeed, and Stepstone job platforms
-- **AI-Powered Automation**: Uses Ollama for generating personalized job application responses
+- **AI-Powered Automation**: Uses various AI models (OpenAI, Ollama, etc.) for generating personalized job application responses
 - **Smart Resume Management**: AI-powered resume parsing, analysis, and optimization
 - **Advanced Job Filtering**: Intelligent filtering using keywords, location, experience level, and company preferences
 - **Application Tracking**: Complete history of all applications with company details and status
@@ -39,7 +39,7 @@ EasyJob follows a modern, scalable architecture with clear separation of concern
 - **Background Scripts**: Chrome extension service workers for persistent functionality
 - **Content Scripts**: Platform-specific job page integration
 - **API Server**: Node.js backend with Express and PostgreSQL
-- **AI Engine**: Ollama integration for intelligent response generation
+- **AI Engine**: Flexible AI integration supporting multiple providers (OpenAI, Ollama, etc.) for intelligent response generation
 - **Database**: PostgreSQL with comprehensive schema for user data and applications
 
 ## 🖥️ User Interface
@@ -77,7 +77,7 @@ EasyJob provides an intuitive interface through several key tabs, each designed 
 - **Node.js 18+** - For the API server and build tools
 - **Docker & Docker Compose** - For database and services
 - **Chrome Browser** - For extension development and testing
-- **Ollama** - For AI features (can run locally or in Docker)
+- **AI Service** - Any AI provider (OpenAI, Ollama, etc.) for AI features
 
 ### Quick Start with Docker Compose
 
@@ -108,15 +108,16 @@ EasyJob provides an intuitive interface through several key tabs, each designed 
    npm run dev
    ```
 
-4. **Start Ollama (AI Service)**
+4. **Start AI Service (Optional)**
    ```bash
-   # Option 1: Docker
+   # Option 1: Use OpenAI (no setup needed - just configure in the app)
+   # Option 2: Ollama Docker
    docker-compose -f docker-compose_ollama.yml up -d
    
-   # Option 2: Native service (macOS)
+   # Option 3: Ollama Native service (macOS)
    ./scripts/start-ollama-service.sh start
    
-   # Option 3: Auto-start on boot
+   # Option 4: Ollama Auto-start on boot
    ./scripts/setup-ollama-autostart.sh
    ```
 
@@ -218,11 +219,13 @@ The PostgreSQL database includes comprehensive tables for:
 
 ## 🤖 AI Integration
 
-### Ollama Setup
-
-EasyJob integrates with Ollama for local AI processing:
+EasyJob supports multiple AI providers for flexible AI processing:
 
 ```bash
+# Option 1: OpenAI (Recommended for most users)
+# Just configure your API key in the AI Settings tab
+
+# Option 2: Ollama (Local AI processing)
 # Download models
 ollama pull qwen2.5:3b
 ollama pull llama2:7b
@@ -256,6 +259,8 @@ npm run build:all
 # Start all services
 docker-compose -f docker-compose-db.yml up -d
 docker-compose -f docker-compose-api.yml up -d
+
+# Optional: Start Ollama if using local AI
 docker-compose -f docker-compose_ollama.yml up -d
 ```
 
@@ -275,7 +280,7 @@ node test/AIQuestionAnswerer.test.js
 
 1. **Extension not loading**: Ensure `dist/` directory exists and contains built files
 2. **Database connection**: Verify PostgreSQL is running and accessible
-3. **AI not working**: Check Ollama service status and model availability
+3. **AI not working**: Check AI service configuration and API key validity
 4. **Build errors**: Clear `node_modules` and reinstall dependencies
 
 ### Debug Mode
