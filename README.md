@@ -1,19 +1,48 @@
-# EasyJob - LinkedIn Automation Chrome Extension
+# EasyJob - AI-Powered Job Application Automation
 
-A Chrome extension that uses AI to automate LinkedIn job applications with a modern React-based popup interface.
+A comprehensive Chrome extension that automates job applications across multiple platforms (LinkedIn, Indeed, Stepstone) using AI-powered responses, intelligent resume management, and advanced job filtering.
 
-## Features
+## 🚀 Features
 
-- **Smart Job Application Automation**: Automatically fills LinkedIn job application forms using AI-generated responses
-- **AI-Powered Resume Analysis**: Intelligent resume parsing and optimization for better job matching
-- **Advanced Job Filtering**: Set up custom filters using keywords, location, experience level, and company preferences
-- **Application Tracking**: Complete history of all applications sent with company details and status tracking
-- **AI Model Configuration**: Customize AI settings, choose models, and fine-tune response generation
-- **Profile Management**: YAML-based profile configuration for consistent application data
 - **Multi-Platform Support**: Works with LinkedIn, Indeed, and Stepstone job platforms
+- **AI-Powered Automation**: Uses Ollama for generating personalized job application responses
+- **Smart Resume Management**: AI-powered resume parsing, analysis, and optimization
+- **Advanced Job Filtering**: Intelligent filtering using keywords, location, experience level, and company preferences
+- **Application Tracking**: Complete history of all applications with company details and status
+- **AI Model Configuration**: Customize AI settings, choose models, and fine-tune response generation
 - **Modern React Interface**: Responsive, user-friendly popup dashboard built with React 18
+- **Database Backend**: PostgreSQL database with comprehensive data management
+- **RESTful API**: Node.js backend for data persistence and AI integration
 
-## User Interface
+## 🏗️ Architecture Overview
+
+EasyJob follows a modern, scalable architecture with clear separation of concerns:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Chrome Popup  │    │  Background     │    │   Content       │
+│   (React 18)    │◄──►│   Scripts       │◄──►│   Scripts       │
+│                 │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   REST API      │    │   Database      │    │   AI Services   │
+│   (Node.js)     │◄──►│  (PostgreSQL)   │◄──►│   (Ollama)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Core Components
+
+- **Frontend**: React-based popup interface with modern UI components
+- **Background Scripts**: Chrome extension service workers for persistent functionality
+- **Content Scripts**: Platform-specific job page integration
+- **API Server**: Node.js backend with Express and PostgreSQL
+- **AI Engine**: Ollama integration for intelligent response generation
+- **Database**: PostgreSQL with comprehensive schema for user data and applications
+
+## 🖥️ User Interface
 
 EasyJob provides an intuitive interface through several key tabs, each designed to streamline your job application process:
 
@@ -41,155 +70,234 @@ EasyJob provides an intuitive interface through several key tabs, each designed 
 ![Applications Interface](assets/applications.jpeg)
 *Track all your applications, view company information, and monitor the status of your job applications in one organized dashboard.*
 
-## Project Structure
-
-```
-├── src/
-│   ├── popup/              # React popup components
-│   │   ├── App.js          # Main React component
-│   │   ├── App.css         # Popup styling
-│   │   ├── index.js        # React entry point
-│   │   └── popup.html      # HTML template
-│   ├── background.js       # Chrome extension background script
-│   ├── content.js          # LinkedIn page content script
-│   ├── ai/                 # AI-related modules
-│   └── linkedin/           # LinkedIn-specific utilities
-├── dist/                   # Built extension files
-├── assets/                 # Extension icons and assets
-├── manifest.json           # Chrome extension manifest
-├── webpack.config.cjs      # Webpack configuration for React
-└── build.js               # Build script for extension files
-```
-
-## Development Setup
+## 🛠️ Development Setup
 
 ### Prerequisites
 
-- Node.js 16+
-- Chrome browser
-- Ollama running locally (optional, for AI features)
+- **Node.js 18+** - For the API server and build tools
+- **Docker & Docker Compose** - For database and services
+- **Chrome Browser** - For extension development and testing
+- **Ollama** - For AI features (can run locally or in Docker)
 
-### Installation
+### Quick Start with Docker Compose
 
-1. Clone the repository
-2. Install dependencies:
+1. **Clone and Setup**
    ```bash
+   git clone <repository-url>
+   cd EasyJob
    npm install
    ```
 
-3. Build the extension:
+2. **Start Database**
    ```bash
-   npm run build:all
+   # Start PostgreSQL and pgAdmin
+   cd docker
+   docker-compose -f docker-compose-db.yml up -d
+   
+   # Or use the convenience script
+   ./run-database.sh start
    ```
 
-### Build Scripts
+3. **Start API Server**
+   ```bash
+   # Start the Node.js API server
+   docker-compose -f docker-compose-api.yml up -d
+   
+   # Or run locally
+   cd ..
+   npm run dev
+   ```
 
-- `npm run build:all` - Build both extension and React popup (production)
-- `npm run build:dev` - Build both extension and React popup (development)
-- `npm run build` - Build only extension files (background, content scripts)
-- `npm run build:react` - Build only React popup (production)
-- `npm run build:react:dev` - Build only React popup (development)
-- `npm run watch:react` - Watch mode for React popup development
+4. **Start Ollama (AI Service)**
+   ```bash
+   # Option 1: Docker
+   docker-compose -f docker-compose_ollama.yml up -d
+   
+   # Option 2: Native service (macOS)
+   ./scripts/start-ollama-service.sh start
+   
+   # Option 3: Auto-start on boot
+   ./scripts/setup-ollama-autostart.sh
+   ```
 
-### Loading in Chrome
+5. **Build Extension**
+   ```bash
+   # Build all components
+   npm run build:all
+   
+   # Or build separately
+   npm run build          # Extension scripts
+   npm run build:react    # React popup
+   ```
 
-1. Open Chrome and navigate to `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked" and select the project root directory
-4. The extension will appear in your Chrome toolbar
+6. **Load in Chrome**
+   - Open `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked" and select the `dist/` directory
 
-## Usage
+### Environment Configuration
 
-### Profile Setup
-
-1. Click the extension icon to open the popup
-2. Go to the "Profile" tab
-3. Click "Download Example Profile" to get a template
-4. Fill in your information and save as a YAML file
-5. Click "Load Profile" to upload your profile
-
-### Job Application
-
-1. Navigate to a LinkedIn job posting
-2. Open the extension popup
-3. Ensure your profile is loaded
-4. Click "Start Auto Apply"
-5. The extension will automatically fill job application forms
-
-### AI Conversations
-
-1. Switch to the "AI Conversations" tab
-2. View previous AI interactions
-3. Filter by company, job, or specific questions
-4. Review generated responses
-
-## Technology Stack
-
-- **Frontend**: React 18, CSS3, Lucide React icons
-- **Build Tools**: Webpack 5, Babel, ESBuild
-- **Chrome APIs**: Storage, Tabs, Scripting, Notifications
-- **AI Integration**: Ollama local API
-- **Data Format**: YAML for profiles, JSON for storage
-
-## Architecture
-
-The extension uses a hybrid build system:
-- **Extension files** (background.js, content.js) are built with ESBuild
-- **React popup** is built with Webpack and Babel
-- Both systems output to the `dist/` directory
-
-## Development
-
-### React Popup Development
-
-For active development of the React popup:
+Copy the environment template and configure your settings:
 
 ```bash
-npm run watch:react
+cp docker/env.example docker/.env
+# Edit docker/.env with your preferred settings
 ```
 
-This will watch for changes and rebuild the popup automatically.
+### Database Access
 
-### Extension Development
+- **PostgreSQL**: `localhost:5432` (user: `easyjob_user`, db: `easyjob_db`)
+- **pgAdmin**: `http://localhost:8080` (admin@example.com / admin123)
 
-For extension script development:
+## 📁 Project Structure
+
+```
+EasyJob/
+├── src/
+│   ├── popup/              # React popup components and managers
+│   │   ├── managers/       # State management (Auth, AI, Resume, etc.)
+│   │   ├── App.js          # Main React component
+│   │   └── index.js        # React entry point
+│   ├── background/         # Chrome extension background scripts
+│   │   └── managers/       # Background service managers
+│   ├── content/            # Content scripts for job platforms
+│   ├── api/                # Node.js backend server
+│   ├── database/           # Database services and models
+│   ├── ai/                 # AI integration modules
+│   ├── platform/           # Platform-specific implementations
+│   │   ├── linkedin/       # LinkedIn automation
+│   │   ├── indeed/         # Indeed integration
+│   │   └── stepstone/      # Stepstone support
+│   └── libs/               # Third-party libraries
+├── docker/                 # Docker configurations and scripts
+├── scripts/                # Service management scripts
+├── assets/                 # UI screenshots and icons
+├── dist/                   # Built extension files
+└── build.js               # ESBuild configuration
+```
+
+## 🔧 Build System
+
+EasyJob uses a hybrid build system for optimal performance:
+
+### Extension Scripts (ESBuild)
+- **Background Scripts**: Service workers and background managers
+- **Content Scripts**: Platform integration scripts
+- **AI Modules**: AI-related functionality
+
+### React Popup (Webpack)
+- **Modern React 18**: With hooks and functional components
+- **CSS Modules**: Scoped styling for components
+- **Hot Reload**: Development-friendly build process
+
+### Build Commands
 
 ```bash
-npm run dev
+# Development builds
+npm run dev              # Build extension in development mode
+npm run build:react:dev  # Build React popup in development mode
+npm run watch:react      # Watch mode for React development
+
+# Production builds
+npm run build            # Build extension scripts
+npm run build:react      # Build React popup
+npm run build:all        # Build everything for production
 ```
 
-### Adding New Features
+## 🗄️ Database Schema
 
-1. For popup features: Add React components in `src/popup/`
-2. For extension features: Modify `src/background.js` or `src/content.js`
-3. For AI features: Update files in `src/ai/`
+The PostgreSQL database includes comprehensive tables for:
 
-## Security
+- **Users**: Authentication and profile management
+- **Resumes**: File storage and AI analysis
+- **Jobs**: Job postings from various platforms
+- **Applications**: User application tracking
+- **Companies**: Company information and details
+- **AI Settings**: User-specific AI configurations
+- **Filters**: Job search preferences and criteria
 
-- All data is stored locally using Chrome's storage API
-- No external servers are contacted except for Ollama (localhost)
-- Profile data is kept secure and never transmitted
+## 🤖 AI Integration
 
-## Troubleshooting
+### Ollama Setup
+
+EasyJob integrates with Ollama for local AI processing:
+
+```bash
+# Download models
+ollama pull qwen2.5:3b
+ollama pull llama2:7b
+ollama pull mistral:7b
+
+# Start Ollama service
+./scripts/start-ollama-service.sh start
+```
+
+### AI Features
+
+- **Smart Response Generation**: Context-aware job application responses
+- **Resume Analysis**: AI-powered resume optimization suggestions
+- **Question Classification**: Intelligent form question categorization
+- **Data Extraction**: Automated data extraction from job postings
+
+## 🚀 Deployment
+
+### Production Build
+
+```bash
+# Build all components
+npm run build:all
+
+# The dist/ directory contains the production-ready extension
+```
+
+### Docker Production
+
+```bash
+# Start all services
+docker-compose -f docker-compose-db.yml up -d
+docker-compose -f docker-compose-api.yml up -d
+docker-compose -f docker-compose_ollama.yml up -d
+```
+
+## 🧪 Testing
+
+```bash
+# Run tests
+npm test
+
+# Test specific components
+node test/AIQuestionAnswerer.test.js
+```
+
+## 🔍 Troubleshooting
 
 ### Common Issues
 
-1. **Extension not loading**: Check that `dist/` directory exists and contains built files
-2. **React popup not working**: Ensure `npm run build:react` completed successfully
-3. **Ollama connection issues**: Verify Ollama is running on localhost:11434
+1. **Extension not loading**: Ensure `dist/` directory exists and contains built files
+2. **Database connection**: Verify PostgreSQL is running and accessible
+3. **AI not working**: Check Ollama service status and model availability
+4. **Build errors**: Clear `node_modules` and reinstall dependencies
 
 ### Debug Mode
 
-Open Chrome DevTools while the popup is open to see console logs and debug React components.
+- **Extension**: Open DevTools while popup is open
+- **API Server**: Check logs in Docker or terminal
+- **Database**: Use pgAdmin at `http://localhost:8080`
 
-## Contributing
+## 📚 Additional Documentation
+
+- **Database Setup**: `docker/DATABASE_README.md`
+- **Docker Setup**: `docker/DOCKER_SETUP.md`
+- **Ollama Service**: `scripts/OLLAMA_SERVICE_GUIDE.md`
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
+3. Follow the existing code structure and naming conventions
+4. Test thoroughly with the Docker setup
 5. Submit a pull request
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License.
