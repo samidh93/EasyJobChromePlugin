@@ -6,7 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Import the UserService, ResumeService, AISettingsService, ApplicationService, CompanyService, JobService, QuestionsAnswersService and models
+// Import the UserService, ResumeService, AISettingsService, ApplicationService, CompanyService, JobService, QuestionsAnswersService, FilterService and models
 const UserService = require('./database/user-service.cjs');
 const ResumeService = require('./database/resume-service.cjs');
 const ResumeStructureService = require('./database/resume-structure-service.cjs');
@@ -15,7 +15,11 @@ const ApplicationService = require('./database/application-service.cjs');
 const CompanyService = require('./database/company-service.cjs');
 const JobService = require('./database/job-service.cjs');
 const QuestionsAnswersService = require('./database/questionsAnswers-service.cjs');
+const FilterService = require('./database/filter-service.cjs');
 const { User } = require('./database/models/index.cjs');
+
+// Initialize FilterService instance
+const filterService = new FilterService();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -2368,6 +2372,296 @@ app.get('/api/jobs/platform/:platform/:platformJobId/exists', async (req, res) =
         res.json({ success: true, exists });
     } catch (error) {
         console.error('Job exists by platform ID check error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ========================================
+// FILTER ENDPOINTS
+// ========================================
+
+// Get all filters for a user
+app.get('/api/users/:userId/filters', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        // Verify user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        const filters = await filterService.getFiltersByUserId(userId);
+        res.json({ 
+            success: true, 
+            data: filters,
+            count: filters.length
+        });
+    } catch (error) {
+        console.error('Get filters error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get active filters for a user
+app.get('/api/users/:userId/filters/active', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        // Verify user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        const filters = await filterService.getActiveFiltersByUserId(userId);
+        res.json({ 
+            success: true, 
+            data: filters,
+            count: filters.length
+        });
+    } catch (error) {
+        console.error('Get active filters error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get a specific filter by ID
+app.get('/api/filters/:filterId', async (req, res) => {
+    try {
+        const { filterId } = req.params;
+        
+        const filter = await filterService.getFilterById(filterId);
+        if (!filter) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Filter not found' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            data: filter
+        });
+    } catch (error) {
+        console.error('Get filter error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create a new filter
+app.post('/api/users/:userId/filters', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const filterData = req.body;
+        
+        // Verify user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        // Add user_id to filter data
+        filterData.user_id = userId;
+        
+        const newFilter = await filterService.createFilter(filterData);
+        res.status(201).json({ 
+            success: true, 
+            data: newFilter,
+            message: 'Filter created successfully'
+        });
+    } catch (error) {
+        console.error('Create filter error:', error);
+        
+        if (error.message.includes('Missing required field') || 
+            error.message.includes('Invalid type') ||
+            error.message.includes('Invalid action') ||
+            error.message.includes('Invalid match_type') ||
+            error.message.includes('Keywords must be an array') ||
+            error.message.includes('Keywords array cannot be empty')) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update an existing filter
+app.put('/api/filters/:filterId', async (req, res) => {
+    try {
+        const { filterId } = req.params;
+        const updateData = req.body;
+        
+        const updatedFilter = await filterService.updateFilter(filterId, updateData);
+        res.json({ 
+            success: true, 
+            data: updatedFilter,
+            message: 'Filter updated successfully'
+        });
+    } catch (error) {
+        console.error('Update filter error:', error);
+        
+        if (error.message.includes('Filter not found')) {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        
+        if (error.message.includes('Missing required field') || 
+            error.message.includes('Invalid type') ||
+            error.message.includes('Invalid action') ||
+            error.message.includes('Invalid match_type') ||
+            error.message.includes('Keywords must be an array') ||
+            error.message.includes('Keywords array cannot be empty')) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete a filter
+app.delete('/api/filters/:filterId', async (req, res) => {
+    try {
+        const { filterId } = req.params;
+        
+        const deleted = await filterService.deleteFilter(filterId);
+        if (!deleted) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Filter not found' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Filter deleted successfully' 
+        });
+    } catch (error) {
+        console.error('Delete filter error:', error);
+        
+        if (error.message.includes('Filter not found')) {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Toggle filter active status
+app.patch('/api/filters/:filterId/toggle', async (req, res) => {
+    try {
+        const { filterId } = req.params;
+        
+        const updatedFilter = await filterService.toggleFilterActive(filterId);
+        res.json({ 
+            success: true, 
+            data: updatedFilter,
+            message: `Filter ${updatedFilter.is_active ? 'activated' : 'deactivated'} successfully`
+        });
+    } catch (error) {
+        console.error('Toggle filter error:', error);
+        
+        if (error.message.includes('Filter not found')) {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update filter priority
+app.patch('/api/filters/:filterId/priority', async (req, res) => {
+    try {
+        const { filterId } = req.params;
+        const { priority } = req.body;
+        
+        if (typeof priority !== 'number' || priority < 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Priority must be a non-negative number' 
+            });
+        }
+        
+        const updatedFilter = await filterService.updateFilterPriority(filterId, priority);
+        res.json({ 
+            success: true, 
+            data: updatedFilter,
+            message: 'Filter priority updated successfully'
+        });
+    } catch (error) {
+        console.error('Update filter priority error:', error);
+        
+        if (error.message.includes('Filter not found')) {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Test filters against job data
+app.post('/api/users/:userId/filters/test', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const jobData = req.body;
+        
+        // Verify user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        // Validate job data
+        if (!jobData.job_title && !jobData.company_name && !jobData.job_description) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'At least one of job_title, company_name, or job_description must be provided' 
+            });
+        }
+
+        const testResult = await filterService.testFiltersAgainstJob(userId, jobData);
+        res.json({ 
+            success: true, 
+            data: testResult
+        });
+    } catch (error) {
+        console.error('Test filters error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get filter statistics for a user
+app.get('/api/users/:userId/filters/stats', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        // Verify user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'User not found' 
+            });
+        }
+
+        const stats = await filterService.getFilterStats(userId);
+        res.json({ 
+            success: true, 
+            data: stats
+        });
+    } catch (error) {
+        console.error('Get filter stats error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

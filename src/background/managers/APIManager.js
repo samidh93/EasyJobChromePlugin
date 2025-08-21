@@ -31,12 +31,16 @@ class APIManager {
         try {
             const { method, url, data } = request;
             
+            console.log('APIManager received request:', { method, url, data });
+            
             if (!this.DATABASE_AVAILABLE) {
                 sendResponse({ success: false, error: 'Database not available' });
                 return;
             }
 
             const apiUrl = `${this.API_BASE_URL}${url}`;
+            console.log('Making request to:', apiUrl);
+            
             const options = {
                 method: method,
                 headers: {
@@ -48,8 +52,11 @@ class APIManager {
                 options.body = JSON.stringify(data);
             }
 
+            console.log('Request options:', options);
             const response = await fetch(apiUrl, options);
             const result = await response.json();
+
+            console.log('API response:', { status: response.status, result });
 
             if (!response.ok) {
                 sendResponse({ success: false, error: result.error || 'API request failed' });

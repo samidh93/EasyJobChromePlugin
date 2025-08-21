@@ -7,21 +7,7 @@ class FiltersManager {
     };
     this.listeners = [];
     
-    // Initialize with mock data for testing
-    this.initializeMockData();
-  }
-
-  // Initialize with some mock filters for testing
-  initializeMockData() {
-    const storedFilters = localStorage.getItem('easyjob_filters');
-    if (!storedFilters) {
-      // Create default mock filters
-      const defaultFilters = this.getDefaultFilters();
-      localStorage.setItem('easyjob_filters', JSON.stringify(defaultFilters));
-      this.state.filters = defaultFilters;
-    } else {
-      this.state.filters = JSON.parse(storedFilters);
-    }
+    // No need to initialize mock data - will load from API
   }
 
   // Add a listener for state changes
@@ -44,12 +30,13 @@ class FiltersManager {
     this.notifyListeners();
   }
 
-  // Save filters to local storage
+  // Save filters to local storage (deprecated - now using API)
   saveToStorage() {
-    localStorage.setItem('easyjob_filters', JSON.stringify(this.state.filters));
+    // No longer needed - data is persisted via API
+    console.warn('saveToStorage is deprecated - data is now persisted via API');
   }
 
-  // Load filters for a user (mock implementation)
+  // Load filters for a user from API
   async loadFilters(userId) {
     if (!userId) {
       this.setState({ filters: [], loading: false, error: null });
@@ -59,20 +46,22 @@ class FiltersManager {
     this.setState({ loading: true, error: null });
 
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Load from local storage
-      const storedFilters = localStorage.getItem('easyjob_filters');
-      const filters = storedFilters ? JSON.parse(storedFilters) : [];
-      
-      this.setState({ 
-        filters, 
-        loading: false, 
-        error: null 
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'GET',
+        url: `/api/users/${userId}/filters`
       });
-      
-      return { success: true, filters };
+
+      if (response.success) {
+        this.setState({ 
+          filters: response.data, 
+          loading: false, 
+          error: null 
+        });
+        return { success: true, filters: response.data };
+      } else {
+        throw new Error(response.error || 'Failed to load filters');
+      }
     } catch (error) {
       console.error('Error loading filters:', error);
       this.setState({ 
@@ -83,7 +72,7 @@ class FiltersManager {
     }
   }
 
-  // Create a new filter (mock implementation)
+  // Create a new filter via API
   async createFilter(userId, filterData) {
     if (!userId) {
       return { success: false, error: 'No user ID provided' };
@@ -92,21 +81,30 @@ class FiltersManager {
     this.setState({ loading: true, error: null });
 
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      const newFilter = {
-        id: Date.now(), // Simple ID generation for mock
-        ...filterData,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      
-      const updatedFilters = [...this.state.filters, newFilter];
-      this.setState({ filters: updatedFilters, loading: false });
-      this.saveToStorage();
-      
-      return { success: true, filter: newFilter };
+      console.log('Sending API request:', {
+        action: 'apiRequest',
+        method: 'POST',
+        url: `/api/users/${userId}/filters`,
+        data: filterData
+      });
+
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'POST',
+        url: `/api/users/${userId}/filters`,
+        data: filterData
+      });
+
+      console.log('Received API response:', response);
+
+      if (response.success) {
+        const newFilter = response.data;
+        const updatedFilters = [...this.state.filters, newFilter];
+        this.setState({ filters: updatedFilters, loading: false });
+        return { success: true, filter: newFilter };
+      } else {
+        throw new Error(response.error || 'Failed to create filter');
+      }
     } catch (error) {
       console.error('Error creating filter:', error);
       this.setState({ 
@@ -117,7 +115,7 @@ class FiltersManager {
     }
   }
 
-  // Update an existing filter (mock implementation)
+  // Update an existing filter via API
   async updateFilter(userId, filterId, filterData) {
     if (!userId || !filterId) {
       return { success: false, error: 'Missing user ID or filter ID' };
@@ -126,19 +124,24 @@ class FiltersManager {
     this.setState({ loading: true, error: null });
 
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      const updatedFilters = this.state.filters.map(filter => 
-        filter.id === filterId 
-          ? { ...filter, ...filterData, updated_at: new Date().toISOString() }
-          : filter
-      );
-      
-      this.setState({ filters: updatedFilters, loading: false });
-      this.saveToStorage();
-      
-      return { success: true, filter: updatedFilters.find(f => f.id === filterId) };
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'PUT',
+        url: `/api/filters/${filterId}`,
+        data: filterData
+      });
+
+      if (response.success) {
+        const updatedFilter = response.data;
+        const updatedFilters = this.state.filters.map(filter => 
+          filter.id === filterId ? updatedFilter : filter
+        );
+        
+        this.setState({ filters: updatedFilters, loading: false });
+        return { success: true, filter: updatedFilter };
+      } else {
+        throw new Error(response.error || 'Failed to update filter');
+      }
     } catch (error) {
       console.error('Error updating filter:', error);
       this.setState({ 
@@ -149,7 +152,7 @@ class FiltersManager {
     }
   }
 
-  // Delete a filter (mock implementation)
+  // Delete a filter via API
   async deleteFilter(userId, filterId) {
     if (!userId || !filterId) {
       return { success: false, error: 'Missing user ID or filter ID' };
@@ -158,14 +161,19 @@ class FiltersManager {
     this.setState({ loading: true, error: null });
 
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      const updatedFilters = this.state.filters.filter(filter => filter.id !== filterId);
-      this.setState({ filters: updatedFilters, loading: false });
-      this.saveToStorage();
-      
-      return { success: true };
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'DELETE',
+        url: `/api/filters/${filterId}`
+      });
+
+      if (response.success) {
+        const updatedFilters = this.state.filters.filter(filter => filter.id !== filterId);
+        this.setState({ filters: updatedFilters, loading: false });
+        return { success: true };
+      } else {
+        throw new Error(response.error || 'Failed to delete filter');
+      }
     } catch (error) {
       console.error('Error deleting filter:', error);
       this.setState({ 
@@ -176,43 +184,68 @@ class FiltersManager {
     }
   }
 
-  // Test filters against a job (for preview/testing)
-  testFilters(jobData) {
+  // Test filters against a job using API
+  async testFilters(userId, jobData) {
+    if (!userId) {
+      return { success: false, error: 'No user ID provided' };
+    }
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'apiRequest',
+        method: 'POST',
+        url: `/api/users/${userId}/filters/test`,
+        data: jobData
+      });
+
+      if (response.success) {
+        return { success: true, data: response.data };
+      } else {
+        throw new Error(response.error || 'Failed to test filters');
+      }
+    } catch (error) {
+      console.error('Error testing filters:', error);
+      return { success: false, error: 'Failed to test filters' };
+    }
+  }
+
+  // Test filters against a job (local implementation for backward compatibility)
+  testFiltersLocal(jobData) {
     const { filters } = this.state;
     const results = {
       shouldApply: true,
       reasons: [],
-      matchedFilters: []
+      error: null
     };
 
     for (const filter of filters) {
-      if (!filter.isActive) continue;
+      if (!filter.is_active) continue;
 
       let matches = false;
       let matchReason = '';
 
       switch (filter.type) {
         case 'job_title':
-          matches = this.matchesText(jobData.title || '', filter.keywords, filter.matchType);
-          matchReason = `Job title ${filter.matchType === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
+          matches = this.matchesText(jobData.title || '', filter.keywords, filter.match_type);
+          matchReason = `Job title ${filter.match_type === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
           break;
         case 'company_name':
-          matches = this.matchesText(jobData.company || '', filter.keywords, filter.matchType);
-          matchReason = `Company name ${filter.matchType === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
+          matches = this.matchesText(jobData.company || '', filter.keywords, filter.match_type);
+          matchReason = `Company name ${filter.match_type === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
           break;
         case 'job_description':
-          matches = this.matchesText(jobData.description || '', filter.keywords, filter.matchType);
-          matchReason = `Job description ${filter.matchType === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
+          matches = this.matchesText(jobData.description || '', filter.keywords, filter.match_type);
+          matchReason = `Job description ${filter.match_type === 'contains' ? 'contains' : 'does not contain'} "${filter.keywords.join(', ')}"`;
           break;
       }
 
       if (matches) {
-        results.matchedFilters.push(filter);
         if (filter.action === 'block') {
           results.shouldApply = false;
-          results.reasons.push(`Blocked: ${matchReason}`);
+          results.reasons = [`Blocked: ${matchReason}`];
+          break; // Stop processing if blocked
         } else if (filter.action === 'allow') {
-          results.reasons.push(`Allowed: ${matchReason}`);
+          results.reasons = [`Allowed: ${matchReason}`];
         }
       }
     }
@@ -235,46 +268,11 @@ class FiltersManager {
     return false;
   }
 
-  // Get default filter templates
+  // Get default filter templates (deprecated - now using API)
   getDefaultFilters() {
-    return [
-      {
-        id: 1,
-        name: 'Frontend Developer',
-        type: 'job_title',
-        keywords: ['frontend', 'front-end', 'react', 'vue', 'angular'],
-        action: 'allow',
-        matchType: 'contains',
-        isActive: true,
-        description: 'Allow frontend development roles',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 2,
-        name: 'Block Consulting Companies',
-        type: 'company_name',
-        keywords: ['consulting', 'agency', 'outsourcing'],
-        action: 'block',
-        matchType: 'contains',
-        isActive: true,
-        description: 'Block consulting and agency companies',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: 3,
-        name: 'Remote Work Preferred',
-        type: 'job_description',
-        keywords: ['remote', 'work from home', 'telecommute'],
-        action: 'allow',
-        matchType: 'contains',
-        isActive: true,
-        description: 'Prefer remote work opportunities',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-    ];
+    // No longer needed - default filters are created via API
+    console.warn('getDefaultFilters is deprecated - default filters are now created via API');
+    return [];
   }
 }
 

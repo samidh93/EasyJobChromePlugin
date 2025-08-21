@@ -17,8 +17,8 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
     type: 'job_title',
     keywords: '',
     action: 'allow',
-    matchType: 'contains',
-    isActive: true,
+    match_type: 'contains',
+    is_active: true,
     description: ''
   });
 
@@ -74,8 +74,8 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
         type: editingFilter.type,
         keywords: editingFilter.keywords.join(', '),
         action: editingFilter.action,
-        matchType: editingFilter.matchType,
-        isActive: editingFilter.isActive,
+        match_type: editingFilter.match_type,
+        is_active: editingFilter.is_active,
         description: editingFilter.description
       });
     } else {
@@ -89,8 +89,8 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
       type: 'job_title',
       keywords: '',
       action: 'allow',
-      matchType: 'contains',
-      isActive: true,
+      match_type: 'contains',
+      is_active: true,
       description: ''
     });
   };
@@ -151,27 +151,67 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
   };
 
   const handleToggleActive = async (filter) => {
-    const updatedFilter = { ...filter, isActive: !filter.isActive };
+    const updatedFilter = { ...filter, is_active: !filter.is_active };
     const result = await filtersManager.updateFilter(currentUser.id, filter.id, updatedFilter);
     if (result.success) {
       if (onFiltersUpdate) onFiltersUpdate();
     }
   };
 
-  const handleTestFilters = () => {
+  const handleTestFilters = async () => {
     if (!testForm.title.trim() && !testForm.company.trim() && !testForm.description.trim()) {
       setStatusMessage('Please enter at least one field to test');
       setTimeout(() => setStatusMessage(''), 3000);
       return;
     }
 
-    const results = filtersManager.testFilters(testForm);
-    setTestResults(results);
-    setShowTestForm(false);
+    const jobData = {
+      job_title: testForm.title,
+      company_name: testForm.company,
+      job_description: testForm.description
+    };
+
+    const result = await filtersManager.testFilters(currentUser.id, jobData);
+    if (result.success) {
+      setTestResults(result.data);
+      setShowTestForm(false);
+    } else {
+      setStatusMessage(result.error || 'Failed to test filters');
+      setTimeout(() => setStatusMessage(''), 3000);
+    }
   };
 
   const addDefaultFilters = async () => {
-    const defaultFilters = filtersManager.getDefaultFilters();
+    const defaultFilters = [
+      {
+        name: 'Frontend Developer',
+        type: 'job_title',
+        keywords: ['frontend', 'front-end', 'react', 'vue', 'angular'],
+        action: 'allow',
+        match_type: 'contains',
+        is_active: true,
+        description: 'Allow frontend development roles'
+      },
+      {
+        name: 'Block Consulting Companies',
+        type: 'company_name',
+        keywords: ['consulting', 'agency', 'outsourcing'],
+        action: 'block',
+        match_type: 'contains',
+        is_active: true,
+        description: 'Block consulting and agency companies'
+      },
+      {
+        name: 'Remote Work Preferred',
+        type: 'job_description',
+        keywords: ['remote', 'work from home', 'telecommute'],
+        action: 'allow',
+        match_type: 'contains',
+        is_active: true,
+        description: 'Prefer remote work opportunities'
+      }
+    ];
+
     let successCount = 0;
     
     for (const filter of defaultFilters) {
@@ -255,7 +295,7 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
           </div>
         ) : (
           filters.map((filter) => (
-            <div key={filter.id} className={`filter-item ${!filter.isActive ? 'inactive' : ''}`}>
+            <div key={filter.id} className={`filter-item ${!filter.is_active ? 'inactive' : ''}`}>
               <div className="filter-header">
                 <div className="filter-info">
                   <div className="filter-icon">
@@ -268,11 +308,11 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
                 </div>
                 <div className="filter-actions">
                   <button
-                    className={`action-button ${filter.isActive ? 'active' : 'inactive'}`}
-                    onClick={() => handleToggleActive(filter)}
-                    title={filter.isActive ? 'Deactivate filter' : 'Activate filter'}
-                  >
-                    {filter.isActive ? <Pause size={16} /> : <Play size={16} />}
+                                    className={`action-button ${filter.is_active ? 'active' : 'inactive'}`}
+                onClick={() => handleToggleActive(filter)}
+                title={filter.is_active ? 'Deactivate filter' : 'Activate filter'}
+              >
+                {filter.is_active ? <Pause size={16} /> : <Play size={16} />}
                   </button>
                   <button
                     className="action-button edit"
@@ -305,7 +345,7 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
                 </div>
                 <div className="filter-rule">
                   <span className="rule-label">Match:</span>
-                  <span className="rule-value">{MATCH_TYPES.find(mt => mt.value === filter.matchType)?.label}</span>
+                  <span className="rule-value">{MATCH_TYPES.find(mt => mt.value === filter.match_type)?.label}</span>
                 </div>
                 <div className="filter-rule">
                   <span className="rule-label">Action:</span>
@@ -400,8 +440,8 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
                   <label htmlFor="filter-match-type">Match Type *</label>
                   <select
                     id="filter-match-type"
-                    value={filterForm.matchType}
-                    onChange={(e) => setFilterForm(prev => ({ ...prev, matchType: e.target.value }))}
+                    value={filterForm.match_type}
+                                          onChange={(e) => setFilterForm(prev => ({ ...prev, match_type: e.target.value }))}
                     required
                   >
                     {MATCH_TYPES.map(type => (
@@ -418,8 +458,8 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
                     <input
                       id="filter-active"
                       type="checkbox"
-                      checked={filterForm.isActive}
-                      onChange={(e) => setFilterForm(prev => ({ ...prev, isActive: e.target.checked }))}
+                      checked={filterForm.is_active}
+                                              onChange={(e) => setFilterForm(prev => ({ ...prev, is_active: e.target.checked }))}
                     />
                     <label htmlFor="filter-active">Active</label>
                   </div>
@@ -550,14 +590,14 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
             </div>
             
             <div className="test-results">
-              <div className={`result-summary ${testResults.shouldApply ? 'allowed' : 'blocked'}`}>
+              <div className={`result-summary ${testResults.decision === 'allow' ? 'allowed' : 'blocked'}`}>
                 <div className="result-icon">
-                  {testResults.shouldApply ? <Check size={24} /> : <X size={24} />}
+                  {testResults.decision === 'allow' ? <Check size={24} /> : <X size={24} />}
                 </div>
                 <div className="result-text">
-                  <h4>Application {testResults.shouldApply ? 'Allowed' : 'Blocked'}</h4>
+                  <h4>Application {testResults.decision === 'allow' ? 'Allowed' : 'Blocked'}</h4>
                   <p>
-                    {testResults.shouldApply 
+                    {testResults.decision === 'allow'
                       ? 'This job passes all your filters and would be allowed for application.'
                       : 'This job was blocked by one or more of your filters.'
                     }
@@ -565,26 +605,20 @@ const FiltersComponent = ({ currentUser, onFiltersUpdate }) => {
                 </div>
               </div>
 
-              {testResults.reasons.length > 0 && (
+              {testResults.reason && (
                 <div className="result-details">
                   <h5>Filter Results:</h5>
-                  <ul className="result-reasons">
-                    {testResults.reasons.map((reason, index) => (
-                      <li key={index} className="result-reason">
-                        {reason}
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="result-reason">{testResults.reason}</p>
                 </div>
               )}
 
-              {testResults.matchedFilters.length > 0 && (
+              {testResults.matchedFilters && testResults.matchedFilters.length > 0 && (
                 <div className="result-details">
                   <h5>Matched Filters:</h5>
                   <div className="matched-filters">
                     {testResults.matchedFilters.map((filter, index) => (
                       <div key={index} className="matched-filter">
-                        <span className="filter-name">{filter.name}</span>
+                        <span className="filter-name">{filter.filterName}</span>
                         <span className={`filter-action ${getActionColor(filter.action)}`}>
                           {filter.action === 'allow' ? '✓ Allow' : '✗ Block'}
                         </span>
