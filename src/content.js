@@ -42,12 +42,28 @@ window.testContentScript = function() {
 
 // Handle multi-tab auto-apply workflow
 async function handleMultiTabAutoApply(platform) {
-  debugLog('Starting multi-tab auto-apply workflow');
+  debugLog('Starting multi-tab auto-apply workflow for ' + platform.getPlatformName());
   
-  // For now, fall back to standard auto-apply
-  // TODO: Implement full multi-tab coordination
-  debugLog('Multi-tab workflow not yet implemented, falling back to standard workflow');
-  await platform.startAutoApply();
+  try {
+    // Import TabManager dynamically
+    const TabManager = (await import('./utils/TabManager.js')).default;
+    
+    // Get current tab (this is the main search results tab)
+    const mainTab = await TabManager.getCurrentTab();
+    const mainTabId = mainTab.id;
+    debugLog(`Main search tab ID: ${mainTabId}`);
+    
+    // Store main tab ID globally for later reference
+    window.mainSearchTabId = mainTabId;
+    
+    // Start the multi-tab auto-apply process
+    await platform.startAutoApply();
+    
+  } catch (error) {
+    console.error('[Content Script] Error in multi-tab workflow:', error);
+    sendStatusUpdate(`Multi-tab workflow error: ${error.message}`, 'error');
+    throw error;
+  }
 }
 
 // Main auto-apply function
@@ -156,6 +172,32 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
                         sendResponse({ success: true, message: 'Auto apply stopped' });
                     } else if (message.action === 'GET_STATE') {
                         sendResponse({ isRunning: isAutoApplyRunning });
+                    } else if (message.action === 'processJobInTab') {
+                        // Handle job processing in the job detail tab
+                        console.log('[Content Script] Processing job in tab:', message.jobInfo);
+                        
+                        // Dynamically import StepstoneJobPage
+                        import('./stepstone/StepstoneJobPage.js').then(module => {
+                            const StepstoneJobPage = module.default;
+                            
+                            // Process the job
+                            StepstoneJobPage.processJobInTab(
+                                message.jobInfo,
+                                message.userData,
+                                message.aiSettings
+                            ).then(result => {
+                                console.log('[Content Script] Job processing result:', result);
+                                sendResponse(result);
+                            }).catch(error => {
+                                console.error('[Content Script] Error processing job in tab:', error);
+                                sendResponse({ result: 'error', reason: error.message });
+                            });
+                        }).catch(error => {
+                            console.error('[Content Script] Error importing StepstoneJobPage:', error);
+                            sendResponse({ result: 'error', reason: 'Failed to load StepstoneJobPage' });
+                        });
+                        
+                        return true; // Keep channel open for async response
                     } else {
                         // Handle legacy message format for backward compatibility
                         if (message.action === 'START_AUTO_APPLY') {

@@ -85,6 +85,18 @@ class BackgroundManager {
                 // Handle status updates and process completion
                 console.log('Received status update:', request);
                 sendResponse({ success: true, message: 'Status update received' });
+            } else if (action === 'openNewTab') {
+                await this.handleOpenNewTab(request, sendResponse);
+            } else if (action === 'closeTab') {
+                await this.handleCloseTab(request, sendResponse);
+            } else if (action === 'switchToTab') {
+                await this.handleSwitchToTab(request, sendResponse);
+            } else if (action === 'getCurrentTab') {
+                await this.handleGetCurrentTab(request, sendResponse);
+            } else if (action === 'getTabStatus') {
+                await this.handleGetTabStatus(request, sendResponse);
+            } else if (action === 'trackApplication') {
+                await this.handleTrackApplication(request, sendResponse);
             } else {
                 console.warn('Unknown action received:', action);
                 sendResponse({ success: false, error: `Unknown action: ${action}` });
@@ -215,6 +227,133 @@ class BackgroundManager {
 
         } catch (error) {
             console.error('Error getting platform info:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle opening a new tab
+     */
+    async handleOpenNewTab(request, sendResponse) {
+        try {
+            const { url, active = true } = request;
+            
+            if (!url) {
+                sendResponse({ success: false, error: 'URL is required' });
+                return;
+            }
+
+            const tab = await chrome.tabs.create({ url, active });
+            console.log('New tab created:', tab);
+            sendResponse({ success: true, tab: { id: tab.id, windowId: tab.windowId } });
+        } catch (error) {
+            console.error('Error opening new tab:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle closing a tab
+     */
+    async handleCloseTab(request, sendResponse) {
+        try {
+            const { tabId } = request;
+            
+            if (!tabId) {
+                sendResponse({ success: false, error: 'Tab ID is required' });
+                return;
+            }
+
+            await chrome.tabs.remove(tabId);
+            console.log('Tab closed:', tabId);
+            sendResponse({ success: true });
+        } catch (error) {
+            console.error('Error closing tab:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle switching to a tab
+     */
+    async handleSwitchToTab(request, sendResponse) {
+        try {
+            const { tabId } = request;
+            
+            if (!tabId) {
+                sendResponse({ success: false, error: 'Tab ID is required' });
+                return;
+            }
+
+            await chrome.tabs.update(tabId, { active: true });
+            console.log('Switched to tab:', tabId);
+            sendResponse({ success: true });
+        } catch (error) {
+            console.error('Error switching to tab:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle getting current tab
+     */
+    async handleGetCurrentTab(request, sendResponse) {
+        try {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+            if (tabs.length === 0) {
+                sendResponse({ success: false, error: 'No active tab found' });
+                return;
+            }
+
+            const tab = tabs[0];
+            sendResponse({ success: true, tab: { id: tab.id, windowId: tab.windowId, url: tab.url } });
+        } catch (error) {
+            console.error('Error getting current tab:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle getting tab status
+     */
+    async handleGetTabStatus(request, sendResponse) {
+        try {
+            const { tabId } = request;
+            
+            if (!tabId) {
+                sendResponse({ success: false, error: 'Tab ID is required' });
+                return;
+            }
+
+            const tab = await chrome.tabs.get(tabId);
+            sendResponse({ success: true, status: tab.status, url: tab.url });
+        } catch (error) {
+            console.error('Error getting tab status:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle tracking application
+     */
+    async handleTrackApplication(request, sendResponse) {
+        try {
+            const { data } = request;
+            
+            if (!data) {
+                sendResponse({ success: false, error: 'Application data is required' });
+                return;
+            }
+
+            // Log the application tracking data
+            console.log('Application tracked:', data);
+            
+            // TODO: Store in database or send to API
+            // For now, just acknowledge receipt
+            sendResponse({ success: true, message: 'Application tracked successfully' });
+        } catch (error) {
+            console.error('Error tracking application:', error);
             sendResponse({ success: false, error: error.message });
         }
     }

@@ -456,10 +456,39 @@ class StepstoneJobInfo {
             if (titleElement) {
                 jobInfo.title = titleElement.textContent.trim();
                 
-                // Extract job URL
+                // Extract job URL - titleElement is usually an <a> tag
                 const jobUrl = titleElement.getAttribute('href');
                 if (jobUrl) {
-                    jobInfo.url = jobUrl.startsWith('http') ? jobUrl : `https://www.stepstone.de${jobUrl}`;
+                    // Ensure URL is absolute
+                    if (jobUrl.startsWith('http')) {
+                        jobInfo.url = jobUrl;
+                    } else if (jobUrl.startsWith('/')) {
+                        jobInfo.url = `https://www.stepstone.de${jobUrl}`;
+                    } else {
+                        jobInfo.url = `https://www.stepstone.de/${jobUrl}`;
+                    }
+                }
+            }
+            
+            // Fallback: try to find any link in the job element if URL not found
+            if (!jobInfo.url) {
+                const linkSelectors = [
+                    'a[href*="/job/"]',
+                    'a[href*="/stelle/"]',
+                    'a[data-testid*="job"]',
+                    'a'
+                ];
+                
+                for (const selector of linkSelectors) {
+                    const link = jobElement.querySelector(selector);
+                    if (link) {
+                        const href = link.getAttribute('href');
+                        if (href && (href.includes('/job/') || href.includes('/stelle/'))) {
+                            jobInfo.url = href.startsWith('http') ? href : `https://www.stepstone.de${href}`;
+                            console.log('[StepstoneJobInfo] Found URL via fallback:', jobInfo.url);
+                            break;
+                        }
+                    }
                 }
             }
             
