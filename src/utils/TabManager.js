@@ -211,12 +211,18 @@ class TabManager {
             console.log(`[TabManager] Sending message to tab ${tabId}:`, message);
             
             return new Promise((resolve, reject) => {
-                chrome.tabs.sendMessage(tabId, message, (response) => {
+                chrome.runtime.sendMessage({
+                    action: 'sendMessageToTab',
+                    tabId: tabId,
+                    message: message
+                }, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('[TabManager] Error sending message:', chrome.runtime.lastError);
                         reject(new Error(chrome.runtime.lastError.message));
+                    } else if (response && response.success) {
+                        resolve(response.response);
                     } else {
-                        resolve(response);
+                        reject(new Error(response?.error || 'Failed to send message to tab'));
                     }
                 });
             });

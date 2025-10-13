@@ -178,10 +178,7 @@ class StepstoneJobInfo {
                 '.requirements',
                 '[class*="requirement"]',
                 '[class*="qualification"]',
-                '[class*="skill"]',
-                'section:contains("Anforderungen")',
-                'section:contains("Qualifikation")',
-                'div:contains("Sie bringen mit")'
+                '[class*="skill"]'
             ];
             
             for (const selector of requirementSelectors) {
@@ -212,9 +209,7 @@ class StepstoneJobInfo {
                 '[data-testid="salary"]',
                 '.salary',
                 '[class*="salary"]',
-                '[class*="gehalt"]',
-                'span:contains("€")',
-                'div:contains("€")'
+                '[class*="gehalt"]'
             ];
             
             for (const selector of salarySelectors) {
@@ -355,9 +350,7 @@ class StepstoneJobInfo {
                 '[data-testid="benefits"]',
                 '.benefits',
                 '[class*="benefit"]',
-                '[class*="vorteile"]',
-                'section:contains("Benefits")',
-                'section:contains("Vorteile")'
+                '[class*="vorteile"]'
             ];
             
             const benefits = [];

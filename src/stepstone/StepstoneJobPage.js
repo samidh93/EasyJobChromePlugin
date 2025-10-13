@@ -152,9 +152,9 @@ class StepstoneJobPage {
                 return 'skipped';
             }
             
-            // Open job in new tab
+            // Open job in new tab and switch to it immediately
             console.log('[StepstoneJobPage] Opening job in new tab...');
-            jobTab = await TabManager.openNewTab(jobInfo.url, true);
+            jobTab = await TabManager.openNewTab(jobInfo.url, true); // Open and activate immediately
             
             if (!jobTab || !jobTab.id) {
                 console.log('[StepstoneJobPage] Failed to open job tab');
@@ -162,57 +162,150 @@ class StepstoneJobPage {
             }
             
             console.log(`[StepstoneJobPage] Job opened in tab ${jobTab.id}`);
+            console.log('[StepstoneJobPage] ✅ Switched to job tab - staying here until completion or timeout');
             
-            // Wait for the job page to load completely
-            await TabManager.waitForTabLoad(jobTab.id, 30000);
-            console.log('[StepstoneJobPage] Job page loaded');
+            // Wait for tab to initialize
+            await this.wait(3000);
+            
+            // Try to wait for the job page to load completely  
+            try {
+                await TabManager.waitForTabLoad(jobTab.id, 30000);
+                console.log('[StepstoneJobPage] Job page loaded successfully');
+            } catch (loadError) {
+                console.error('[StepstoneJobPage] Error waiting for tab load:', loadError.message);
+                console.log('[StepstoneJobPage] Tab may have closed, been blocked, or redirected externally');
+                // Close tab and return to main
+                await TabManager.closeTab(jobTab.id);
+                await TabManager.switchToTab(mainTabId);
+                return 'error';
+            }
             
             // Additional wait to ensure all dynamic content is loaded
             await this.wait(3000);
+            console.log('[StepstoneJobPage] Finished waiting for dynamic content');
             
             // Check if stop was requested
             if (await shouldStop(isAutoApplyRunning)) {
+                console.log('[StepstoneJobPage] Stop requested - closing job tab and returning to main');
                 await TabManager.closeTab(jobTab.id);
                 await TabManager.switchToTab(mainTabId);
                 return 'stopped';
             }
             
-            // Send message to job tab to process the application
+            // Check if we're already on an application page
+            try {
+                const currentTab = await TabManager.getCurrentTab();
+                if (currentTab && currentTab.url && currentTab.url.includes('/application/')) {
+                    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                    console.log('📍 [StepstoneJobPage] Already on application page');
+                    console.log('   The form process will continue automatically');
+                    console.log('   Staying on job tab until completion (3 min timeout)');
+                    console.log('   URL:', currentTab.url);
+                    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                    
+                    // Wait for auto-process to complete (3 minutes max)
+                    const maxWait = 180000; // 3 minutes
+                    await this.wait(Math.min(maxWait, 5000));
+                    
+                    // Close tab and return to main
+                    console.log('[StepstoneJobPage] Form processing complete - closing job tab');
+                    await TabManager.closeTab(jobTab.id);
+                    await TabManager.switchToTab(mainTabId);
+                    console.log('[StepstoneJobPage] ✅ Returned to main search tab');
+                    return 'success';
+                }
+            } catch (urlCheckError) {
+                console.log('⚠️  Could not check current URL, proceeding with normal flow');
+            }
+            
+            // Send message to job tab to process the application with retry
             console.log('[StepstoneJobPage] Sending process message to job tab...');
+            console.log('[StepstoneJobPage] Target tab ID:', jobTab.id);
+            console.log('[StepstoneJobPage] Message payload:', {
+                action: 'processJobInTab',
+                jobTitle: jobInfo.title
+            });
+            
+            let response = null;
+            let lastError = null;
+            
+            // Try up to 3 times to send the message
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    console.log(`[StepstoneJobPage] Attempt ${attempt} to send message...`);
+                    
+                    response = await TabManager.sendMessageToTab(jobTab.id, {
+                        action: 'processJobInTab',
+                        jobInfo: jobInfo,
+                        userData: window.currentUserData,
+                        aiSettings: window.currentAiSettings
+                    });
+                    
+                    console.log(`[StepstoneJobPage] Message sent successfully on attempt ${attempt}`);
+                    break; // Success, exit retry loop
+                    
+                } catch (error) {
+                    lastError = error;
+                    console.error(`[StepstoneJobPage] Attempt ${attempt} failed:`, error.message);
+                    
+                    if (attempt < 3) {
+                        console.log(`[StepstoneJobPage] Retrying in ${attempt} second(s)...`);
+                        await this.wait(attempt * 1000);
+                    }
+                }
+            }
+            
+            if (!response) {
+                console.error('[StepstoneJobPage] Failed to send message after 3 attempts');
+                console.error('[StepstoneJobPage] Last error:', lastError);
+                throw new Error(`Failed to communicate with job tab: ${lastError?.message}`);
+            }
             
             try {
-                const response = await TabManager.sendMessageToTab(jobTab.id, {
-                    action: 'processJobInTab',
-                    jobInfo: jobInfo,
-                    userData: window.currentUserData,
-                    aiSettings: window.currentAiSettings
-                });
-                
                 console.log('[StepstoneJobPage] Received response from job tab:', response);
+                console.log('[StepstoneJobPage] Response details:', JSON.stringify(response, null, 2));
+                
+                // Wait for form processing to complete with 3-minute timeout
+                console.log('[StepstoneJobPage] ⏱️  Waiting for form processing (3 min timeout)...');
+                console.log('[StepstoneJobPage] Staying on job tab until completion');
+                
+                const timeout = 180000; // 3 minutes
+                const startTime = Date.now();
+                
+                // Wait for completion or timeout
+                await new Promise(resolve => setTimeout(resolve, timeout));
+                
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                console.log(`[StepstoneJobPage] ⏱️  Processing time: ${elapsed}s`);
                 
                 // Close the job tab after processing
-                await this.wait(2000); // Brief wait to see the result
+                console.log('[StepstoneJobPage] 🔒 Closing job tab');
                 await TabManager.closeTab(jobTab.id);
                 
                 // Switch back to main search tab
+                console.log('[StepstoneJobPage] 🔄 Switching back to main search tab');
                 await TabManager.switchToTab(mainTabId);
                 await this.wait(1000);
                 
+                console.log('[StepstoneJobPage] ✅ Returned to main tab - ready for next job');
                 return response?.result || 'error';
                 
             } catch (messageError) {
                 console.error('[StepstoneJobPage] Error communicating with job tab:', messageError);
                 
-                // Try to close the job tab
+                // Close tab and return to main on error
+                console.log('[StepstoneJobPage] ❌ Error occurred - cleaning up');
+                
                 try {
                     await TabManager.closeTab(jobTab.id);
+                    console.log('[StepstoneJobPage] Job tab closed');
                 } catch (closeError) {
                     console.error('[StepstoneJobPage] Error closing job tab:', closeError);
                 }
                 
-                // Switch back to main tab
                 try {
                     await TabManager.switchToTab(mainTabId);
+                    console.log('[StepstoneJobPage] Returned to main tab');
                 } catch (switchError) {
                     console.error('[StepstoneJobPage] Error switching to main tab:', switchError);
                 }
@@ -223,10 +316,13 @@ class StepstoneJobPage {
         } catch (error) {
             console.error('[StepstoneJobPage] Error processing job:', error);
             
+            console.log('[StepstoneJobPage] ❌ Error occurred - cleaning up');
+            
             // Cleanup: close job tab if it was opened
             if (jobTab && jobTab.id) {
                 try {
                     await TabManager.closeTab(jobTab.id);
+                    console.log('[StepstoneJobPage] Job tab closed after error');
                 } catch (closeError) {
                     console.error('[StepstoneJobPage] Error closing job tab during cleanup:', closeError);
                 }
@@ -236,6 +332,7 @@ class StepstoneJobPage {
             if (mainTabId) {
                 try {
                     await TabManager.switchToTab(mainTabId);
+                    console.log('[StepstoneJobPage] Returned to main tab after error');
                 } catch (switchError) {
                     console.error('[StepstoneJobPage] Error switching to main tab during cleanup:', switchError);
                 }
@@ -256,9 +353,31 @@ class StepstoneJobPage {
     static async processJobInTab(jobInfo, userData, aiSettings) {
         try {
             console.log('[StepstoneJobPage] Processing job in tab:', jobInfo.title);
+            console.log('[StepstoneJobPage] Current URL:', window.location.href);
             
-            // Wait for page to be fully loaded
-            await this.wait(2000);
+            // Check if we're already on an application page (after clicking "Bewerbung fortsetzen")
+            if (window.location.href.includes('/application/')) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('📍 [StepstoneJobPage] Already on application page');
+                console.log('   The form process will continue automatically');
+                console.log('   Returning success to avoid duplicate processing');
+                console.log('   URL:', window.location.href);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                return { result: 'success', reason: 'Auto-process handling application' };
+            }
+            
+            // Wait for page to be fully loaded and interactive
+            console.log('[StepstoneJobPage] Waiting for page to be fully loaded...');
+            await this.wait(3000);
+            
+            // Additional check: wait for page readyState
+            let attempts = 0;
+            while (document.readyState !== 'complete' && attempts < 10) {
+                console.log('[StepstoneJobPage] Page not complete yet, waiting... (attempt', attempts + 1, ')');
+                await this.wait(500);
+                attempts++;
+            }
+            console.log('[StepstoneJobPage] Page readyState:', document.readyState);
             
             // Extract detailed job information from the current page
             const detailedJobInfo = await StepstoneJobInfo.extractJobInfo();
@@ -266,58 +385,66 @@ class StepstoneJobPage {
             
             console.log('[StepstoneJobPage] Extracted detailed job info');
             
-            // Check if application form is available / find "I'm interested" button
-            const applyButton = await this.findApplyButton();
+            // Check if application form is available / find apply button
+            console.log('[StepstoneJobPage] Looking for apply button...');
+            console.log('[StepstoneJobPage] Searching for button[data-testid="harmonised-apply-button"]');
+            const buttonResult = await this.findApplyButton();
             
-            if (!applyButton) {
+            if (!buttonResult) {
+                console.log('[StepstoneJobPage] Error finding apply button for:', finalJobInfo.title);
+                return { result: 'error', reason: 'Error finding apply button' };
+            }
+            
+            // Check if already applied
+            if (buttonResult.alreadyApplied) {
+                console.log('[StepstoneJobPage] Job already applied for:', finalJobInfo.title);
+                console.log('[StepstoneJobPage] Returning skipped response (already applied)');
+                return { result: 'skipped', reason: 'Already applied' };
+            }
+            
+            // Check if button was found
+            if (!buttonResult.button) {
                 console.log('[StepstoneJobPage] No apply button found for:', finalJobInfo.title);
-                return { result: 'skipped', reason: 'No apply button found' };
+                console.log('[StepstoneJobPage] Reason:', buttonResult.reason || 'Unknown');
+                return { result: 'skipped', reason: buttonResult.reason || 'No apply button found' };
             }
             
-            // Click the apply button ("Ich bin interessiert" / "I'm interested")
+            console.log('[StepstoneJobPage] Apply button found and enabled!');
+            
+            // Store current URL before clicking
+            const currentUrl = window.location.href;
+            console.log('[StepstoneJobPage] Current URL before click:', currentUrl);
+            
+            // Click the apply button ("Jetzt bewerben" / "Apply now")
             console.log('[StepstoneJobPage] Clicking apply button...');
-            applyButton.click();
+            buttonResult.button.click();
             
-            // Wait for form to appear
-            await this.wait(3000);
+            // Wait for URL to change (form loads on different URL)
+            console.log('[StepstoneJobPage] Waiting for form page to load...');
+            const urlChanged = await this.waitForUrlChange(currentUrl, 10000);
             
-            // Check if application form is available
-            const formAvailable = await StepstoneForm.isApplicationFormAvailable();
-            
-            if (!formAvailable) {
-                console.log('[StepstoneJobPage] No application form available for:', finalJobInfo.title);
-                return { result: 'skipped', reason: 'No application form available' };
+            if (!urlChanged) {
+                console.log('[StepstoneJobPage] URL did not change after clicking apply button');
+                return { result: 'error', reason: 'Form page did not load' };
             }
             
-            // Fill application form
-            const formFilled = await StepstoneForm.fillApplicationForm(finalJobInfo, userData);
+            console.log('[StepstoneJobPage] Application page loaded, new URL:', window.location.href);
             
-            if (!formFilled) {
-                console.log('[StepstoneJobPage] Could not fill application form for:', finalJobInfo.title);
-                return { result: 'error', reason: 'Could not fill form' };
+            // Wait for page to be ready
+            await this.wait(2000);
+            
+            // Delegate complete application flow to StepstoneForm
+            const applicationResult = await StepstoneForm.handleCompleteApplicationFlow(finalJobInfo, userData);
+            
+            // Check result
+            if (applicationResult.result !== 'success') {
+                return applicationResult; // Return error/skip result
             }
-            
-            // Check for validation errors before submitting
-            await this.wait(1000);
-            const hasErrors = await StepstoneForm.hasValidationErrors();
-            
-            if (hasErrors) {
-                console.log('[StepstoneJobPage] Form has validation errors for:', finalJobInfo.title);
-                return { result: 'error', reason: 'Form validation errors' };
-            }
-            
-            // Submit application (for now, we'll skip actual submission for safety)
-            // TODO: Implement actual submission when ready for production
-            console.log('[StepstoneJobPage] Form filled successfully (submission disabled for safety)');
             
             // Track the application
             await this.trackApplication(finalJobInfo, true, 'Application completed successfully');
             
-            return { 
-                result: 'success', 
-                message: `Applied to ${finalJobInfo.title} at ${finalJobInfo.company}`,
-                jobInfo: finalJobInfo
-            };
+            return applicationResult;
             
         } catch (error) {
             console.error('[StepstoneJobPage] Error processing job in tab:', error);
@@ -327,64 +454,106 @@ class StepstoneJobPage {
     
     /**
      * Find the apply button on job detail page
-     * StepStone uses "Ich bin interessiert" or "Jetzt bewerben" buttons
-     * @returns {Promise<Element|null>} - Apply button element
+     * StepStone uses a harmonised apply button with data-testid="harmonised-apply-button"
+     * The button is disabled if already applied ("Schon beworben")
+     * @returns {Promise<Object|null>} - Object with button element and status, or null
      */
     static async findApplyButton() {
         try {
-            // StepStone apply button selectors (German and English)
-            const applyButtonSelectors = [
-                'button:has-text("Ich bin interessiert")',
-                'button:has-text("Jetzt bewerben")',
-                'button:has-text("Apply now")',
-                'button:has-text("I\'m interested")',
+            console.log('[StepstoneJobPage] Starting button search...');
+            
+            // Debug: log all buttons on the page
+            const allButtons = document.querySelectorAll('button');
+            console.log(`[StepstoneJobPage] Total buttons on page: ${allButtons.length}`);
+            
+            // Primary selector - StepStone's harmonised apply button
+            const harmonisedButton = document.querySelector('button[data-testid="harmonised-apply-button"]');
+            
+            if (harmonisedButton) {
+                const isDisabled = harmonisedButton.hasAttribute('disabled') || harmonisedButton.disabled;
+                const buttonText = harmonisedButton.textContent.trim();
+                
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🔘 FOUND: harmonised-apply-button');
+                console.log('   Text:', buttonText);
+                console.log('   Disabled:', isDisabled);
+                console.log('   Visible:', harmonisedButton.offsetParent !== null);
+                console.log('   testid:', harmonisedButton.getAttribute('data-testid'));
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                if (isDisabled) {
+                    // Button is disabled - job already applied
+                    console.log('❌ Button disabled - Job already applied');
+                    return { button: null, alreadyApplied: true, reason: 'Already applied' };
+                }
+                
+                // Button is enabled - can apply
+                console.log('✅ Apply button is ENABLED and CLICKABLE');
+                return { button: harmonisedButton, alreadyApplied: false };
+            } else {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('❌ harmonised-apply-button NOT FOUND');
+                console.log('   All buttons on page:');
+                
+                // Debug: log ALL buttons with their details
+                for (let i = 0; i < allButtons.length; i++) {
+                    const btn = allButtons[i];
+                    const text = btn.textContent.trim();
+                    const testId = btn.getAttribute('data-testid');
+                    const ariaLabel = btn.getAttribute('aria-label');
+                    
+                    if (text.length > 0 && text.length < 100) {
+                        console.log(`   Button ${i}: "${text}"`);
+                        console.log(`      disabled: ${btn.disabled}, testid: ${testId}, aria: ${ariaLabel}`);
+                    }
+                }
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            }
+            
+            // Fallback: Try other apply button patterns
+            console.log('[StepstoneJobPage] Harmonised button not found, trying fallback selectors...');
+            
+            const fallbackSelectors = [
                 'button[class*="apply"]:not([disabled])',
                 'button[class*="bewerbung"]:not([disabled])',
                 'a[class*="apply"]',
-                'a[class*="bewerbung"]',
-                '[data-testid*="apply"]',
-                '.apply-button:not([disabled])',
-                '.bewerbung-button:not([disabled])'
+                'a[href*="apply"]',
+                '[data-testid*="apply"]:not([disabled])'
             ];
             
-            // Try text-based search first (most reliable for StepStone)
-            const buttons = document.querySelectorAll('button, a[role="button"]');
+            for (const selector of fallbackSelectors) {
+                const button = document.querySelector(selector);
+                if (button && button.offsetParent !== null) {
+                    console.log('[StepstoneJobPage] Found apply button with fallback selector:', selector);
+                    return { button: button, alreadyApplied: false };
+                }
+            }
+            
+            // Try text-based search as last resort
+            const buttons = document.querySelectorAll('button:not([disabled]), a[role="button"]');
             for (const button of buttons) {
                 const text = button.textContent.trim().toLowerCase();
-                if (text.includes('ich bin interessiert') || 
-                    text.includes('jetzt bewerben') || 
+                if (text.includes('jetzt bewerben') || 
                     text.includes('apply now') ||
-                    text.includes('interested')) {
+                    text.includes('ich bin interessiert') ||
+                    text.includes('bewerben')) {
                     
-                    // Check if button is visible and not disabled
                     if (button.offsetParent !== null && !button.disabled) {
                         console.log('[StepstoneJobPage] Found apply button with text:', button.textContent.trim());
-                        return button;
+                        return { button: button, alreadyApplied: false };
                     }
                 }
             }
             
-            // Fallback to selector-based search
-            for (const selector of applyButtonSelectors) {
-                // Skip :has-text selectors as they're not standard CSS
-                if (selector.includes(':has-text')) continue;
-                
-                const button = document.querySelector(selector);
-                if (button && button.offsetParent !== null) {
-                    console.log('[StepstoneJobPage] Found apply button with selector:', selector);
-                    return button;
-                }
-            }
-            
-            console.log('[StepstoneJobPage] No apply button found');
-            return null;
+            console.log('[StepstoneJobPage] No apply button found on page');
+            return { button: null, alreadyApplied: false, reason: 'No apply button found' };
             
         } catch (error) {
             console.error('[StepstoneJobPage] Error finding apply button:', error);
             return null;
         }
     }
-
+    
     /**
      * Apply for a specific job
      * @param {Object} jobInfo - Job information object
@@ -408,32 +577,26 @@ class StepstoneJobPage {
                 return 'error';
             }
             
-            // Fill application form
-            const formFilled = await StepstoneForm.fillApplicationForm(jobInfo, userData);
+            // Use the new complete application flow
+            console.log('[StepstoneJobPage] Starting complete application flow...');
+            const result = await StepstoneForm.handleCompleteApplicationFlow(jobInfo, userData);
             
-            if (!formFilled) {
-                console.log(`[StepstoneJobPage] Could not fill application form for: ${jobInfo.title}`);
+            if (result.result === 'success') {
+                console.log(`[StepstoneJobPage] Application completed successfully for: ${jobInfo.title}`);
+                
+                // Track the application
+                await this.trackApplication(jobInfo, true, 'Application completed successfully');
+                
+                sendStatusUpdate(`Applied to ${jobInfo.title} at ${jobInfo.company}`, 'success');
+                return 'success';
+            } else {
+                console.log(`[StepstoneJobPage] Application failed for: ${jobInfo.title}`);
+                console.log(`[StepstoneJobPage] Reason: ${result.reason}`);
+                
+                // Track the failed application
+                await this.trackApplication(jobInfo, false, result.reason || 'Application failed');
                 return 'error';
             }
-            
-            // Check for validation errors before submitting
-            await this.wait(1000);
-            const hasErrors = await StepstoneForm.hasValidationErrors();
-            
-            if (hasErrors) {
-                console.log(`[StepstoneJobPage] Form has validation errors for: ${jobInfo.title}`);
-                return 'error';
-            }
-            
-            // Submit application (for now, we'll skip actual submission for safety)
-            // TODO: Implement actual submission when ready for production
-            debugLog(`[StepstoneJobPage] Form filled successfully for: ${jobInfo.title} (submission disabled for safety)`);
-            
-            // Track the application
-            await this.trackApplication(jobInfo, true, 'Application completed successfully');
-            
-            sendStatusUpdate(`Applied to ${jobInfo.title} at ${jobInfo.company}`, 'success');
-            return 'success';
             
         } catch (error) {
             console.error('[StepstoneJobPage] Error applying for job:', error);
@@ -507,6 +670,27 @@ class StepstoneJobPage {
         } catch (error) {
             console.error('[StepstoneJobPage] Error tracking application:', error);
         }
+    }
+    
+    /**
+     * Wait for URL to change (indicating navigation to form page)
+     * @param {string} originalUrl - The URL before clicking apply
+     * @param {number} timeout - Maximum time to wait in milliseconds
+     * @returns {Promise<boolean>} - true if URL changed, false if timeout
+     */
+    static async waitForUrlChange(originalUrl, timeout = 10000) {
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < timeout) {
+            if (window.location.href !== originalUrl) {
+                console.log('[StepstoneJobPage] URL changed detected');
+                return true;
+            }
+            await this.wait(500); // Check every 500ms
+        }
+        
+        console.log('[StepstoneJobPage] Timeout waiting for URL change');
+        return false;
     }
     
     /**

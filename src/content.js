@@ -137,15 +137,57 @@ async function startAutoApply() {
 if (typeof chrome === 'undefined' || !chrome.runtime) {
     console.log('Chrome extension APIs not available - script may be running in wrong context');
 } else {
-    // Prevent multiple initializations
-    if (isInitialized) {
+    // Only initialize in the top frame (not in iframes)
+    // This prevents issues with message handlers in iframes
+    if (window !== window.top) {
+        console.log('[Content Script] Running in iframe, skipping initialization');
+    } else if (isInitialized) {
         console.log('[Content Script] Already initialized, skipping duplicate setup');
     } else {
         isInitialized = true;
         console.log('[Content Script] Initializing on:', window.location.href);
+        console.log('[Content Script] Running in TOP FRAME (not iframe)');
         
         // Listen for messages from background script
         console.log('[Content Script] Message listener set up, ready to receive messages');
+        
+        // Auto-start StepStone application process if we're on an application page
+        if (window.location.href.includes('stepstone.de') && window.location.href.includes('/application/')) {
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🔄 [Content Script] Detected StepStone application page');
+            console.log('   Auto-starting application process...');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
+            // Try to get user data from chrome storage if not available in window
+            if (!window.currentUserData) {
+                // Wrap in async function to avoid top-level await
+                (async () => {
+                    try {
+                        const result = await chrome.storage.local.get(['currentUser', 'currentAiSettings']);
+                        if (result.currentUser) {
+                            window.currentUserData = result.currentUser;
+                            console.log('✅ Retrieved user data from storage');
+                        }
+                        if (result.currentAiSettings) {
+                            window.currentAiSettings = result.currentAiSettings;
+                            console.log('✅ Retrieved AI settings from storage');
+                        }
+                    } catch (storageError) {
+                        console.log('⚠️  Could not retrieve user data from storage:', storageError);
+                    }
+                })();
+            }
+            
+            // Wait a bit for the page to fully load, then start the process
+            setTimeout(async () => {
+                try {
+                    const { default: StepstoneForm } = await import('./stepstone/StepstoneForm.js');
+                    await StepstoneForm.autoStartApplicationProcess();
+                } catch (error) {
+                    console.error('❌ [Content Script] Error auto-starting StepStone form:', error);
+                }
+            }, 3000);
+        }
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log('[Content Script] Received message:', message.action, 'from:', sender);
             // Handle the message asynchronously
@@ -159,6 +201,16 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
           // Store user data and AI settings for use in auto-apply process
           window.currentUserData = message.userData;
           window.currentAiSettings = message.aiSettings;
+          
+          // Also store in chrome storage so job tabs can access it
+          chrome.storage.local.set({
+            'currentUser': message.userData,
+            'currentAiSettings': message.aiSettings
+          }).then(() => {
+            console.log('[Content Script] User data stored in chrome storage');
+          }).catch((storageError) => {
+            console.error('[Content Script] Error storing user data:', storageError);
+          });
           
           // Start the auto-apply process
           startAutoApply();
@@ -174,27 +226,72 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
                         sendResponse({ isRunning: isAutoApplyRunning });
                     } else if (message.action === 'processJobInTab') {
                         // Handle job processing in the job detail tab
-                        console.log('[Content Script] Processing job in tab:', message.jobInfo);
+                        console.log('[Content Script] ========================================');
+                        console.log('[Content Script] RECEIVED processJobInTab MESSAGE');
+                        console.log('[Content Script] Processing job in tab:', message.jobInfo?.title);
+                        console.log('[Content Script] Current URL:', window.location.href);
+                        console.log('[Content Script] User data present:', !!message.userData);
+                        console.log('[Content Script] AI settings present:', !!message.aiSettings);
+                        console.log('[Content Script] ========================================');
                         
-                        // Dynamically import StepstoneJobPage
-                        import('./stepstone/StepstoneJobPage.js').then(module => {
-                            const StepstoneJobPage = module.default;
-                            
-                            // Process the job
-                            StepstoneJobPage.processJobInTab(
-                                message.jobInfo,
-                                message.userData,
-                                message.aiSettings
-                            ).then(result => {
-                                console.log('[Content Script] Job processing result:', result);
-                                sendResponse(result);
-                            }).catch(error => {
-                                console.error('[Content Script] Error processing job in tab:', error);
-                                sendResponse({ result: 'error', reason: error.message });
-                            });
+                        // Store user data in window and chrome storage for this tab
+                        if (message.userData) {
+                            window.currentUserData = message.userData;
+                        }
+                        if (message.aiSettings) {
+                            window.currentAiSettings = message.aiSettings;
+                        }
+                        
+                        // Store in chrome storage for persistence (including job info)
+                        chrome.storage.local.set({
+                            'currentUser': message.userData,
+                            'currentAiSettings': message.aiSettings,
+                            'currentJobInfo': message.jobInfo
+                        }).then(() => {
+                            console.log('[Content Script] User data and job info stored in chrome storage for job tab');
+                        }).catch((storageError) => {
+                            console.error('[Content Script] Error storing data in job tab:', storageError);
+                        });
+                        
+                        // IMPORTANT: We must call the async function and handle it properly
+                        // to ensure sendResponse is called before the channel closes
+                        const processJob = async () => {
+                            try {
+                                console.log('[Content Script] Importing StepstoneJobPage...');
+                                const module = await import('./stepstone/StepstoneJobPage.js');
+                                console.log('[Content Script] StepstoneJobPage imported successfully');
+                                const StepstoneJobPage = module.default;
+                                
+                                console.log('[Content Script] Calling processJobInTab method...');
+                                
+                                // Process the job
+                                const result = await StepstoneJobPage.processJobInTab(
+                                    message.jobInfo,
+                                    message.userData,
+                                    message.aiSettings
+                                );
+                                
+                                console.log('[Content Script] ========================================');
+                                console.log('[Content Script] Job processing completed');
+                                console.log('[Content Script] Result:', result);
+                                console.log('[Content Script] ========================================');
+                                
+                                return result;
+                                
+                            } catch (error) {
+                                console.error('[Content Script] !!!!! Error in processJobInTab:', error);
+                                console.error('[Content Script] Error stack:', error.stack);
+                                return { result: 'error', reason: error.message || 'Unknown error' };
+                            }
+                        };
+                        
+                        // Execute and send response
+                        processJob().then(result => {
+                            console.log('[Content Script] Sending response back to main tab:', result);
+                            sendResponse(result);
                         }).catch(error => {
-                            console.error('[Content Script] Error importing StepstoneJobPage:', error);
-                            sendResponse({ result: 'error', reason: 'Failed to load StepstoneJobPage' });
+                            console.error('[Content Script] Fatal error:', error);
+                            sendResponse({ result: 'error', reason: 'Fatal error: ' + error.message });
                         });
                         
                         return true; // Keep channel open for async response

@@ -56,6 +56,32 @@ class StepstonePlatform extends BasePlatform {
             if (!this.isCurrentPlatform()) {
                 throw new Error('Not on StepStone platform');
             }
+            
+            // Fetch and store resume ID (similar to LinkedIn)
+            try {
+                const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                
+                if (!resumeResult.currentResumeId && window.currentUserData) {
+                    this.debugLog('Fetching default resume ID...');
+                    const response = await chrome.runtime.sendMessage({
+                        action: 'apiRequest',
+                        method: 'GET',
+                        url: `/users/${window.currentUserData.id}/resumes/default`
+                    });
+                    
+                    if (response && response.success && response.resume) {
+                        await chrome.storage.local.set({ 'currentResumeId': response.resume.id });
+                        this.debugLog(`Resume ID stored: ${response.resume.id}`);
+                    } else {
+                        this.debugLog('Failed to get default resume from database');
+                    }
+                } else if (resumeResult.currentResumeId) {
+                    this.debugLog(`Using existing resume ID: ${resumeResult.currentResumeId}`);
+                }
+            } catch (error) {
+                this.debugLog('Error fetching resume ID:', error);
+                // Continue even if resume fetch fails
+            }
 
             // Find the search element - use stable selectors first
             let searchElement = document.querySelector(this.selectors.searchContainer);

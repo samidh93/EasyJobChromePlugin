@@ -97,6 +97,8 @@ class BackgroundManager {
                 await this.handleGetTabStatus(request, sendResponse);
             } else if (action === 'trackApplication') {
                 await this.handleTrackApplication(request, sendResponse);
+            } else if (action === 'sendMessageToTab') {
+                await this.handleSendMessageToTab(request, sendResponse);
             } else {
                 console.warn('Unknown action received:', action);
                 sendResponse({ success: false, error: `Unknown action: ${action}` });
@@ -354,6 +356,39 @@ class BackgroundManager {
             sendResponse({ success: true, message: 'Application tracked successfully' });
         } catch (error) {
             console.error('Error tracking application:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+    }
+
+    /**
+     * Handle sending message to a specific tab
+     */
+    async handleSendMessageToTab(request, sendResponse) {
+        try {
+            const { tabId, message } = request;
+            
+            if (!tabId) {
+                sendResponse({ success: false, error: 'Tab ID is required' });
+                return;
+            }
+            
+            if (!message) {
+                sendResponse({ success: false, error: 'Message is required' });
+                return;
+            }
+
+            // Send message to the specified tab
+            chrome.tabs.sendMessage(tabId, message, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error sending message to tab:', chrome.runtime.lastError);
+                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                    console.log('Message sent to tab successfully, response:', response);
+                    sendResponse({ success: true, response: response });
+                }
+            });
+        } catch (error) {
+            console.error('Error handling send message to tab:', error);
             sendResponse({ success: false, error: error.message });
         }
     }
