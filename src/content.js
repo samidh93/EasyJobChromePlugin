@@ -182,7 +182,14 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
             setTimeout(async () => {
                 try {
                     const { default: StepstoneForm } = await import('./stepstone/StepstoneForm.js');
-                    await StepstoneForm.autoStartApplicationProcess();
+                    const { shouldStop: shouldStopUtil } = await import('./utils.js');
+                    
+                    // Create stop callback that checks the global isAutoApplyRunning
+                    const shouldStopCallback = async () => {
+                        return await shouldStopUtil(isAutoApplyRunning);
+                    };
+                    
+                    await StepstoneForm.autoStartApplicationProcess(shouldStopCallback);
                 } catch (error) {
                     console.error('❌ [Content Script] Error auto-starting StepStone form:', error);
                 }

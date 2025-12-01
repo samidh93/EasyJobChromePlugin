@@ -10,6 +10,8 @@ class StepstoneForm {
     static totalSteps = 4;
     static jobInfo = null;
     static userData = null;
+    static collectedQuestionsAnswers = [];
+    static shouldStopCallback = null; // Callback to check if stop was requested
     
     /**
      * Complete application flow handler - Main entry point
@@ -18,8 +20,11 @@ class StepstoneForm {
      * @param {Object} userData - User data
      * @returns {Promise<Object>} - Result object with status and message
      */
-    static async handleCompleteApplicationFlow(jobInfo, userData) {
+    static async handleCompleteApplicationFlow(jobInfo, userData, shouldStopCallback = null) {
         try {
+            // Store the stop callback for use throughout form processing
+            this.shouldStopCallback = shouldStopCallback;
+            
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('🚀 [StepstoneForm] Starting complete application flow');
             console.log('   Job:', jobInfo.title);
@@ -51,8 +56,11 @@ class StepstoneForm {
      * This method is called automatically when the content script loads
      * and detects we're on an application page
      */
-    static async autoStartApplicationProcess() {
+    static async autoStartApplicationProcess(shouldStopCallback = null) {
         try {
+            // Store the stop callback
+            this.shouldStopCallback = shouldStopCallback;
+            
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('🔄 [StepstoneForm] Auto-starting application process');
             console.log('   Current URL:', window.location.href);
@@ -269,10 +277,35 @@ class StepstoneForm {
             const maxSteps = 4;
             
             while (currentStep <= maxSteps) {
+                // Check if stop was requested at the start of each step
+                if (await this.checkStopRequested()) {
+                    console.log('⏸️  Stop requested - keeping tab open, halting at step', currentStep);
+                    
+                    // Set stopped status in storage for main tab to detect
+                    await chrome.storage.local.set({
+                        'stepstoneFormStatus': {
+                            stopped: true,
+                            result: 'stopped',
+                            timestamp: Date.now()
+                        }
+                    });
+                    
+                    return { result: 'stopped', reason: 'User requested stop' };
+                }
+                
                 console.log(`🔄 Processing step ${currentStep}/${maxSteps}`);
                 
                 // Wait for page to load
                 await this.waitForPageLoad();
+                
+                // Check stop before processing questions
+                if (await this.checkStopRequested()) {
+                    console.log('⏸️  Stop requested - keeping tab open, halting before questions');
+                    await chrome.storage.local.set({
+                        'stepstoneFormStatus': { stopped: true, result: 'stopped', timestamp: Date.now() }
+                    });
+                    return { result: 'stopped', reason: 'User requested stop' };
+                }
                 
                 // Process form questions on current step (LinkedIn-style)
                 const questionResult = await this.processFormQuestions();
@@ -282,10 +315,28 @@ class StepstoneForm {
                     console.log(`⚠️  Step ${currentStep} questions processing had issues`);
                 }
                 
+                // Check stop before validation
+                if (await this.checkStopRequested()) {
+                    console.log('⏸️  Stop requested - keeping tab open, halting after questions');
+                    await chrome.storage.local.set({
+                        'stepstoneFormStatus': { stopped: true, result: 'stopped', timestamp: Date.now() }
+                    });
+                    return { result: 'stopped', reason: 'User requested stop' };
+                }
+                
                 // Check for validation errors
                 const hasErrors = await this.hasValidationErrors();
                 if (hasErrors) {
                     return { result: 'error', reason: `Validation errors in step ${currentStep}` };
+                }
+                
+                // Check stop before clicking next button
+                if (await this.checkStopRequested()) {
+                    console.log('⏸️  Stop requested - keeping tab open, halting before next button');
+                    await chrome.storage.local.set({
+                        'stepstoneFormStatus': { stopped: true, result: 'stopped', timestamp: Date.now() }
+                    });
+                    return { result: 'stopped', reason: 'User requested stop' };
                 }
                 
                 // Look for next/continue button
@@ -296,6 +347,15 @@ class StepstoneForm {
                     await this.wait(3000);
                     currentStep++;
                 } else {
+                    // Check stop before final submission
+                    if (await this.checkStopRequested()) {
+                        console.log('⏸️  Stop requested - keeping tab open, halting before submission');
+                        await chrome.storage.local.set({
+                            'stepstoneFormStatus': { stopped: true, result: 'stopped', timestamp: Date.now() }
+                        });
+                        return { result: 'stopped', reason: 'User requested stop' };
+                    }
+                    
                     // Check if we're on the final submission step
                     const submitButton = await this.findSubmitButton();
                     if (submitButton) {
@@ -742,13 +802,20 @@ class StepstoneForm {
                 return { result: 'error', reason: 'No submit button found' };
             }
             
-            console.log('⚠️  SUBMISSION DISABLED FOR SAFETY');
-            console.log('   Submit button found and ready');
-            console.log('   Would click submit button here');
+            console.log('✅ Submit button found - clicking to submit application');
             
-            // TODO: Enable when ready for production
-            // submitButton.click();
-            // await this.wait(3000);
+            // Click submit button
+            submitButton.click();
+            await this.wait(3000);
+            
+            // Set completion status in storage
+            await chrome.storage.local.set({
+                'stepstoneFormStatus': {
+                    completed: true,
+                    result: 'success',
+                    timestamp: Date.now()
+                }
+            });
             
             return { 
                 result: 'success', 
@@ -758,6 +825,17 @@ class StepstoneForm {
             
         } catch (error) {
             console.error('❌ [StepstoneForm] Error submitting application:', error);
+            
+            // Set error status in storage
+            await chrome.storage.local.set({
+                'stepstoneFormStatus': {
+                    error: true,
+                    result: 'error',
+                    errorMessage: error.message,
+                    timestamp: Date.now()
+                }
+            });
+            
             return { result: 'error', reason: error.message };
         }
     }
@@ -881,11 +959,20 @@ class StepstoneForm {
         try {
             console.log('🔍 [StepstoneForm] Processing form questions');
             
-            // Find all form elements using StepStone's selector with role="group"
+            // Find all form elements using StepStone's selector
+            // Look for the parent containers that have a label as direct child
             const formElements = document.querySelectorAll('div[class*="apply-application-process-renderer"][role="group"]');
-            console.log(`📋 Found ${formElements.length} form elements`);
+            console.log(`📋 Found ${formElements.length} form elements (including nested groups)`);
             
-            for (const element of formElements) {
+            // Filter to only get parent question groups (those with a label child)
+            const questionGroups = Array.from(formElements).filter(el => {
+                const directLabel = el.querySelector(':scope > label');
+                return directLabel !== null;
+            });
+            
+            console.log(`📋 Filtered to ${questionGroups.length} actual question groups`);
+            
+            for (const element of questionGroups) {
                 try {
                     // Find the label element containing the question
                     const labelElement = element.querySelector('label');
@@ -1256,28 +1343,44 @@ class StepstoneForm {
             if (fieldType === 'checkbox_group') {
                 const checkboxes = element.querySelectorAll('input[type="checkbox"]');
                 console.log(`📋 Found ${checkboxes.length} checkboxes in group`);
+                console.log(`📋 Answer to match: "${cleanedAnswer}"`);
                 
                 // Split answer by common separators
                 const answerParts = cleanedAnswer.split(/[,;]/).map(part => part.trim().toLowerCase());
+                console.log(`📋 Answer parts:`, answerParts);
+                
+                let checkedCount = 0;
                 
                 for (const checkbox of checkboxes) {
                     const checkboxLabel = element.querySelector(`label[for="${checkbox.id}"]`);
                     if (checkboxLabel) {
-                        const labelText = checkboxLabel.textContent.trim().toLowerCase();
+                        const labelText = checkboxLabel.textContent.trim();
+                        const labelTextLower = labelText.toLowerCase();
+                        
                         // Check if any part of the answer matches this checkbox
                         const shouldCheck = answerParts.some(part => 
-                            labelText.includes(part) || part.includes(labelText)
+                            labelTextLower.includes(part) || part.includes(labelTextLower)
                         );
                         
                         if (shouldCheck) {
                             checkbox.checked = true;
                             checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                            console.log(`✅ Checked: ${checkboxLabel.textContent.trim()}`);
+                            checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+                            checkedCount++;
+                            console.log(`✅ Checked: ${labelText} (matched: ${answerParts.find(part => labelTextLower.includes(part) || part.includes(labelTextLower))})`);
+                        } else {
+                            console.log(`⏭️  Skipped: ${labelText} (no match)`);
                         }
                     }
                 }
                 
-                await this.wait(500);
+                console.log(`📊 Checked ${checkedCount} out of ${checkboxes.length} checkboxes`);
+                
+                if (checkedCount === 0) {
+                    console.log('⚠️  WARNING: No checkboxes were checked! Form may be invalid.');
+                }
+                
+                await this.wait(1000); // Longer wait for validation
                 return;
             }
             
@@ -1423,6 +1526,21 @@ class StepstoneForm {
         cleaned = cleaned.replace(/\.$/,'');
         
         return cleaned.trim();
+    }
+    
+    /**
+     * Check if stop was requested
+     * @returns {Promise<boolean>} - True if stop was requested
+     */
+    static async checkStopRequested() {
+        if (this.shouldStopCallback && typeof this.shouldStopCallback === 'function') {
+            const stopRequested = await this.shouldStopCallback();
+            if (stopRequested) {
+                console.log('⏸️  [StepstoneForm] Stop requested - halting form processing');
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
