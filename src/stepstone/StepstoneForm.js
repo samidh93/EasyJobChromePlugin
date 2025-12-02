@@ -36,13 +36,31 @@ class StepstoneForm {
             this.jobInfo = jobInfo;
             this.userData = userData;
             
-            // Check if we're on the initial job page or already in the application
-            if (window.location.href.includes('/application/')) {
-                console.log('📍 Already in application flow, processing form...');
-                return await this.processApplicationForm();
+            // Check if we're on the initial application page (has "Bewerbung fortsetzen" button)
+            // or already in the actual form flow (has form questions)
+            // The URL can contain /application/ on both pages, so we need to check for the button
+            console.log('🔍 Checking page state...');
+            const continueButton = await this.findContinueApplicationButton();
+            if (continueButton) {
+                console.log('📍 On initial application page with "Bewerbung fortsetzen" button');
+                // Pass the button to avoid searching again
+                return await this.startApplicationProcessWithButton(continueButton);
             } else {
-                console.log('📍 On job page, looking for initial apply button...');
-                return await this.startApplicationProcess();
+                // Check if we're actually on a form step with form elements
+                const isFormPage = await this.isOnFormStep();
+                if (isFormPage) {
+                    console.log('📍 Already in application form flow, processing form...');
+                    return await this.processApplicationForm();
+                } else {
+                    // Fallback: if URL has /application/ but no button and no form, try form processing anyway
+                    if (window.location.href.includes('/application/')) {
+                        console.log('📍 On application page but unclear state, attempting form processing...');
+                        return await this.processApplicationForm();
+                    } else {
+                        console.log('📍 On job page, looking for initial apply button...');
+                        return await this.startApplicationProcess();
+                    }
+                }
             }
             
         } catch (error) {
@@ -223,14 +241,12 @@ class StepstoneForm {
     }
     
     /**
-     * Start the application process from job page
+     * Start the application process from job page (with pre-found button)
+     * @param {Element} continueButton - Pre-found continue button (optional)
      * @returns {Promise<Object>} - Result object
      */
-    static async startApplicationProcess() {
+    static async startApplicationProcessWithButton(continueButton) {
         try {
-            // Look for "Bewerbung fortsetzen" (Continue application) button
-            const continueButton = await this.findContinueApplicationButton();
-            
             if (continueButton) {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log('🎯 FOUND: "Bewerbung fortsetzen" button');
@@ -372,6 +388,43 @@ class StepstoneForm {
             
         } catch (error) {
             console.error('❌ [StepstoneForm] Error processing form:', error);
+            return { result: 'error', reason: error.message };
+        }
+    }
+    
+    /**
+     * Start the application process from job page
+     * @returns {Promise<Object>} - Result object
+     */
+    static async startApplicationProcess() {
+        try {
+            // Look for "Bewerbung fortsetzen" (Continue application) button
+            const continueButton = await this.findContinueApplicationButton();
+            
+            if (continueButton) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🎯 FOUND: "Bewerbung fortsetzen" button');
+                console.log('   Clicking to start application...');
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                continueButton.click();
+                await this.wait(3000);
+                
+                // Wait for navigation to application form
+                const navigated = await this.waitForNavigation();
+                if (navigated) {
+                    console.log('✅ Navigated to application form');
+                    return await this.processApplicationForm();
+                } else {
+                    return { result: 'error', reason: 'Failed to navigate to application form' };
+                }
+            } else {
+                console.log('❌ No "Bewerbung fortsetzen" button found');
+                return { result: 'error', reason: 'No application button found' };
+            }
+            
+        } catch (error) {
+            console.error('❌ [StepstoneForm] Error starting application:', error);
             return { result: 'error', reason: error.message };
         }
     }
