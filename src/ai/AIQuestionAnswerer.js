@@ -99,7 +99,21 @@ class AIQuestionAnswerer {
      * @param {string} resumeId - Optional resume ID for structured data
      * @returns {Promise<Object>} - Result object with status and answer
      */
-    async answerQuestion(question, options = null, shouldStop = null, resumeId = null) {
+    async answerQuestion(question, options = null, answerContextOrShouldStop = null, resumeId = null) {
+        // Handle both new (answerContext object) and legacy (shouldStop function) call patterns
+        let shouldStop = null;
+        let answerContext = null;
+        
+        if (typeof answerContextOrShouldStop === 'function') {
+            // Legacy pattern: third param is shouldStop function
+            shouldStop = answerContextOrShouldStop;
+        } else if (answerContextOrShouldStop && typeof answerContextOrShouldStop === 'object') {
+            // New pattern: third param is answerContext object
+            answerContext = answerContextOrShouldStop;
+        } else if (answerContextOrShouldStop !== null) {
+            // Could be a boolean or other value for shouldStop
+            shouldStop = answerContextOrShouldStop;
+        }
         try {
             // Ensure AI settings are loaded
             await this.ensureSettingsLoaded();
@@ -122,7 +136,7 @@ class AIQuestionAnswerer {
             if (resumeId && classification) {
                 try {
                     relevantData = await this.smartDataRetriever.getRelevantData(classification, resumeId);
-                    console.log('AIQuestionAnswerer: Retrieved relevant data:', relevantData ? Object.keys(relevantData) : 'null');
+                    //console.log('AIQuestionAnswerer: Retrieved relevant data:', relevantData ? Object.keys(relevantData) : 'null');
                 } catch (error) {
                     console.error('AIQuestionAnswerer: Smart data retrieval failed:', error);
                 }
@@ -167,17 +181,17 @@ class AIQuestionAnswerer {
                 }
             }
             
-            // Step 6: Build smart prompt with minimal relevant data
-            const prompt = this.buildSmartPrompt(question, options, relevantData, classification);
+            // Step 6: Build smart prompt with minimal relevant data (with answer format context)
+            const prompt = this.buildSmartPrompt(question, options, relevantData, classification, answerContext);
             
             // Debug the full prompt
             console.log("=== SMART PROMPT BEING SENT ===");
-            console.log(prompt);
+            //console.log(prompt);
             console.log("=== END SMART PROMPT ===");
             
             // Get token analysis
             const tokenAnalysis = this.aiSettingsManager.getTokenAnalysis({ prompt });
-            console.log("Token Analysis:", tokenAnalysis);
+            //console.log("Token Analysis:", tokenAnalysis);
             
             // Step 7: Get AI response using AISettingsManager
             const response = await this.aiSettingsManager.callAIWithStop({
@@ -384,7 +398,7 @@ class AIQuestionAnswerer {
      * @param {Object} classification - Question classification
      * @returns {string} - Formatted smart prompt
      */
-    buildSmartPrompt(question, options, relevantData, classification) {
+    buildSmartPrompt(question, options, relevantData, classification, answerContext = null) {
         // Use relevant data if available, otherwise indicate no data
         let contextData;
         if (relevantData && Object.keys(relevantData).length > 0) {
@@ -441,8 +455,39 @@ IMPORTANT RULES FOR SKILL LEVELS:
                 break;
         }
 
-        // Add option selection rules if options are provided
-        if (options && Array.isArray(options) && options.length > 0) {
+        // Add answer format information if available
+        if (answerContext && answerContext.answerFormat) {
+            const format = answerContext.answerFormat;
+            prompt += `
+
+EXPECTED ANSWER FORMAT:
+- Type: ${format.type}
+- Format: ${format.format}`;
+            
+            if (format.constraints) {
+                prompt += `
+- Constraints: ${format.constraints}`;
+            }
+            
+            if (format.hasOptions && format.options && format.options.length > 0) {
+                prompt += `
+- Available Options: ${JSON.stringify(format.options)}
+- IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
+            } else if (format.type === 'date') {
+                prompt += `
+- IMPORTANT: Answer must be a date in YYYY-MM-DD format (e.g., 2025-02-15)`;
+            } else if (format.type === 'number') {
+                prompt += `
+- IMPORTANT: Answer must be a number${format.constraints ? ` (${format.constraints})` : ''}`;
+            } else if (format.type === 'email') {
+                prompt += `
+- IMPORTANT: Answer must be a valid email address`;
+            } else if (format.type === 'phone') {
+                prompt += `
+- IMPORTANT: Answer must be a valid phone number`;
+            }
+        } else if (options && Array.isArray(options) && options.length > 0) {
+            // Fallback: Add option selection rules if options are provided but no format context
             prompt += `
 
 Available Options: ${JSON.stringify(options)}

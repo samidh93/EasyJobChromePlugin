@@ -410,12 +410,15 @@ class StepstoneJobPage {
         try {
             console.log('[StepstoneJobPage] Starting button search...');
             
+            // Import selectors
+            const StepstoneSelectors = (await import('./StepstoneSelectors.js')).default;
+            
             // Debug: log all buttons on the page
             const allButtons = document.querySelectorAll('button');
             console.log(`[StepstoneJobPage] Total buttons on page: ${allButtons.length}`);
             
             // Primary selector - StepStone's harmonised apply button
-            const harmonisedButton = document.querySelector('button[data-testid="harmonised-apply-button"]');
+            const harmonisedButton = document.querySelector(StepstoneSelectors.jobPage.applyButton[0]);
             
             if (harmonisedButton) {
                 const isDisabled = harmonisedButton.hasAttribute('disabled') || harmonisedButton.disabled;
@@ -461,13 +464,8 @@ class StepstoneJobPage {
             // Fallback: Try other apply button patterns
             console.log('[StepstoneJobPage] Harmonised button not found, trying fallback selectors...');
             
-            const fallbackSelectors = [
-                'button[class*="apply"]:not([disabled])',
-                'button[class*="bewerbung"]:not([disabled])',
-                'a[class*="apply"]',
-                'a[href*="apply"]',
-                '[data-testid*="apply"]:not([disabled])'
-            ];
+            // Use remaining selectors from the list (skip first one which we already tried)
+            const fallbackSelectors = StepstoneSelectors.jobPage.applyButton.slice(1);
             
             for (const selector of fallbackSelectors) {
                 const button = document.querySelector(selector);
