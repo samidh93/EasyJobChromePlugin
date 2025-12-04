@@ -76,6 +76,19 @@ class StepstoneForm {
      */
     static async autoStartApplicationProcess(shouldStopCallback = null) {
         try {
+            // Check if we're on a success/confirmation page - don't start processing
+            const currentUrl = window.location.href;
+            if (currentUrl.includes('/application/confirmation/success') ||
+                currentUrl.includes('/application/confirmation/') ||
+                currentUrl.includes('/confirmation/success')) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('✅ [StepstoneForm] On success/confirmation page');
+                console.log('   Skipping auto-start (form already completed)');
+                console.log('   URL:', currentUrl);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                return; // Don't process success pages
+            }
+            
             // Store the stop callback
             this.shouldStopCallback = shouldStopCallback;
             
@@ -928,6 +941,12 @@ class StepstoneForm {
                 
                 if (!label || !inputField) continue;
                 
+                // Skip non-required questions (no asterisk *)
+                const rawLabelText = label.textContent.trim();
+                if (!rawLabelText.includes('*')) {
+                    continue;
+                }
+                
                 const questionText = this.extractFullQuestionText(label, inputField, group);
                 
                 // Skip pre-filled or hidden fields
@@ -953,8 +972,8 @@ class StepstoneForm {
                     const selectedOption = inputField.options[inputField.selectedIndex];
                     isAnswered = selectedOption && selectedOption.value !== '' && selectedOption.value !== null;
                 } else if (inputField.type === 'checkbox') {
-                    // Checkbox: check if checked
-                    isAnswered = inputField.checked;
+                    // Checkbox: check if checked (check both checked property and aria-checked attribute)
+                    isAnswered = this.isCheckboxChecked(inputField);
                 } else if (inputField.type === 'radio') {
                     // Radio: check if any radio in group is checked
                     const radioGroup = group.querySelectorAll('input[type="radio"]');
@@ -1153,6 +1172,12 @@ class StepstoneForm {
                 for (const group of questionGroups) {
                     const label = group.querySelector('label');
                     if (label) {
+                        // Skip non-required questions (no asterisk *)
+                        const rawLabelText = label.textContent.trim();
+                        if (!rawLabelText.includes('*')) {
+                            continue;
+                        }
+                        
                         const questionText = this.extractFullQuestionText(label, group.querySelector('input, textarea, select'), group);
                         if (questionText === unansweredQ.question || 
                             questionText.includes(unansweredQ.question) || 
@@ -1173,6 +1198,15 @@ class StepstoneForm {
                 // Answer using AI (let AI guess best answer)
                 const label = matchingGroup.querySelector('label');
                 const inputField = matchingGroup.querySelector('input, textarea, select');
+                
+                // Double-check: skip if not required (safety check)
+                if (label) {
+                    const rawLabelText = label.textContent.trim();
+                    if (!rawLabelText.includes('*')) {
+                        console.log(`⏭️  Skipping non-required question in retry: "${unansweredQ.question}"`);
+                        continue;
+                    }
+                }
                 const fullQuestionText = this.extractFullQuestionText(label, inputField, matchingGroup);
                 
                 console.log(`🤖 Using AI to answer: "${fullQuestionText}"`);
@@ -1292,8 +1326,9 @@ class StepstoneForm {
                 console.log('🎉 APPLICATION SUBMITTED SUCCESSFULLY!');
                 console.log(`   Application ID: ${successResult.applicationId}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                
+            
                 // Set completion status in storage
+                // This will be picked up by the main tab's pollForFormCompletion() which will close this tab
                 await chrome.storage.local.set({
                     'stepstoneFormStatus': {
                         completed: true,
@@ -1305,8 +1340,13 @@ class StepstoneForm {
                     }
                 });
                 
-                return {
-                    result: 'success',
+                console.log('✅ Completion status set in storage - main tab will close this tab shortly');
+                console.log('   (Main tab polls every 500ms for fast detection)');
+                
+                // No need to wait - the main tab will detect and close the tab quickly via polling
+            
+                return { 
+                    result: 'success', 
                     message: `Application submitted successfully (ID: ${successResult.applicationId})`,
                     applicationId: successResult.applicationId,
                     confirmationUrl: successResult.confirmationUrl,
@@ -1709,14 +1749,14 @@ class StepstoneForm {
                             return { success: false, stopped: true, reason: 'User requested stop' };
                         }
                         
-                        try {
-                            // Find the label element containing the question
-                            const labelElement = element.querySelector('label');
-                            if (!labelElement) {
-                                console.log('⚠️  No label found for form element');
-                                continue;
-                            }
-                            
+                try {
+                    // Find the label element containing the question
+                    const labelElement = element.querySelector('label');
+                    if (!labelElement) {
+                        console.log('⚠️  No label found for form element');
+                        continue;
+                    }
+                    
                             // Find the input field(s) first (needed for extractFullQuestionText)
                             const inputField = element.querySelector('input, textarea, select');
                             if (!inputField) {
@@ -1726,8 +1766,8 @@ class StepstoneForm {
                             
                             // Extract full question text using improved extraction
                             let questionText = this.extractFullQuestionText(labelElement, inputField, element);
-                            // Remove the asterisk (*) and other formatting
-                            questionText = questionText.replace(/\*$/, '').trim();
+                    // Remove the asterisk (*) and other formatting
+                    questionText = questionText.replace(/\*$/, '').trim();
                             console.log(`❓ [DEBUG] Processing question (fallback): ${questionText}`);
                             console.log(`   Label element:`, labelElement);
                             console.log(`   Label classes: ${labelElement.className || 'none'}`);
@@ -1825,12 +1865,21 @@ class StepstoneForm {
                     
                     // Extract full question text using improved extraction
                     let questionText = this.extractFullQuestionText(labelElement, inputField, element);
+                    
+                    // Check if question is required (contains asterisk *)
+                    // Skip non-required questions
+                    const rawLabelText = labelElement.textContent.trim();
+                    if (!rawLabelText.includes('*')) {
+                        console.log(`⏭️  Skipping non-required question (no *): "${questionText}"`);
+                        continue;
+                    }
+                    
                     console.log(`❓ [DEBUG] Processing question: ${questionText}`);
                     console.log(`   Label element:`, labelElement);
                     console.log(`   Label classes: ${labelElement.className || 'none'}`);
                     console.log(`   Parent element classes: ${element.className || 'none'}`);
                     
-                    // Check if this question should be skipped
+                    // Check if this question should be skipped (for other reasons like pre-filled fields)
                     if (this.shouldSkipQuestion(questionText)) {
                         console.log(`⏭️  Skipping question: ${questionText}`);
                         continue;
@@ -1996,6 +2045,104 @@ class StepstoneForm {
             }
         }
         
+        // Method 6: For "Von"/"Bis" questions, look for parent/sibling question context
+        // This handles cases where "Von" and "Bis" are just range labels but the actual question is elsewhere
+        const questionLower = questionText.toLowerCase();
+        const isVonBis = (questionText === 'Von' || questionText === 'Bis' || questionLower === 'von' || questionLower === 'bis');
+        
+        if (isVonBis && element) {
+            console.log(`🔍 [DEBUG] Detected Von/Bis label, searching for parent question context...`);
+            
+            let foundQuestion = null;
+            
+            // Strategy 1: Search up the DOM tree looking for question text
+            let parent = element.parentElement;
+            let attempts = 0;
+            while (parent && attempts < 10) {
+                const parentText = parent.textContent.trim();
+                
+                // Look for questions with question marks that contain relevant keywords
+                const questionMatches = parentText.match(/[^.!?]*\?[^.!?]*/g);
+                if (questionMatches) {
+                    for (const match of questionMatches) {
+                        const matchLower = match.toLowerCase();
+                        if (match.length > 20 && (
+                            matchLower.includes('stunden') || matchLower.includes('hours') || 
+                            matchLower.includes('woche') || matchLower.includes('week') ||
+                            matchLower.includes('arbeit') || matchLower.includes('work') ||
+                            matchLower.includes('kannst') || matchLower.includes('can')
+                        )) {
+                            foundQuestion = match.trim();
+                            console.log(`🔍 [DEBUG] Found question in parent (level ${attempts}): "${foundQuestion}"`);
+                            break;
+                        }
+                    }
+                }
+                
+                if (foundQuestion) break;
+                
+                // Also check siblings at this level
+                if (parent.parentElement) {
+                    const siblings = Array.from(parent.parentElement.children);
+                    for (const sibling of siblings) {
+                        const siblingText = sibling.textContent.trim();
+                        if (siblingText && siblingText.length > 20) {
+                            const siblingLower = siblingText.toLowerCase();
+                            if (siblingLower.includes('stunden') || siblingLower.includes('hours') || 
+                                siblingLower.includes('woche') || siblingLower.includes('week')) {
+                                // Extract the question part
+                                const questionMatch = siblingText.match(/[^.!?]*(?:stunden|hours|woche|week)[^.!?]*/gi)?.[0]?.trim();
+                                if (questionMatch && questionMatch.length > 20) {
+                                    foundQuestion = questionMatch;
+                                    if (!foundQuestion.endsWith('?')) foundQuestion += '?';
+                                    console.log(`🔍 [DEBUG] Found question in sibling: "${foundQuestion}"`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (foundQuestion) break;
+                
+                parent = parent.parentElement;
+                attempts++;
+            }
+            
+            // Strategy 2: If not found, search entire form/document for hours-related questions
+            if (!foundQuestion) {
+                console.log(`🔍 [DEBUG] Parent search failed, searching document for hours-related questions...`);
+                const allLabels = document.querySelectorAll('label, legend, [class*="question"], [class*="label"]');
+                for (const label of allLabels) {
+                    const labelText = label.textContent.trim();
+                    if (labelText && labelText.length > 20 && labelText.includes('?')) {
+                        const labelLower = labelText.toLowerCase();
+                        if (labelLower.includes('stunden') || labelLower.includes('hours') || 
+                            labelLower.includes('woche') || labelLower.includes('week')) {
+                            // Check if this label is near our element (same form section)
+                            const labelParent = label.closest('div[role="group"], form, [class*="form"]');
+                            const elementParent = element.closest('div[role="group"], form, [class*="form"]');
+                            if (labelParent === elementParent || (labelParent && elementParent && 
+                                labelParent.contains(element) || elementParent.contains(label))) {
+                                foundQuestion = labelText;
+                                console.log(`🔍 [DEBUG] Found question in nearby label: "${foundQuestion}"`);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If we found a parent question, combine it with Von/Bis
+            if (foundQuestion) {
+                questionText = `${foundQuestion} (${questionText})`;
+                console.log(`🔍 [DEBUG] Combined Von/Bis with parent question: "${questionText}"`);
+            } else {
+                console.log(`⚠️  [DEBUG] Could not find parent question for Von/Bis - will rely on fallback logic`);
+                // Keep original, but the AI fallback logic should handle it
+            }
+        }
+        
         // Clean up: remove asterisk and extra whitespace
         questionText = questionText.replace(/\*+$/, '').trim();
         questionText = questionText.replace(/\s+/g, ' '); // Normalize whitespace
@@ -2151,6 +2298,28 @@ class StepstoneForm {
      */
     static async answerQuestion(question, options = [], inputField, element, fieldType = 'single') {
         try {
+            // Special check: If question is just "Von" or "Bis" and it's a number field,
+            // check if there are sibling number inputs (indicating hours-per-week range)
+            const questionLower = question.toLowerCase();
+            const isVonBis = (questionLower === 'von' || questionLower === 'bis' || 
+                             questionLower.includes('(von)') || questionLower.includes('(bis)'));
+            
+            // HARDCODED: Von/Bis number fields are always 40 (hours-per-week for full-time)
+            // Skip AI classification and directly return 40
+            if (isVonBis && inputField && inputField.type === 'number') {
+                console.log(`🤖 [HARDCODED] Detected Von/Bis number field - returning 40 (hours-per-week, full-time)`);
+                await this.fillFieldWithAnswer(inputField, element, '40', question, fieldType);
+                this.collectedQuestionsAnswers.push({
+                    question: question,
+                    answer: '40',
+                    question_type: 'hours',
+                    ai_model_used: 'hardcoded',
+                    confidence_score: 1.0,
+                    is_skipped: false
+                });
+                return { success: true };
+            }
+            
             // Check for hardcoded answers first
             const hardcodedAnswer = this.getHardcodedAnswer(question, options);
             if (hardcodedAnswer) {
@@ -2354,6 +2523,33 @@ class StepstoneForm {
     static getHardcodedAnswer(question, options = []) {
         const questionLower = question.toLowerCase();
         
+        // Hours per week questions - check for "Von"/"Bis" with hours context
+        const isVonBis = questionLower === 'von' || questionLower === 'bis' || 
+                        questionLower.includes('(von)') || questionLower.includes('(bis)');
+        const isHoursQuestion = questionLower.includes('stunden') || 
+                               questionLower.includes('hours') ||
+                               questionLower.includes('woche') ||
+                               questionLower.includes('week') ||
+                               questionLower.includes('stunde pro woche') ||
+                               questionLower.includes('hours per week') ||
+                               questionLower.includes('wie viele stunden'); // "Wie viele Stunden pro Woche..."
+        
+        // If it's Von/Bis and we have hours context, return 40 (full-time)
+        if (isVonBis && isHoursQuestion) {
+            console.log(`🤖 [HARDCODED] Hours-per-week Von/Bis question detected, returning 40`);
+            return '40';
+        }
+        
+        // Also check: if question contains hours context and we're in a range context, default to 40
+        // This catches cases where the parent question context includes hours but the individual "Von"/"Bis" doesn't
+        if (isHoursQuestion && (isVonBis || questionLower.includes('von') || questionLower.includes('bis'))) {
+            console.log(`🤖 [HARDCODED] Hours question with Von/Bis context detected, returning 40`);
+            return '40';
+        }
+        
+        // Also check if it's a number field with Von/Bis in a range context
+        // (We'll check this in answerQuestion by looking at siblings)
+        
         // Date/start availability questions
         const dateTerms = [
             'start date', 'starting date', 'available to start', 'earliest start date',
@@ -2456,6 +2652,37 @@ class StepstoneForm {
     }
     
     /**
+     * Check if a checkbox is checked (checks both checked property and aria-checked attribute)
+     * @param {Element} checkbox - Checkbox element
+     * @returns {boolean} - Whether checkbox is checked
+     */
+    static isCheckboxChecked(checkbox) {
+        if (!checkbox || checkbox.type !== 'checkbox') {
+            return false;
+        }
+        // Check both the checked property and aria-checked attribute
+        const checkedProperty = checkbox.checked === true;
+        const ariaChecked = checkbox.getAttribute('aria-checked');
+        const ariaCheckedTrue = ariaChecked === 'true';
+        
+        // Checkbox is considered checked if either property or attribute indicates so
+        return checkedProperty || ariaCheckedTrue;
+    }
+    
+    /**
+     * Set checkbox checked state (updates both checked property and aria-checked attribute)
+     * @param {Element} checkbox - Checkbox element
+     * @param {boolean} checked - Whether to check the checkbox
+     */
+    static setCheckboxChecked(checkbox, checked) {
+        if (!checkbox || checkbox.type !== 'checkbox') {
+            return;
+        }
+        checkbox.checked = checked;
+        checkbox.setAttribute('aria-checked', checked ? 'true' : 'false');
+    }
+    
+    /**
      * Fill form field with answer (LinkedIn-style)
      * @param {Element} inputField - Input field element
      * @param {Element} element - Parent form element
@@ -2480,33 +2707,71 @@ class StepstoneForm {
                 console.log(`📋 Answer parts:`, answerParts);
                 
                 let checkedCount = 0;
+                const answerLower = cleanedAnswer.toLowerCase().trim();
+                const isNegativeAnswer = answerLower.includes('no') || answerLower.includes('nein');
                 
-                for (const checkbox of checkboxes) {
-                    const checkboxLabel = element.querySelector(`label[for="${checkbox.id}"]`);
-                    if (checkboxLabel) {
-                        const labelText = checkboxLabel.textContent.trim();
-                        const labelTextLower = labelText.toLowerCase();
-                        
-                        // Check if any part of the answer matches this checkbox
-                        const shouldCheck = answerParts.some(part => 
-                            labelTextLower.includes(part) || part.includes(labelTextLower)
-                        );
-                        
-                        if (shouldCheck) {
-                            checkbox.checked = true;
-                            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                            checkbox.dispatchEvent(new Event('click', { bubbles: true }));
-                            checkedCount++;
-                            console.log(`✅ Checked: ${labelText} (matched: ${answerParts.find(part => labelTextLower.includes(part) || part.includes(labelTextLower))})`);
-                        } else {
-                            console.log(`⏭️  Skipped: ${labelText} (no match)`);
+                // Special handling: If only one checkbox and answer is positive, check it regardless of label match
+                if (checkboxes.length === 1 && !isNegativeAnswer) {
+                    const singleCheckbox = checkboxes[0];
+                    // Only check if not already checked (preserve state)
+                    if (!this.isCheckboxChecked(singleCheckbox)) {
+                        this.setCheckboxChecked(singleCheckbox, true);
+                        singleCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                        singleCheckbox.dispatchEvent(new Event('click', { bubbles: true }));
+                        checkedCount++;
+                        console.log(`✅ Checked single checkbox in group (positive answer)`);
+                    } else {
+                        console.log(`✅ Single checkbox already checked (aria-checked or checked=true), preserving state`);
+                        checkedCount++;
+                    }
+                } else {
+                    // Multiple checkboxes - match by label
+                    for (const checkbox of checkboxes) {
+                        const checkboxLabel = element.querySelector(`label[for="${checkbox.id}"]`);
+                        if (checkboxLabel) {
+                            const labelText = checkboxLabel.textContent.trim();
+                            const labelTextLower = labelText.toLowerCase();
+                            
+                            // Check if any part of the answer matches this checkbox
+                            const shouldCheck = !isNegativeAnswer && answerParts.some(part => 
+                                labelTextLower.includes(part) || part.includes(labelTextLower)
+                            );
+                            
+                            const isAlreadyChecked = this.isCheckboxChecked(checkbox);
+                            
+                            if (shouldCheck) {
+                                // Only set if not already checked (preserve state)
+                                if (!isAlreadyChecked) {
+                                    this.setCheckboxChecked(checkbox, true);
+                                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                                    checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+                                    checkedCount++;
+                                    console.log(`✅ Checked: ${labelText} (matched: ${answerParts.find(part => labelTextLower.includes(part) || part.includes(labelTextLower))})`);
+                                } else {
+                                    // Already checked - preserve state
+                                    console.log(`✅ Checkbox already checked (aria-checked or checked=true), preserving: ${labelText}`);
+                                    checkedCount++;
+                                }
+                            } else {
+                                // Don't uncheck existing checked checkboxes unless answer is negative
+                                if (isNegativeAnswer && isAlreadyChecked) {
+                                    this.setCheckboxChecked(checkbox, false);
+                                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                                    console.log(`⏭️  Unchecked: ${labelText} (negative answer)`);
+                                } else {
+                                    console.log(`⏭️  Skipped: ${labelText} (no match, leaving current state)`);
+                                    if (isAlreadyChecked) {
+                                        checkedCount++;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 
                 console.log(`📊 Checked ${checkedCount} out of ${checkboxes.length} checkboxes`);
                 
-                if (checkedCount === 0) {
+                if (checkedCount === 0 && !isNegativeAnswer) {
                     console.log('⚠️  WARNING: No checkboxes were checked! Form may be invalid.');
                 }
                 
@@ -2580,8 +2845,30 @@ class StepstoneForm {
                             break;
                             
                         case 'checkbox':
-                            inputField.checked = true;
-                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            // For single checkboxes, check it if answer indicates yes/agreement
+                            // Checkboxes are typically "I agree" type questions - if we got here, check it
+                            const answerLower = cleanedAnswer.toLowerCase().trim();
+                            const shouldCheck = !answerLower.includes('no') && !answerLower.includes('nein');
+                            
+                            // Check current state using both checked property and aria-checked attribute
+                            const isAlreadyChecked = this.isCheckboxChecked(inputField);
+                            
+                            // Only change checkbox state if it needs to be changed
+                            // This prevents accidentally unchecking already-checked checkboxes
+                            if (shouldCheck && !isAlreadyChecked) {
+                                this.setCheckboxChecked(inputField, true);
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                inputField.dispatchEvent(new Event('click', { bubbles: true }));
+                                console.log(`✅ Checked single checkbox (answer: "${cleanedAnswer}")`);
+                            } else if (shouldCheck && isAlreadyChecked) {
+                                // Already checked (either checked=true or aria-checked="true") - preserve state
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`✅ Single checkbox already checked (aria-checked or checked=true), preserving state`);
+                            } else if (!shouldCheck) {
+                                this.setCheckboxChecked(inputField, false);
+                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`⏭️  Unchecked single checkbox (answer indicates no: "${cleanedAnswer}")`);
+                            }
                             break;
                     }
                     break;

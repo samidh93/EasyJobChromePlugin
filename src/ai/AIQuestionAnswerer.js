@@ -458,46 +458,177 @@ IMPORTANT RULES FOR SKILL LEVELS:
         // Add answer format information if available
         if (answerContext && answerContext.answerFormat) {
             const format = answerContext.answerFormat;
-            prompt += `
-
-EXPECTED ANSWER FORMAT:
-- Type: ${format.type}
-- Format: ${format.format}`;
-            
-            if (format.constraints) {
-                prompt += `
-- Constraints: ${format.constraints}`;
-            }
             
             if (format.hasOptions && format.options && format.options.length > 0) {
                 prompt += `
-- Available Options: ${JSON.stringify(format.options)}
-- IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
+
+IMPORTANT: This is a selection question. You MUST choose EXACTLY ONE option from the following list. Return ONLY the option text, nothing else.
+Available Options: ${JSON.stringify(format.options)}
+
+Example: If the options are ["Beginner", "Intermediate", "Advanced"] and you choose Intermediate, respond with only: Intermediate`;
             } else if (format.type === 'date') {
-                prompt += `
-- IMPORTANT: Answer must be a date in YYYY-MM-DD format (e.g., 2025-02-15)`;
+                // Check if this is a start date ("Ab"/"from") or end date ("Bis"/"until") question
+                const questionLower = question.toLowerCase();
+                const isEndDate = questionLower.includes('bis') || questionLower.includes('until') || 
+                                 questionLower.includes('to ') || questionLower.includes('end date') ||
+                                 questionLower === 'bis' || questionLower.startsWith('bis ');
+                const isStartDate = questionLower.includes('ab') || questionLower.includes('from') || 
+                                   questionLower.includes('start date') || questionLower.includes('available') ||
+                                   questionLower === 'ab' || questionLower.startsWith('ab ');
+                
+                if (isEndDate) {
+                    // Calculate a date at least 2 years from now for end date
+                    const today = new Date();
+                    const minEndDate = new Date(today);
+                    minEndDate.setFullYear(today.getFullYear() + 2); // Minimum 2 years from today
+                    const minEndDateStr = minEndDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                    
+                    // Try to parse constraint from question (e.g., "Ein Datum am 4.12.2025 oder danach")
+                    let constraintDate = null;
+                    const dateMatch = question.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+                    if (dateMatch) {
+                        const [, day, month, year] = dateMatch;
+                        constraintDate = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                    }
+                    
+                    // Use the later of: constraint date or 2 years from today
+                    let finalEndDate = minEndDate;
+                    if (constraintDate && constraintDate > minEndDate) {
+                        finalEndDate = constraintDate;
+                    }
+                    const finalEndDateStr = finalEndDate.toISOString().split('T')[0];
+                    
+                    prompt += `
+
+IMPORTANT: This is asking for an END DATE ("Bis"/"Until" - latest available date). Return ONLY a date in YYYY-MM-DD format.
+- The date must be at least 2 YEARS from today (minimum requirement)
+- Minimum date: ${minEndDateStr} (exactly 2 years from today)
+- You MUST use a date that is at least 2 years in the future
+- Suggested date: ${finalEndDateStr}
+- This represents when your availability ends
+- Do not include any other text or explanation`;
+                } else if (isStartDate) {
+                    // Calculate 2 months from now for start date (based on notice period)
+                    const startDate = new Date();
+                    startDate.setMonth(startDate.getMonth() + 2);
+                    const startDateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                    
+                    prompt += `
+
+IMPORTANT: This is asking for a START DATE ("Ab"/"From" - earliest available date). Return ONLY a date in YYYY-MM-DD format.
+- This should be your earliest available start date (typically 2 months from today to allow for notice period)
+- Suggested date: ${startDateStr} (2 months from today)
+- Do not include any other text or explanation`;
+                } else {
+                    prompt += `
+
+IMPORTANT: Return ONLY a date in YYYY-MM-DD format (e.g., 2025-02-15). Do not include any other text.`;
+                }
             } else if (format.type === 'number') {
-                prompt += `
-- IMPORTANT: Answer must be a number${format.constraints ? ` (${format.constraints})` : ''}`;
+                // Check if this is a range question (Von/Bis = From/To for numbers)
+                const questionLower = question.toLowerCase();
+                const isMaxValue = questionLower.includes('bis') || questionLower.includes('until') || 
+                                  questionLower.includes('to ') || questionLower.includes('maximum') ||
+                                  questionLower === 'bis' || questionLower.startsWith('bis ') ||
+                                  questionLower.includes('(bis)');
+                const isMinValue = questionLower.includes('von') || questionLower.includes('from') || 
+                                  questionLower.includes('minimum') ||
+                                  questionLower === 'von' || questionLower.startsWith('von ') ||
+                                  questionLower.includes('(von)');
+                
+                // Check if question is about hours per week - check both in question text and in full context
+                let isHoursPerWeek = question.toLowerCase().includes('stunden') || 
+                                     question.toLowerCase().includes('hours') ||
+                                     question.toLowerCase().includes('stunde pro woche') ||
+                                     question.toLowerCase().includes('hours per week') ||
+                                     question.toLowerCase().includes('woche') ||
+                                     question.toLowerCase().includes('week');
+                
+                // Fallback: If question is just "Von" or "Bis" and it's a number field,
+                // check if there are sibling fields that might indicate hours/week context
+                // OR assume it's likely hours-related if it's a simple Von/Bis number range
+                if (!isHoursPerWeek && (isMinValue || isMaxValue) && format.inputElement) {
+                    // Check if there's a sibling field (indicates it's a range question)
+                    const parent = format.inputElement.parentElement;
+                    if (parent) {
+                        const siblingInputs = parent.querySelectorAll('input[type="number"]');
+                        // If there are multiple number inputs, it's likely a range (min/max)
+                        // Common range questions: hours per week, salary range, etc.
+                        // For job applications, "Von/Bis" with numbers often means hours
+                        if (siblingInputs.length >= 2) {
+                            console.log('🔍 [DEBUG] Detected range question (multiple number inputs), assuming hours-per-week context');
+                            isHoursPerWeek = true; // Assume hours-per-week for Von/Bis number ranges
+                        }
+                    }
+                }
+                
+                if (isHoursPerWeek && isMaxValue) {
+                    // Maximum hours per week (full-time is typically 40 hours)
+                    prompt += `
+
+IMPORTANT: This is asking for the MAXIMUM hours per week you can work ("Bis"/"To"/"Up to").
+- For full-time employment, you MUST return: 40
+- DO NOT return 15, 20, 30, or any number less than 40
+- This represents the upper limit of your availability for full-time work
+- Return ONLY the number 40. Do not include any other text or explanation.`;
+                } else if (isHoursPerWeek && isMinValue) {
+                    // Minimum hours per week - for full-time positions, use 40
+                    prompt += `
+
+IMPORTANT: This is asking for the MINIMUM hours per week you can work ("Von"/"From"/"At least").
+- For full-time positions and availability, you MUST return: 40
+- DO NOT return 15, 20, 30, or any number less than 40
+- This represents the minimum hours you're available to work per week (full-time)
+- Both "Von" and "Bis" should be 40 for full-time availability
+- Return ONLY the number 40. Do not include any other text or explanation.`;
+                } else if (isMaxValue) {
+                    prompt += `
+
+IMPORTANT: This is asking for a MAXIMUM value ("Bis"/"To"/"Up to"). Return ONLY a number.
+- Provide a reasonable maximum value based on the question context
+${format.constraints ? `- Constraints: ${format.constraints}` : ''}
+- Do not include any other text or explanation.`;
+                } else if (isMinValue) {
+                    prompt += `
+
+IMPORTANT: This is asking for a MINIMUM value ("Von"/"From"/"At least"). Return ONLY a number.
+- Provide a reasonable minimum value based on the question context
+${format.constraints ? `- Constraints: ${format.constraints}` : ''}
+- Do not include any other text or explanation.`;
+                } else {
+                    prompt += `
+
+IMPORTANT: Return ONLY a number${format.constraints ? ` (${format.constraints})` : ''}. Do not include any other text or explanation.`;
+                }
             } else if (format.type === 'email') {
                 prompt += `
-- IMPORTANT: Answer must be a valid email address`;
+
+IMPORTANT: Return ONLY a valid email address. Do not include any other text.`;
             } else if (format.type === 'phone') {
                 prompt += `
-- IMPORTANT: Answer must be a valid phone number`;
+
+IMPORTANT: Return ONLY a valid phone number. Do not include any other text.`;
+            } else {
+                // Generic format guidance
+                if (format.constraints) {
+                    prompt += `
+
+IMPORTANT: ${format.constraints}. Return ONLY the answer, no additional text.`;
+                }
             }
         } else if (options && Array.isArray(options) && options.length > 0) {
             // Fallback: Add option selection rules if options are provided but no format context
             prompt += `
 
+IMPORTANT: This is a selection question. You MUST choose EXACTLY ONE option from the following list. Return ONLY the option text, nothing else.
 Available Options: ${JSON.stringify(options)}
 
-IMPORTANT: You MUST choose EXACTLY ONE option from the list above. Your answer should match one of the options EXACTLY as written.`;
+Example: If the options are ["Yes", "No"] and you choose Yes, respond with only: Yes`;
         }
 
         prompt += `
 
-ANSWER:`;
+Return ONLY your answer with no additional text, explanations, or formatting:`;
 
         return prompt;
     }

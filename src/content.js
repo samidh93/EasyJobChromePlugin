@@ -152,7 +152,14 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
         console.log('[Content Script] Message listener set up, ready to receive messages');
         
         // Auto-start StepStone application process if we're on an application page
-        if (window.location.href.includes('stepstone.de') && window.location.href.includes('/application/')) {
+        // BUT skip success/confirmation pages (they don't need form processing)
+        const isSuccessPage = window.location.href.includes('/application/confirmation/success') ||
+                              window.location.href.includes('/application/confirmation/') ||
+                              window.location.href.includes('/confirmation/success');
+        
+        if (window.location.href.includes('stepstone.de') && 
+            window.location.href.includes('/application/') && 
+            !isSuccessPage) {
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('🔄 [Content Script] Detected StepStone application page');
             console.log('   Auto-starting application process...');

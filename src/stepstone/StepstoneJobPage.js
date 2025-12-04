@@ -255,10 +255,37 @@ class StepstoneJobPage {
                 return 'error';
             }
             
+            // Check if job was skipped (already applied) - handle immediately without polling
+            if (response.result === 'skipped' || response.result === 'already_applied') {
+                console.log('[StepstoneJobPage] Job skipped (already applied) - closing tab immediately');
+                console.log('[StepstoneJobPage] Reason:', response.reason);
+                
+                // Close tab and return to main immediately
+                await TabManager.closeTab(jobTab.id);
+                await TabManager.switchToTab(mainTabId);
+                return response.result || 'skipped';
+            }
+            
             // Poll for form completion after receiving initial response
             console.log('[StepstoneJobPage] Received initial response, polling for completion...');
-            const result = await this.pollForFormCompletion(jobTab.id, mainTabId, isAutoApplyRunning);
-            return result;
+            console.log(`   Response result: ${response?.result || 'unknown'}`);
+            
+            // If response indicates processing (like when auto-start needs to run), poll for completion
+            // Otherwise, if it's success/skipped/error, handle it appropriately
+            if (response && response.result === 'processing') {
+                console.log('[StepstoneJobPage] Form is being processed, polling for completion...');
+                const result = await this.pollForFormCompletion(jobTab.id, mainTabId, isAutoApplyRunning);
+                return result;
+            } else if (response && (response.result === 'success' || response.result === 'skipped' || response.result === 'error')) {
+                // If we got a definitive result, use it (but still poll briefly to ensure status is set if needed)
+                console.log(`[StepstoneJobPage] Got ${response.result} result, verifying via polling...`);
+                const pollResult = await this.pollForFormCompletion(jobTab.id, mainTabId, isAutoApplyRunning);
+                return pollResult || response.result;
+            } else {
+                // Default: poll for completion
+                const result = await this.pollForFormCompletion(jobTab.id, mainTabId, isAutoApplyRunning);
+                return result;
+            }
             
         } catch (error) {
             console.error('[StepstoneJobPage] Error processing job:', error);
@@ -302,15 +329,35 @@ class StepstoneJobPage {
             console.log('[StepstoneJobPage] Processing job in tab:', jobInfo.title);
             console.log('[StepstoneJobPage] Current URL:', window.location.href);
             
-            // Check if we're already on an application page (after clicking "Bewerbung fortsetzen")
+            // Check if we're already on an application page
+            // If the page shows "Bewerbung fortsetzen" button, we need to handle it, not return immediately
             if (window.location.href.includes('/application/')) {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log('📍 [StepstoneJobPage] Already on application page');
-                console.log('   The form process will continue automatically');
-                console.log('   Returning success to avoid duplicate processing');
                 console.log('   URL:', window.location.href);
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                return { result: 'success', reason: 'Auto-process handling application' };
+                
+                // Check if there's a "Bewerbung fortsetzen" button - if so, we need to process it
+                const continueButton = await StepstoneForm.findContinueApplicationButton();
+                
+                if (continueButton) {
+                    console.log('   Found "Bewerbung fortsetzen" button - processing it...');
+                    // Extract job info and process the button click and form flow
+                    const detailedJobInfo = await StepstoneJobInfo.extractJobInfo();
+                    const finalJobInfo = jobInfo ? { ...jobInfo, ...detailedJobInfo } : detailedJobInfo;
+                    
+                    const applicationResult = await StepstoneForm.handleCompleteApplicationFlow(
+                        finalJobInfo,
+                        userData,
+                        () => shouldStop(isAutoApplyRunning)
+                    );
+                    return applicationResult;
+                } else {
+                    console.log('   No "Bewerbung fortsetzen" button - form should auto-start');
+                    console.log('   Waiting for auto-start to complete (will be detected via polling)...');
+                    // Don't return immediately - let the polling detect when form completes
+                    // The auto-start process will run and set status when done
+                    return { result: 'processing', reason: 'Waiting for auto-start to complete' };
+                }
             }
             
             // Wait for page to be fully loaded and interactive
@@ -654,9 +701,10 @@ class StepstoneJobPage {
      */
     static async pollForFormCompletion(jobTabId, mainTabId, isAutoApplyRunning) {
         console.log('[StepstoneJobPage] 🔄 Polling for form completion or stop...');
+        console.log(`   Job tab ID: ${jobTabId}, Main tab ID: ${mainTabId}`);
         
         const maxWaitTime = 180000; // 3 minutes
-        const pollInterval = 2000; // Check every 2 seconds
+        const pollInterval = 500; // Check every 500ms for faster detection
         const startTime = Date.now();
         
         while (true) {
@@ -679,15 +727,27 @@ class StepstoneJobPage {
                     
                     if (status.completed) {
                         console.log('[StepstoneJobPage] ✅ Form completed successfully');
+                        console.log(`   Application ID: ${status.applicationId || 'N/A'}`);
                         
                         // Clear the status
                         await chrome.storage.local.remove(['stepstoneFormStatus']);
                         
                         // Close tab and return to main
-                        console.log('[StepstoneJobPage] 🔒 Closing job tab');
-                        await TabManager.closeTab(jobTabId);
-                        await TabManager.switchToTab(mainTabId);
-                        console.log('[StepstoneJobPage] ✅ Returned to main tab');
+                        console.log('[StepstoneJobPage] 🔒 Closing job tab and returning to main tab...');
+                        try {
+                            await TabManager.closeTab(jobTabId);
+                            console.log('[StepstoneJobPage] ✅ Job tab closed successfully');
+                        } catch (closeError) {
+                            console.error('[StepstoneJobPage] Error closing job tab:', closeError);
+                            // Continue anyway - try to switch to main tab
+                        }
+                        
+                        try {
+                            await TabManager.switchToTab(mainTabId);
+                            console.log('[StepstoneJobPage] ✅ Returned to main tab - ready to continue with next job');
+                        } catch (switchError) {
+                            console.error('[StepstoneJobPage] Error switching to main tab:', switchError);
+                        }
                         
                         return status.result || 'success';
                     }
