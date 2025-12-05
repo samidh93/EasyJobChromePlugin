@@ -76,7 +76,22 @@ class StepstoneForm {
      */
     static async autoStartApplicationProcess(shouldStopCallback = null) {
         try {
-            // Check if we're on an external form (not StepStone domain)
+            // Store the stop callback
+            this.shouldStopCallback = shouldStopCallback;
+            
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🔄 [StepstoneForm] Auto-starting application process');
+            console.log('   Current URL:', window.location.href);
+            console.log('   User data available:', !!window.currentUserData);
+            console.log('   AI settings available:', !!window.currentAiSettings);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
+            // Wait for page to fully load BEFORE checking for external form or success page
+            // This ensures the page has loaded completely before making decisions
+            await this.waitForPageLoad();
+            await this.wait(2000); // Additional wait for dynamic content
+            
+            // Check if we're on an external form (not StepStone domain) - AFTER page load
             if (this.isExternalForm()) {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log('🌐 [StepstoneForm] External form detected on auto-start');
@@ -109,20 +124,6 @@ class StepstoneForm {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 return; // Don't process success pages
             }
-            
-            // Store the stop callback
-            this.shouldStopCallback = shouldStopCallback;
-            
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('🔄 [StepstoneForm] Auto-starting application process');
-            console.log('   Current URL:', window.location.href);
-            console.log('   User data available:', !!window.currentUserData);
-            console.log('   AI settings available:', !!window.currentAiSettings);
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            
-            // Wait for page to fully load
-            await this.waitForPageLoad();
-            await this.wait(2000); // Additional wait for dynamic content
             
             // Check if we have the necessary data
             if (!window.currentUserData || !window.currentAiSettings) {

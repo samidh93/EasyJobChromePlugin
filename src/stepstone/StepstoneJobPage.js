@@ -39,8 +39,19 @@ class StepstoneJobPage {
             let skippedJobs = 0;
             let errors = 0;
             
-            // Process each job
+            console.log(`[StepstoneJobPage] 🧪 TEST MODE: Processing only last job (${jobs.length} of ${jobs.length}) for pagination testing`);
+            sendStatusUpdate(`🧪 TEST MODE: Processing last job of ${jobs.length} for pagination test`, 'info');
+            
+            // Process each job - TEST MODE: Only process the last job
             for (const [index, job] of jobs.entries()) {
+                // Skip all jobs except the last one
+                if (index < jobs.length - 1) {
+                    console.log(`[StepstoneJobPage] 🧪 TEST MODE: Skipping job ${index + 1}/${jobs.length}, will only process last job`);
+                    continue; // Skip to next iteration
+                }
+                
+                console.log(`[StepstoneJobPage] 🧪 TEST MODE: Processing LAST job ${index + 1}/${jobs.length}`);
+                
                 if (await shouldStop(isAutoApplyRunning)) {
                     console.log('[StepstoneJobPage] Stop requested during job processing - breaking job loop');
                     return false; // Exit immediately
@@ -74,10 +85,9 @@ class StepstoneJobPage {
                             debugLog(`[StepstoneJobPage] Job ${index + 1} returned unknown result: ${jobResult}`);
                     }
                     
-                    // Wait between jobs to avoid rate limiting
-                    if (index < jobs.length - 1) {
-                        await this.wait(2000);
-                    }
+                    // In test mode, we're done after processing the last job, break out
+                    console.log(`[StepstoneJobPage] 🧪 TEST MODE: Finished processing last job, moving to next page`);
+                    break;
                     
                 } catch (error) {
                     console.error(`[StepstoneJobPage] Error processing job ${index + 1}:`, error);
@@ -103,12 +113,22 @@ class StepstoneJobPage {
                 
                 if (!navigationSuccess) {
                     console.log(`[StepstoneJobPage] Failed to navigate to page ${page + 1}`);
-                    sendStatusUpdate(`Could not navigate to page ${page + 1}`, 'warning');
-                    return false; // Stop processing if navigation fails
+                    
+                    // Double-check if we're actually on the last page (like LinkedIn)
+                    const isLastPage = await StepstoneJobSearch.isOnLastPage();
+                    if (isLastPage) {
+                        console.log('[StepstoneJobPage] Confirmed: reached the last page');
+                        sendStatusUpdate('Reached the last page of results', 'info');
+                        return true; // Return true to complete normally
+                    } else {
+                        sendStatusUpdate(`Could not navigate to page ${page + 1}`, 'warning');
+                        return false; // Stop processing if navigation fails
+                    }
                 }
                 
-                // Wait for page to load
-                await this.wait(3000);
+                // Note: navigateToNextPage() already waits for page load
+                // Additional wait for stability (like LinkedIn)
+                await this.wait(1000);
             }
             
             return true;
@@ -255,15 +275,28 @@ class StepstoneJobPage {
                 return 'error';
             }
             
-            // Check if job was skipped (already applied or external form) - handle immediately without polling
+            // Check if job was skipped (already applied or external form) - wait for page load before closing
             if (response.result === 'skipped' || response.result === 'already_applied' || response.result === 'external_form') {
                 const reasonMsg = response.result === 'external_form' 
                     ? 'External form detected (redirected to non-StepStone domain)' 
                     : 'Already applied or skipped';
-                console.log(`[StepstoneJobPage] Job ${response.result} - closing tab immediately`);
+                console.log(`[StepstoneJobPage] Job ${response.result} - will close tab after page loads`);
                 console.log('[StepstoneJobPage] Reason:', response.reason || reasonMsg);
                 
-                // Close tab and return to main immediately
+                // Wait a moment for page to fully load before closing tab
+                // This prevents closing tabs before they've had a chance to load
+                console.log('[StepstoneJobPage] Waiting for page to fully load before closing...');
+                await this.wait(2000); // Give page time to load
+                
+                // Verify page loaded state
+                let attempts = 0;
+                while (document.readyState !== 'complete' && attempts < 5) {
+                    await this.wait(500);
+                    attempts++;
+                }
+                
+                // Close tab and return to main
+                console.log('[StepstoneJobPage] Page loaded, closing tab now...');
                 await TabManager.closeTab(jobTab.id);
                 await TabManager.switchToTab(mainTabId);
                 return response.result === 'external_form' ? 'skipped' : (response.result || 'skipped');
@@ -338,6 +371,23 @@ class StepstoneJobPage {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log('📍 [StepstoneJobPage] Already on application page');
                 console.log('   URL:', window.location.href);
+                
+                // Wait for page to be fully loaded before checking for button or external form
+                console.log('[StepstoneJobPage] Waiting for page to load before checking...');
+                let attempts = 0;
+                while (document.readyState !== 'complete' && attempts < 10) {
+                    console.log('[StepstoneJobPage] Page not complete yet, waiting... (attempt', attempts + 1, ')');
+                    await this.wait(500);
+                    attempts++;
+                }
+                await this.wait(2000); // Additional wait for dynamic content
+                console.log('[StepstoneJobPage] Page readyState:', document.readyState);
+                
+                // Check for external form after page load
+                if (StepstoneForm.isExternalForm()) {
+                    console.log('🌐 [StepstoneJobPage] External form detected on application page');
+                    return { result: 'external_form', reason: 'Redirected to external form (not StepStone domain)' };
+                }
                 
                 // Check if there's a "Bewerbung fortsetzen" button - if so, we need to process it
                 const continueButton = await StepstoneForm.findContinueApplicationButton();
@@ -762,13 +812,18 @@ class StepstoneJobPage {
                     
                     // Check if external form was detected (via auto-start or button click)
                     if (status.result === 'external_form' || status.shouldCloseTab) {
-                        console.log('[StepstoneJobPage] 🌐 External form detected - closing tab');
+                        console.log('[StepstoneJobPage] 🌐 External form detected - will close tab after page loads');
                         console.log('[StepstoneJobPage] Reason:', status.reason || 'Redirected to external form');
+                        
+                        // Wait a moment to ensure page has fully loaded before closing
+                        console.log('[StepstoneJobPage] Waiting for page to fully load before closing...');
+                        await this.wait(2000); // Give page time to load
                         
                         // Clear the status
                         await chrome.storage.local.remove(['stepstoneFormStatus']);
                         
                         // Close tab and return to main
+                        console.log('[StepstoneJobPage] Page loaded, closing tab now...');
                         try {
                             await TabManager.closeTab(jobTabId);
                             await TabManager.switchToTab(mainTabId);

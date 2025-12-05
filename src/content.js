@@ -151,6 +151,44 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
         // Listen for messages from background script
         console.log('[Content Script] Message listener set up, ready to receive messages');
         
+        // Check if we should resume auto-apply after page reload (for pagination)
+        // This happens when navigation uses URL manipulation (full page reload)
+        if (window.location.href.includes('stepstone.de') && 
+            window.location.href.includes('/jobs/') &&
+            window.location.href.includes('page=')) {
+            // Check if auto-apply was running before reload
+            (async () => {
+                try {
+                    const state = await chrome.storage.local.get(['stepstoneAutoApplyRunning']);
+                    if (state.stepstoneAutoApplyRunning === true) {
+                        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                        console.log('🔄 [Content Script] Resuming StepStone auto-apply after page reload');
+                        console.log(`   Current URL: ${window.location.href}`);
+                        console.log('   Auto-apply will resume automatically...');
+                        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                        
+                        // Wait for page to load, then resume auto-apply
+                        setTimeout(async () => {
+                            try {
+                                const { default: PlatformFactory } = await import('./platform/PlatformFactory.js');
+                                if (PlatformFactory.isSupportedPage()) {
+                                    const platform = await PlatformFactory.createPlatform();
+                                    if (platform && typeof platform.startAutoApply === 'function') {
+                                        console.log('[Content Script] Resuming auto-apply...');
+                                        await platform.startAutoApply();
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('[Content Script] Error resuming auto-apply:', error);
+                            }
+                        }, 3000); // Wait 3 seconds for page to fully load
+                    }
+                } catch (error) {
+                    console.error('[Content Script] Error checking resume state:', error);
+                }
+            })();
+        }
+        
         // Auto-start StepStone application process if we're on an application page
         // BUT skip success/confirmation pages (they don't need form processing)
         const isSuccessPage = window.location.href.includes('/application/confirmation/success') ||

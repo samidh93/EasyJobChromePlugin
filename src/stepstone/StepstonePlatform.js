@@ -48,9 +48,29 @@ class StepstonePlatform extends BasePlatform {
                 return;
             }
             
+            // Check if we should resume from a page reload
+            let resumeFromPage = null;
+            try {
+                const paginationState = await chrome.storage.local.get(['stepstonePaginationState', 'stepstoneAutoApplyRunning']);
+                if (paginationState.stepstoneAutoApplyRunning === true && paginationState.stepstonePaginationState) {
+                    resumeFromPage = paginationState.stepstonePaginationState.currentPage;
+                    this.debugLog(`Resuming auto-apply from page ${resumeFromPage} after page reload`);
+                    sendStatusUpdate(`Resuming auto-apply from page ${resumeFromPage}...`, 'info');
+                }
+            } catch (error) {
+                this.debugLog('Error checking resume state:', error);
+            }
+            
             this.debugLog('Starting StepStone auto-apply process');
             this.setAutoApplyRunning(true);
             this.resetStopFlag();
+            
+            // Store running state for resume logic
+            try {
+                await chrome.storage.local.set({ 'stepstoneAutoApplyRunning': true });
+            } catch (error) {
+                this.debugLog('Error storing auto-apply running state:', error);
+            }
 
             // Check if on correct page
             if (!this.isCurrentPlatform()) {
@@ -125,8 +145,22 @@ class StepstonePlatform extends BasePlatform {
             // Get available pages
             const totalPages = await this.getAvailablePages(searchElement, totalJobs);
 
+            // Determine starting page (resume from saved state or start from 1)
+            let startPage = resumeFromPage || 1;
+            if (startPage > totalPages) {
+                this.debugLog(`Resume page ${startPage} is beyond total pages ${totalPages}, starting from page 1`);
+                startPage = 1;
+            }
+            
+            this.debugLog(`Starting from page ${startPage} of ${totalPages} (resume: ${!!resumeFromPage})`);
+
             // Process each page
-            for (let page = 1; page <= totalPages; page++) {
+            for (let page = startPage; page <= totalPages; page++) {
+                this.debugLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                this.debugLog(`Starting page ${page} of ${totalPages}`);
+                this.debugLog(`Current URL: ${window.location.href}`);
+                this.debugLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+                
                 if (this.isStopRequested() || await shouldStop(this.isAutoApplyRunning)) {
                     this.debugLog('Stop requested during page processing');
                     return;
@@ -138,6 +172,45 @@ class StepstonePlatform extends BasePlatform {
                 if (pageProcessed === false) {
                     this.debugLog('Page processing returned false - stopping auto-apply');
                     break;
+                }
+                
+                // Check if we're still on the same page after navigation (may have reloaded)
+                // If page reloaded, the loop will stop because script context reset
+                // This is expected if navigation used URL manipulation
+                const currentUrl = window.location.href;
+                this.debugLog(`After page ${page} processing, current URL: ${currentUrl}`);
+                this.debugLog(`Loop will continue to page ${page + 1} if not last page`);
+                
+                // Refresh searchElement after navigation (in case DOM changed)
+                // This ensures we have a valid reference for the next page
+                if (page < totalPages) {
+                    this.debugLog(`Refreshing searchElement for page ${page + 1}...`);
+                    let refreshedSearchElement = document.querySelector(this.selectors.searchContainer);
+                    if (!refreshedSearchElement) {
+                        // Try fallback selectors
+                        const fallbackSelectors = [
+                            'h1[class*="facets-header"]',
+                            '[data-genesis-element="TEXT"]:has([data-at="search-jobs-count"])',
+                            'h1:has([data-at="search-jobs-count"])',
+                            '[class*="search-results"]',
+                            '[class*="job-results"]',
+                            'main',
+                            '[role="main"]',
+                            'body'
+                        ];
+                        
+                        for (const selector of fallbackSelectors) {
+                            refreshedSearchElement = document.querySelector(selector);
+                            if (refreshedSearchElement) {
+                                this.debugLog(`Refreshed searchElement after navigation using: ${selector}`);
+                                searchElement = refreshedSearchElement;
+                                break;
+                            }
+                        }
+                    } else {
+                        searchElement = refreshedSearchElement;
+                        this.debugLog('Refreshed searchElement after navigation');
+                    }
                 }
                 
                 // Additional stop check after each page
@@ -156,6 +229,12 @@ class StepstonePlatform extends BasePlatform {
             throw error;
         } finally {
             this.setAutoApplyRunning(false);
+            // Clear resume state when done
+            try {
+                await chrome.storage.local.remove(['stepstonePaginationState', 'stepstoneAutoApplyRunning']);
+            } catch (error) {
+                this.debugLog('Error clearing resume state:', error);
+            }
         }
     }
 
