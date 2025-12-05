@@ -76,6 +76,27 @@ class StepstoneForm {
      */
     static async autoStartApplicationProcess(shouldStopCallback = null) {
         try {
+            // Check if we're on an external form (not StepStone domain)
+            if (this.isExternalForm()) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🌐 [StepstoneForm] External form detected on auto-start');
+                console.log('   Skipping auto-start (redirected to external form)');
+                console.log('   URL:', window.location.href);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                // Set status so main tab can detect and close this tab
+                await chrome.storage.local.set({
+                    'stepstoneFormStatus': {
+                        completed: false,
+                        result: 'external_form',
+                        reason: 'Redirected to external form (not StepStone domain)',
+                        timestamp: Date.now(),
+                        shouldCloseTab: true
+                    }
+                });
+                return; // Don't process external forms
+            }
+            
             // Check if we're on a success/confirmation page - don't start processing
             const currentUrl = window.location.href;
             if (currentUrl.includes('/application/confirmation/success') ||
@@ -254,6 +275,38 @@ class StepstoneForm {
     }
     
     /**
+     * Check if current URL is external (not on StepStone domain)
+     * @returns {boolean} - true if external, false if StepStone domain
+     */
+    static isExternalForm() {
+        try {
+            const currentUrl = window.location.href;
+            const hostname = window.location.hostname;
+            
+            // Check if hostname is stepstone.de or any subdomain
+            const isStepstoneDomain = hostname === 'stepstone.de' || 
+                                     hostname.endsWith('.stepstone.de') ||
+                                     hostname.includes('stepstone.de');
+            
+            if (!isStepstoneDomain) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🌐 EXTERNAL FORM DETECTED');
+                console.log(`   Current URL: ${currentUrl}`);
+                console.log(`   Hostname: ${hostname}`);
+                console.log('   This is not a StepStone internal form - will skip');
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('❌ Error checking if external form:', error);
+            // On error, assume it's StepStone to avoid false positives
+            return false;
+        }
+    }
+    
+    /**
      * Start the application process from job page (with pre-found button)
      * @param {Element} continueButton - Pre-found continue button (optional)
      * @returns {Promise<Object>} - Result object
@@ -266,13 +319,40 @@ class StepstoneForm {
                 console.log('   Clicking to start application...');
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 
+                // Store URL before clicking to detect navigation
+                const urlBeforeClick = window.location.href;
                 continueButton.click();
-                await this.wait(3000); // Wait for form to load
+                
+                // Wait for navigation/redirect to occur
+                await this.wait(3000); // Wait for form to load or redirect
+                
+                // Check if we were redirected to an external form
+                if (this.isExternalForm()) {
+                    console.log('⚠️  Redirected to external form after clicking "Bewerbung fortsetzen"');
+                    console.log('   Closing tab and continuing with next job...');
+                    return { 
+                        result: 'external_form', 
+                        reason: 'Redirected to external form (not StepStone domain)',
+                        shouldCloseTab: true
+                    };
+                }
                 
                 // DISABLED: Navigation/form detection checks - proceed directly to form processing
                 console.log('⚠️  [DISABLED] Skipping form detection, proceeding directly to form processing...');
                 console.log('   Waiting additional 2 seconds for form to be ready...');
                 await this.wait(2000);
+                
+                // Double-check after additional wait (in case redirect was delayed)
+                if (this.isExternalForm()) {
+                    console.log('⚠️  Redirected to external form after waiting');
+                    console.log('   Closing tab and continuing with next job...');
+                    return { 
+                        result: 'external_form', 
+                        reason: 'Redirected to external form (not StepStone domain)',
+                        shouldCloseTab: true
+                    };
+                }
+                
                     return await this.processApplicationForm();
             } else {
                 console.log('❌ No "Bewerbung fortsetzen" button found');
@@ -1327,31 +1407,31 @@ class StepstoneForm {
                 console.log(`   Application ID: ${successResult.applicationId}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             
-                // Set completion status in storage
+            // Set completion status in storage
                 // This will be picked up by the main tab's pollForFormCompletion() which will close this tab
-                await chrome.storage.local.set({
-                    'stepstoneFormStatus': {
-                        completed: true,
+            await chrome.storage.local.set({
+                'stepstoneFormStatus': {
+                    completed: true,
                         confirmed: true,
-                        result: 'success',
+                    result: 'success',
                         applicationId: successResult.applicationId,
                         confirmationUrl: successResult.confirmationUrl,
-                        timestamp: Date.now()
-                    }
-                });
+                    timestamp: Date.now()
+                }
+            });
                 
                 console.log('✅ Completion status set in storage - main tab will close this tab shortly');
                 console.log('   (Main tab polls every 200ms for fast detection)');
                 
                 // No need to wait - the main tab will detect and close the tab quickly via polling
             
-                return { 
-                    result: 'success', 
+            return { 
+                result: 'success', 
                     message: `Application submitted successfully (ID: ${successResult.applicationId})`,
                     applicationId: successResult.applicationId,
                     confirmationUrl: successResult.confirmationUrl,
-                    jobInfo: this.jobInfo
-                };
+                jobInfo: this.jobInfo
+            };
             } else {
                 // First attempt failed - retry once
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -2308,7 +2388,55 @@ class StepstoneForm {
             // Skip AI classification and directly return 40
             if (isVonBis && inputField && inputField.type === 'number') {
                 console.log(`🤖 [HARDCODED] Detected Von/Bis number field - returning 40 (hours-per-week, full-time)`);
-                await this.fillFieldWithAnswer(inputField, element, '40', question, fieldType);
+                const fillResult = await this.fillFieldWithAnswer(inputField, element, '40', question, fieldType);
+                
+                // Safety check: ensure fillResult is an object with success property
+                if (!fillResult || typeof fillResult !== 'object' || typeof fillResult.success === 'undefined') {
+                    console.error(`⚠️  fillFieldWithAnswer returned unexpected result:`, fillResult);
+                    // Treat as error
+                    this.collectedQuestionsAnswers.push({
+                        question: question,
+                        answer: '40',
+                        question_type: 'hours',
+                        ai_model_used: 'hardcoded',
+                        confidence_score: 1.0,
+                        is_skipped: false,
+                        error: 'fillFieldWithAnswer returned invalid result'
+                    });
+                    return { 
+                        success: false, 
+                        reason: 'Field filling returned invalid result',
+                        error: 'Unexpected return value from fillFieldWithAnswer'
+                    };
+                }
+                
+                // Check if field filling failed or has validation errors
+                if (!fillResult.success) {
+                    console.log(`⚠️  Failed to fill Von/Bis field with hardcoded answer: ${fillResult.validationError || fillResult.error || 'Unknown error'}`);
+                    
+                    // Track the failed attempt
+                    this.collectedQuestionsAnswers.push({
+                        question: question,
+                        answer: '40',
+                        question_type: 'hours',
+                        ai_model_used: 'hardcoded',
+                        confidence_score: 1.0,
+                        is_skipped: false,
+                        validation_error: fillResult.validationError,
+                        error: fillResult.error
+                    });
+                    
+                    // Return the actual result instead of always success
+                    return { 
+                        success: false, 
+                        reason: fillResult.validationError || fillResult.error || 'Field filling failed',
+                        validationError: fillResult.validationError,
+                        constraintType: fillResult.constraintType,
+                        constraintValue: fillResult.constraintValue
+                    };
+                }
+                
+                // Successfully filled
                 this.collectedQuestionsAnswers.push({
                     question: question,
                     answer: '40',
@@ -2325,10 +2453,56 @@ class StepstoneForm {
             if (hardcodedAnswer) {
                 console.log(`🤖 Using hardcoded answer for: ${question} -> ${hardcodedAnswer}`);
                 
-                // Fill the field with hardcoded answer
-                await this.fillFieldWithAnswer(inputField, element, hardcodedAnswer, question, fieldType);
+                // Fill the field with hardcoded answer and capture the result
+                const fillResult = await this.fillFieldWithAnswer(inputField, element, hardcodedAnswer, question, fieldType);
                 
-                // Track the question/answer
+                // Safety check: ensure fillResult is an object with success property
+                if (!fillResult || typeof fillResult !== 'object' || typeof fillResult.success === 'undefined') {
+                    console.error(`⚠️  fillFieldWithAnswer returned unexpected result:`, fillResult);
+                    // Treat as error
+                    this.collectedQuestionsAnswers.push({
+                        question: question,
+                        answer: hardcodedAnswer,
+                        question_type: this.detectQuestionType(question),
+                        ai_model_used: 'hardcoded',
+                        confidence_score: 1.0,
+                        is_skipped: false,
+                        error: 'fillFieldWithAnswer returned invalid result'
+                    });
+                    return { 
+                        success: false, 
+                        reason: 'Field filling returned invalid result',
+                        error: 'Unexpected return value from fillFieldWithAnswer'
+                    };
+                }
+                
+                // Check if field filling failed or has validation errors
+                if (!fillResult.success) {
+                    console.log(`⚠️  Failed to fill field with hardcoded answer: ${fillResult.validationError || fillResult.error || 'Unknown error'}`);
+                    
+                    // Track the failed attempt
+                    this.collectedQuestionsAnswers.push({
+                        question: question,
+                        answer: hardcodedAnswer,
+                        question_type: this.detectQuestionType(question),
+                        ai_model_used: 'hardcoded',
+                        confidence_score: 1.0,
+                        is_skipped: false,
+                        validation_error: fillResult.validationError,
+                        error: fillResult.error
+                    });
+                    
+                    // Return the actual result instead of always success
+                    return { 
+                        success: false, 
+                        reason: fillResult.validationError || fillResult.error || 'Field filling failed',
+                        validationError: fillResult.validationError,
+                        constraintType: fillResult.constraintType,
+                        constraintValue: fillResult.constraintValue
+                    };
+                }
+                
+                // Successfully filled - track the question/answer
                 this.collectedQuestionsAnswers.push({
                     question: question,
                     answer: hardcodedAnswer,
@@ -2726,28 +2900,28 @@ class StepstoneForm {
                     }
                 } else {
                     // Multiple checkboxes - match by label
-                    for (const checkbox of checkboxes) {
-                        const checkboxLabel = element.querySelector(`label[for="${checkbox.id}"]`);
-                        if (checkboxLabel) {
-                            const labelText = checkboxLabel.textContent.trim();
-                            const labelTextLower = labelText.toLowerCase();
-                            
-                            // Check if any part of the answer matches this checkbox
+                for (const checkbox of checkboxes) {
+                    const checkboxLabel = element.querySelector(`label[for="${checkbox.id}"]`);
+                    if (checkboxLabel) {
+                        const labelText = checkboxLabel.textContent.trim();
+                        const labelTextLower = labelText.toLowerCase();
+                        
+                        // Check if any part of the answer matches this checkbox
                             const shouldCheck = !isNegativeAnswer && answerParts.some(part => 
-                                labelTextLower.includes(part) || part.includes(labelTextLower)
-                            );
+                            labelTextLower.includes(part) || part.includes(labelTextLower)
+                        );
                             
                             const isAlreadyChecked = this.isCheckboxChecked(checkbox);
-                            
-                            if (shouldCheck) {
+                        
+                        if (shouldCheck) {
                                 // Only set if not already checked (preserve state)
                                 if (!isAlreadyChecked) {
                                     this.setCheckboxChecked(checkbox, true);
-                                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                                    checkbox.dispatchEvent(new Event('click', { bubbles: true }));
-                                    checkedCount++;
-                                    console.log(`✅ Checked: ${labelText} (matched: ${answerParts.find(part => labelTextLower.includes(part) || part.includes(labelTextLower))})`);
-                                } else {
+                            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+                            checkedCount++;
+                            console.log(`✅ Checked: ${labelText} (matched: ${answerParts.find(part => labelTextLower.includes(part) || part.includes(labelTextLower))})`);
+                        } else {
                                     // Already checked - preserve state
                                     console.log(`✅ Checkbox already checked (aria-checked or checked=true), preserving: ${labelText}`);
                                     checkedCount++;
@@ -2771,12 +2945,34 @@ class StepstoneForm {
                 
                 console.log(`📊 Checked ${checkedCount} out of ${checkboxes.length} checkboxes`);
                 
-                if (checkedCount === 0 && !isNegativeAnswer) {
-                    console.log('⚠️  WARNING: No checkboxes were checked! Form may be invalid.');
+                // Wait for validation to appear
+                await this.wait(1000); // Longer wait for validation
+                
+                // Check for validation feedback after filling checkbox group
+                const validationResult = await this.checkValidationFeedback(element, checkboxes[0] || inputField);
+                
+                if (validationResult.hasError) {
+                    console.log(`⚠️  Validation feedback detected after filling checkbox group: ${validationResult.message}`);
+                    return {
+                        success: false,
+                        validationError: validationResult.message,
+                        constraintType: validationResult.constraintType,
+                        constraintValue: validationResult.constraintValue
+                    };
                 }
                 
-                await this.wait(1000); // Longer wait for validation
-                return;
+                // Check if at least one checkbox was checked (unless answer was negative)
+                if (checkedCount === 0 && !isNegativeAnswer) {
+                    console.log('⚠️  WARNING: No checkboxes were checked! Form may be invalid.');
+                    return {
+                        success: false,
+                        validationError: 'No checkboxes were checked',
+                        error: 'No matching checkboxes found for answer'
+                    };
+                }
+                
+                console.log(`✅ Checkbox group filled successfully (${checkedCount} checkboxes checked)`);
+                return { success: true };
             }
             
             // Clear existing value first (for non-checkbox, non-date fields)
@@ -2857,7 +3053,7 @@ class StepstoneForm {
                             // This prevents accidentally unchecking already-checked checkboxes
                             if (shouldCheck && !isAlreadyChecked) {
                                 this.setCheckboxChecked(inputField, true);
-                                inputField.dispatchEvent(new Event('change', { bubbles: true }));
+                            inputField.dispatchEvent(new Event('change', { bubbles: true }));
                                 inputField.dispatchEvent(new Event('click', { bubbles: true }));
                                 console.log(`✅ Checked single checkbox (answer: "${cleanedAnswer}")`);
                             } else if (shouldCheck && isAlreadyChecked) {

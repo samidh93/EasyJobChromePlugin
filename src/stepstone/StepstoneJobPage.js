@@ -255,15 +255,18 @@ class StepstoneJobPage {
                 return 'error';
             }
             
-            // Check if job was skipped (already applied) - handle immediately without polling
-            if (response.result === 'skipped' || response.result === 'already_applied') {
-                console.log('[StepstoneJobPage] Job skipped (already applied) - closing tab immediately');
-                console.log('[StepstoneJobPage] Reason:', response.reason);
+            // Check if job was skipped (already applied or external form) - handle immediately without polling
+            if (response.result === 'skipped' || response.result === 'already_applied' || response.result === 'external_form') {
+                const reasonMsg = response.result === 'external_form' 
+                    ? 'External form detected (redirected to non-StepStone domain)' 
+                    : 'Already applied or skipped';
+                console.log(`[StepstoneJobPage] Job ${response.result} - closing tab immediately`);
+                console.log('[StepstoneJobPage] Reason:', response.reason || reasonMsg);
                 
                 // Close tab and return to main immediately
                 await TabManager.closeTab(jobTab.id);
                 await TabManager.switchToTab(mainTabId);
-                return response.result || 'skipped';
+                return response.result === 'external_form' ? 'skipped' : (response.result || 'skipped');
             }
             
             // Poll for form completion after receiving initial response
@@ -431,7 +434,12 @@ class StepstoneJobPage {
             const shouldStopCallback = async () => await shouldStop(isAutoApplyRunning);
             const applicationResult = await StepstoneForm.handleCompleteApplicationFlow(finalJobInfo, userData, shouldStopCallback);
             
-            // Check result
+            // Check result - handle external form specially
+            if (applicationResult.result === 'external_form') {
+                console.log('[StepstoneJobPage] External form detected - will skip this job');
+                return { result: 'external_form', reason: applicationResult.reason || 'Redirected to external form' };
+            }
+            
             if (applicationResult.result !== 'success') {
                 return applicationResult; // Return error/skip result
             }
@@ -750,6 +758,25 @@ class StepstoneJobPage {
                         }
                         
                         return status.result || 'success';
+                    }
+                    
+                    // Check if external form was detected (via auto-start or button click)
+                    if (status.result === 'external_form' || status.shouldCloseTab) {
+                        console.log('[StepstoneJobPage] 🌐 External form detected - closing tab');
+                        console.log('[StepstoneJobPage] Reason:', status.reason || 'Redirected to external form');
+                        
+                        // Clear the status
+                        await chrome.storage.local.remove(['stepstoneFormStatus']);
+                        
+                        // Close tab and return to main
+                        try {
+                            await TabManager.closeTab(jobTabId);
+                            await TabManager.switchToTab(mainTabId);
+                        } catch (closeError) {
+                            console.error('[StepstoneJobPage] Error closing tab for external form:', closeError);
+                        }
+                        
+                        return 'skipped'; // Treat as skipped to continue with next job
                     }
                     
                     if (status.stopped) {
