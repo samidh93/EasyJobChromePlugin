@@ -169,7 +169,7 @@ class StepstoneJobSearch {
             await this.wait(1000);
             
             // StepStone job listing selector (verified working)
-            const jobCards = document.querySelectorAll('article[data-testid="job-item"]');
+            const jobCards = document.querySelectorAll('article[data-at="job-item"][class^="res"]');
             
             if (jobCards.length > 0) {
                 console.log(`[StepstoneJobSearch] Found ${jobCards.length} jobs with verified selector: article[data-testid="job-item"]`);
@@ -179,7 +179,7 @@ class StepstoneJobSearch {
             // Fallback selectors if main selector doesn't work
             const fallbackSelectors = [
                 '[data-testid="job-item"]',
-                'article[data-testid*="job"]',
+                'article[data-at="job-item"][class^="res"]', 
                 '.job-element',
                 '[class*="job-item"]',
                 '.resultlist-item'

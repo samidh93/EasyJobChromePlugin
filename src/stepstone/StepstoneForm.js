@@ -1030,7 +1030,7 @@ class StepstoneForm {
      * @param {number} maxWaitTime - Maximum time to wait in milliseconds (default: 60000)
      * @returns {Promise<Object>} - Success result with applicationId or error
      */
-    static async waitForSubmissionSuccess(maxWaitTime = 60000) {
+    static async waitForSubmissionSuccess(maxWaitTime = 10000) {
         try {
             console.log('⏳ [StepstoneForm] Waiting for submission success confirmation...');
             console.log(`   Timeout: ${maxWaitTime / 1000} seconds`);
@@ -1086,7 +1086,7 @@ class StepstoneForm {
                     console.log(`   URL changed but not to success page (${elapsed}s): ${currentUrl}`);
                 }
                 
-                await this.wait(500);
+                await this.wait(200); // Faster polling for quicker detection
             }
             
             // Timeout reached
@@ -1314,11 +1314,11 @@ class StepstoneForm {
             // Click submit button (first attempt)
             console.log('📋 Step 3: Clicking submit button (attempt 1)...');
             submitButton.click();
-            await this.wait(2000); // Wait a bit for response
+            await this.wait(500); // Short wait for response
             
             // Step 4: Wait for submission success confirmation
             console.log('📋 Step 4: Waiting for submission confirmation...');
-            const successResult = await this.waitForSubmissionSuccess(60000); // 60 seconds timeout
+            const successResult = await this.waitForSubmissionSuccess(1000); // 60 seconds timeout
             
             if (successResult.success) {
                 // Success confirmed!
@@ -1341,7 +1341,7 @@ class StepstoneForm {
                 });
                 
                 console.log('✅ Completion status set in storage - main tab will close this tab shortly');
-                console.log('   (Main tab polls every 500ms for fast detection)');
+                console.log('   (Main tab polls every 200ms for fast detection)');
                 
                 // No need to wait - the main tab will detect and close the tab quickly via polling
             
@@ -1381,7 +1381,7 @@ class StepstoneForm {
                 // Retry click
                 console.log('📋 Retry: Clicking submit button (attempt 2)...');
                 retrySubmitButton.click();
-                await this.wait(2000);
+                await this.wait(500); // Short wait for response
                 
                 // Wait for success again
                 console.log('📋 Retry: Waiting for submission confirmation...');
@@ -1476,7 +1476,7 @@ class StepstoneForm {
      * @returns {Promise<boolean>} - Whether form appeared
      */
     static async waitForFormToAppear() {
-        const maxWait = 15000; // 15 seconds
+        const maxWait = 10000; // 10 seconds
         const checkInterval = 500;
         let waited = 0;
         

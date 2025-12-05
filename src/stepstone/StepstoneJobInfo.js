@@ -575,7 +575,7 @@ class StepstoneJobInfo {
     static async getJobListingsFromPage() {
         try {
             // Use the exact selector you verified
-            const jobCards = document.querySelectorAll('article[data-testid="job-item"]');
+            const jobCards = document.querySelectorAll('article[data-at="job-item"][class^="res"]');
             
             if (jobCards.length === 0) {
                 console.log('[StepstoneJobInfo] No job cards found on page');

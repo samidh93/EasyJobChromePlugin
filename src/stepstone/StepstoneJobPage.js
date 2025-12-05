@@ -703,8 +703,8 @@ class StepstoneJobPage {
         console.log('[StepstoneJobPage] 🔄 Polling for form completion or stop...');
         console.log(`   Job tab ID: ${jobTabId}, Main tab ID: ${mainTabId}`);
         
-        const maxWaitTime = 180000; // 3 minutes
-        const pollInterval = 500; // Check every 500ms for faster detection
+        const maxWaitTime = 10000; // 10 seconds
+        const pollInterval = 200; // Check every 200ms for faster detection and tab closure
         const startTime = Date.now();
         
         while (true) {

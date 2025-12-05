@@ -23,7 +23,7 @@ class StepstonePlatform extends BasePlatform {
             // Use stable selectors instead of dynamic CSS-in-JS classes
             searchContainer: '.at-facets-header-title', // Stable semantic class
             jobCountElement: '[data-at="search-jobs-count"]', // Stable data attribute
-            jobListings: 'article[data-testid="job-item"]', // Verified working selector
+            jobListings: 'article[data-at="job-item"][class^="res"]', // Verified working selector 
             jobTitle: '[data-testid="job-item-title"]', // Verified working selector
             company: '[data-at="job-item-company-name"]', // Verified working selector
             location: '[data-at="job-item-location"]', // Verified working selector
