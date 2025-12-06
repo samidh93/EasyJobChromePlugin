@@ -7,18 +7,26 @@ class TabManager {
      * Open a URL in a new tab
      * @param {string} url - URL to open
      * @param {boolean} active - Whether to make the new tab active (default: true)
+     * @param {number} windowId - Optional window ID to open the tab in (default: undefined, opens in active window)
      * @returns {Promise<Object>} - Tab object with id and windowId
      */
-    static async openNewTab(url, active = true) {
+    static async openNewTab(url, active = true, windowId = undefined) {
         try {
-            console.log(`[TabManager] Opening new tab: ${url}`);
+            console.log(`[TabManager] Opening new tab: ${url}${windowId !== undefined ? ` in window ${windowId}` : ''}`);
             
             return new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({
+                const message = {
                     action: 'openNewTab',
                     url: url,
                     active: active
-                }, (response) => {
+                };
+                
+                // Only include windowId if it's explicitly provided
+                if (windowId !== undefined) {
+                    message.windowId = windowId;
+                }
+                
+                chrome.runtime.sendMessage(message, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('[TabManager] Error opening tab:', chrome.runtime.lastError);
                         reject(new Error(chrome.runtime.lastError.message));

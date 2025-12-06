@@ -235,18 +235,26 @@ class BackgroundManager {
 
     /**
      * Handle opening a new tab
+     * @param {Object} request - Request object with url, active, and optional windowId
      */
     async handleOpenNewTab(request, sendResponse) {
         try {
-            const { url, active = true } = request;
+            const { url, active = true, windowId } = request;
             
             if (!url) {
                 sendResponse({ success: false, error: 'URL is required' });
                 return;
             }
 
-            const tab = await chrome.tabs.create({ url, active });
-            console.log('New tab created:', tab);
+            // If windowId is provided, open tab in that specific window
+            // Otherwise, open in the currently active window (backward compatibility)
+            const createOptions = { url, active };
+            if (windowId !== undefined) {
+                createOptions.windowId = windowId;
+            }
+
+            const tab = await chrome.tabs.create(createOptions);
+            console.log('New tab created:', tab, 'in window:', tab.windowId);
             sendResponse({ success: true, tab: { id: tab.id, windowId: tab.windowId } });
         } catch (error) {
             console.error('Error opening new tab:', error);

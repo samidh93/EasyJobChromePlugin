@@ -51,10 +51,12 @@ async function handleMultiTabAutoApply(platform) {
     // Get current tab (this is the main search results tab)
     const mainTab = await TabManager.getCurrentTab();
     const mainTabId = mainTab.id;
-    debugLog(`Main search tab ID: ${mainTabId}`);
+    const mainWindowId = mainTab.windowId;
+    debugLog(`Main search tab ID: ${mainTabId}, Window ID: ${mainWindowId}`);
     
-    // Store main tab ID globally for later reference
+    // Store main tab ID and window ID globally for later reference
     window.mainSearchTabId = mainTabId;
+    window.mainSearchWindowId = mainWindowId;
     
     // Start the multi-tab auto-apply process
     await platform.startAutoApply();

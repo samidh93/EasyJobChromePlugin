@@ -140,6 +140,7 @@ class StepstoneJobPage {
     static async processJob(jobElement, isAutoApplyRunning) {
         let jobTab = null;
         const mainTabId = window.mainSearchTabId;
+        const mainWindowId = window.mainSearchWindowId;
         
         try {
             if (await shouldStop(isAutoApplyRunning)) {
@@ -163,9 +164,14 @@ class StepstoneJobPage {
                 return 'skipped';
             }
             
-            // Open job in new tab and switch to it immediately
+            // Open job in new tab in the same window as the main search tab
             console.log('[StepstoneJobPage] Opening job in new tab...');
-            jobTab = await TabManager.openNewTab(jobInfo.url, true); // Open and activate immediately
+            if (mainWindowId !== undefined) {
+                console.log(`[StepstoneJobPage] Opening tab in window ${mainWindowId} (same as main search tab)`);
+            } else {
+                console.warn('[StepstoneJobPage] No windowId available, tab will open in currently active window');
+            }
+            jobTab = await TabManager.openNewTab(jobInfo.url, true, mainWindowId); // Open in same window as main tab
             
             if (!jobTab || !jobTab.id) {
                 console.log('[StepstoneJobPage] Failed to open job tab');
