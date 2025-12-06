@@ -39,18 +39,8 @@ class StepstoneJobPage {
             let skippedJobs = 0;
             let errors = 0;
             
-            console.log(`[StepstoneJobPage] 🧪 TEST MODE: Processing only last job (${jobs.length} of ${jobs.length}) for pagination testing`);
-            sendStatusUpdate(`🧪 TEST MODE: Processing last job of ${jobs.length} for pagination test`, 'info');
-            
-            // Process each job - TEST MODE: Only process the last job
+            // Process each job
             for (const [index, job] of jobs.entries()) {
-                // Skip all jobs except the last one
-                if (index < jobs.length - 1) {
-                    console.log(`[StepstoneJobPage] 🧪 TEST MODE: Skipping job ${index + 1}/${jobs.length}, will only process last job`);
-                    continue; // Skip to next iteration
-                }
-                
-                console.log(`[StepstoneJobPage] 🧪 TEST MODE: Processing LAST job ${index + 1}/${jobs.length}`);
                 
                 if (await shouldStop(isAutoApplyRunning)) {
                     console.log('[StepstoneJobPage] Stop requested during job processing - breaking job loop');
@@ -85,9 +75,10 @@ class StepstoneJobPage {
                             debugLog(`[StepstoneJobPage] Job ${index + 1} returned unknown result: ${jobResult}`);
                     }
                     
-                    // In test mode, we're done after processing the last job, break out
-                    console.log(`[StepstoneJobPage] 🧪 TEST MODE: Finished processing last job, moving to next page`);
-                    break;
+                    // Wait between jobs to avoid rate limiting
+                    if (index < jobs.length - 1) {
+                        await this.wait(2000);
+                    }
                     
                 } catch (error) {
                     console.error(`[StepstoneJobPage] Error processing job ${index + 1}:`, error);
@@ -398,10 +389,12 @@ class StepstoneJobPage {
                     const detailedJobInfo = await StepstoneJobInfo.extractJobInfo();
                     const finalJobInfo = jobInfo ? { ...jobInfo, ...detailedJobInfo } : detailedJobInfo;
                     
+                    // BUG FIX 2: Properly await shouldStop callback (shouldStop is async)
+                    const shouldStopCallback = async () => await shouldStop(isAutoApplyRunning);
                     const applicationResult = await StepstoneForm.handleCompleteApplicationFlow(
                         finalJobInfo,
                         userData,
-                        () => shouldStop(isAutoApplyRunning)
+                        shouldStopCallback
                     );
                     return applicationResult;
                 } else {

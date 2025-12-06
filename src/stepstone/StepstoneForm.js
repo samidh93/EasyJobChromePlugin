@@ -22,6 +22,22 @@ class StepstoneForm {
      */
     static async handleCompleteApplicationFlow(jobInfo, userData, shouldStopCallback = null) {
         try {
+            // BUG FIX 1: Check for external form at entry point (before any processing)
+            // This ensures we detect external forms even when called from job page processing
+            if (this.isExternalForm()) {
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🌐 [StepstoneForm] External form detected at entry point');
+                console.log('   Skipping processing (redirected to non-StepStone domain)');
+                console.log('   URL:', window.location.href);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                return { 
+                    result: 'external_form', 
+                    reason: 'Redirected to external form (not StepStone domain)',
+                    shouldCloseTab: true
+                };
+            }
+            
             // Store the stop callback for use throughout form processing
             this.shouldStopCallback = shouldStopCallback;
             
