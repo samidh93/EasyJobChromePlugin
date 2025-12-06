@@ -1,3 +1,5 @@
+import applicationTracker from './ApplicationTracker.js';
+
 /**
  * StepstoneForm - Handles StepStone application form interactions
  * Manages multi-step form filling, submission, and validation
@@ -1424,6 +1426,54 @@ class StepstoneForm {
                 console.log(`   Application ID: ${successResult.applicationId}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             
+                // Track successful application in database
+                try {
+                    // Get user data from storage (with fallback to window)
+                    const userResult = await chrome.storage.local.get(['currentUser']);
+                    const userData = userResult.currentUser || window.currentUserData;
+                    
+                    if (!userData) {
+                        console.log('⚠️  [StepstoneForm] No user data found - skipping application tracking');
+                        console.log('   Checked: chrome.storage.currentUser and window.currentUserData');
+                    } else {
+                        // Get AI settings from window (like LinkedIn does) with fallback to storage
+                        const aiSettings = window.currentAiSettings || (await chrome.storage.local.get(['currentAiSettings'])).currentAiSettings;
+                        
+                        if (!aiSettings) {
+                            console.log('⚠️  [StepstoneForm] No AI settings found - skipping application tracking');
+                            console.log('   Checked: window.currentAiSettings and chrome.storage.currentAiSettings');
+                        } else {
+                            // Get resume ID from storage
+                            const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                            const resumeId = resumeResult.currentResumeId;
+                            
+                            if (!resumeId) {
+                                console.log('⚠️  [StepstoneForm] No resume ID found - skipping application tracking');
+                                console.log('   Checked: chrome.storage.currentResumeId');
+                            } else {
+                                console.log('📊 [StepstoneForm] Tracking successful application in database...');
+                                console.log(`   User ID: ${userData.id}`);
+                                console.log(`   Resume ID: ${resumeId}`);
+                                console.log(`   AI Provider: ${aiSettings.provider || 'unknown'}`);
+                                console.log(`   Questions/Answers: ${this.collectedQuestionsAnswers?.length || 0}`);
+                                
+                                await applicationTracker.createSuccessfulApplication(
+                                    this.jobInfo,
+                                    userData,
+                                    aiSettings,
+                                    resumeId,
+                                    this.collectedQuestionsAnswers || []
+                                );
+                                console.log(`✅ Application tracked successfully with ${this.collectedQuestionsAnswers?.length || 0} questions/answers`);
+                            }
+                        }
+                    }
+                } catch (trackingError) {
+                    console.error('❌ [StepstoneForm] Error tracking application:', trackingError);
+                    console.error('   Error details:', trackingError.stack);
+                    // Don't fail the submission if tracking fails
+                }
+            
             // Set completion status in storage
                 // This will be picked up by the main tab's pollForFormCompletion() which will close this tab
             await chrome.storage.local.set({
@@ -1490,6 +1540,54 @@ class StepstoneForm {
                     console.log('🎉 APPLICATION SUBMITTED SUCCESSFULLY (on retry)!');
                     console.log(`   Application ID: ${retrySuccessResult.applicationId}`);
                     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                    
+                    // Track successful application in database
+                    try {
+                        // Get user data from storage (with fallback to window)
+                        const userResult = await chrome.storage.local.get(['currentUser']);
+                        const userData = userResult.currentUser || window.currentUserData;
+                        
+                        if (!userData) {
+                            console.log('⚠️  [StepstoneForm] No user data found (retry) - skipping application tracking');
+                            console.log('   Checked: chrome.storage.currentUser and window.currentUserData');
+                        } else {
+                            // Get AI settings from window (like LinkedIn does) with fallback to storage
+                            const aiSettings = window.currentAiSettings || (await chrome.storage.local.get(['currentAiSettings'])).currentAiSettings;
+                            
+                            if (!aiSettings) {
+                                console.log('⚠️  [StepstoneForm] No AI settings found (retry) - skipping application tracking');
+                                console.log('   Checked: window.currentAiSettings and chrome.storage.currentAiSettings');
+                            } else {
+                                // Get resume ID from storage
+                                const resumeResult = await chrome.storage.local.get(['currentResumeId']);
+                                const resumeId = resumeResult.currentResumeId;
+                                
+                                if (!resumeId) {
+                                    console.log('⚠️  [StepstoneForm] No resume ID found (retry) - skipping application tracking');
+                                    console.log('   Checked: chrome.storage.currentResumeId');
+                                } else {
+                                    console.log('📊 [StepstoneForm] Tracking successful application in database (retry)...');
+                                    console.log(`   User ID: ${userData.id}`);
+                                    console.log(`   Resume ID: ${resumeId}`);
+                                    console.log(`   AI Provider: ${aiSettings.provider || 'unknown'}`);
+                                    console.log(`   Questions/Answers: ${this.collectedQuestionsAnswers?.length || 0}`);
+                                    
+                                    await applicationTracker.createSuccessfulApplication(
+                                        this.jobInfo,
+                                        userData,
+                                        aiSettings,
+                                        resumeId,
+                                        this.collectedQuestionsAnswers || []
+                                    );
+                                    console.log(`✅ Application tracked successfully with ${this.collectedQuestionsAnswers?.length || 0} questions/answers`);
+                                }
+                            }
+                        }
+                    } catch (trackingError) {
+                        console.error('❌ [StepstoneForm] Error tracking application (retry):', trackingError);
+                        console.error('   Error details:', trackingError.stack);
+                        // Don't fail the submission if tracking fails
+                    }
                     
                     await chrome.storage.local.set({
                         'stepstoneFormStatus': {
